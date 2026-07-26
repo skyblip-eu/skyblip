@@ -19,9 +19,11 @@ class ZephyrKvStore : public hal::KvStore {
    public:
     // Mount NVS on the DT-defined `storage_partition`. Returns Ok on success.
     Status begin() {
-        fs_.flash_device = FIXED_PARTITION_DEVICE(storage_partition);
+        // FIXED_PARTITION_* are __DEPRECATED_MACRO aliases in Zephyr 4.4; the
+        // PARTITION_* spellings are the same macros under the intended names.
+        fs_.flash_device = PARTITION_DEVICE(storage_partition);
         if (!device_is_ready(fs_.flash_device)) return Status::Down;
-        fs_.offset = FIXED_PARTITION_OFFSET(storage_partition);
+        fs_.offset = PARTITION_OFFSET(storage_partition);
         struct flash_pages_info info;
         if (flash_get_page_info_by_offs(fs_.flash_device, fs_.offset, &info) != 0)
             return Status::Down;
