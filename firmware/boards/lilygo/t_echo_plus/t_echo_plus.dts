@@ -156,8 +156,14 @@
 	pinctrl-names = "default", "sleep";
 };
 
-/* USB CDC ACM = console/log + (later) MCUmgr DFU transport. */
-&usbd {
+/* USB CDC ACM = console/log + (later) MCUmgr DFU transport.
+ *
+ * The `zephyr_udc0` label is REQUIRED, not decoration: the USB device next
+ * stack's CDC ACM serial helper does USBD_DEVICE_DEFINE(..., 
+ * DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)), ...), so without this label the
+ * console does not build. Same idiom as the upstream nRF52840 board files.
+ */
+zephyr_udc0: &usbd {
 	status = "okay";
 	cdc_acm_uart0: cdc_acm_uart0 {
 		compatible = "zephyr,cdc-acm-uart";
