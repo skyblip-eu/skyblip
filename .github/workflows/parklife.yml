@@ -13,7 +13,9 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # arm64 runners: cheaper per-minute and native aarch64 gem installs.
+    # 26.04 is public preview - pin back to ubuntu-24.04-arm if the image churns.
+    runs-on: ubuntu-26.04-arm
     steps:
     - uses: actions/checkout@v7
     - uses: ruby/setup-ruby@v1
@@ -36,7 +38,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-arm
     needs: build
     if: github.ref == 'refs/heads/main' # Only deploy on main branch.
     concurrency:
