@@ -1,5 +1,6 @@
 #include <cstdlib>  // std::abs
 #include <cstring>
+#include <string>
 
 #include "core/util/fifo.h"
 #include "core/util/format.h"

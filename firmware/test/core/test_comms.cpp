@@ -2,6 +2,7 @@
 // messages, NO device (3-ARCHITECTURE §6/§8). Covers get, set-with-confirmation,
 // the in-flight lockout (fail closed), backpressure and DFU routing.
 #include <cstring>
+#include <string>
 
 #include "core/comms/config.h"
 #include "devices/host/fake_link.h"

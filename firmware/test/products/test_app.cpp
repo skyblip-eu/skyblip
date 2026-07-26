@@ -2,6 +2,8 @@
 // the real composition root (App) links and runs against fakes, with ZERO
 // framework code. If App ever leaks a framework (Zephyr) include, this stops
 // compiling — which is exactly the guard the invariant was supposed to have.
+#include <string>
+
 #include "devices/host/fake_clock.h"
 #include "devices/host/fake_display.h"
 #include "devices/host/fake_link.h"

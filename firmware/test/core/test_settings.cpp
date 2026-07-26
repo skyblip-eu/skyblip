@@ -1,4 +1,5 @@
 #include <cstring>
+#include <string>
 
 #include "core/settings/settings.h"
 #include "core/util/json_min.h"
