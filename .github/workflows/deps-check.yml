@@ -1,0 +1,75 @@
+# Freshness check for the C++ dependencies Dependabot cannot see.
+#
+# Dependabot has no general C/C++ ecosystem: it covers `vcpkg` (needs a vcpkg.json
+# this build never consumes) and `git_submodules` (would mean un-vendoring
+# doctest, losing the local patches). Our two real C++ dependencies are a
+# vendored single header and a west manifest, so neither applies - and the west
+# manifest is the one that matters most, since it pins Zephyr and every module.
+#
+# So: compare what we pin against upstream once a week and keep ONE open issue
+# saying so. A Zephyr minor bump is a deliberate, tested migration, not something
+# to merge automatically - this reports, it does not update.
+name: deps freshness
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: pinned vs upstream
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: compare pinned versions against upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Anchored to ^#define: the macro names appear again inside
+          # DOCTEST_VERSION_STR and the numeric DOCTEST_VERSION, which would
+          # otherwise win and report 10000.10000.10000.
+          have_doctest=$(awk '/^#define DOCTEST_VERSION_MAJOR /{a=$3}
+                              /^#define DOCTEST_VERSION_MINOR /{b=$3}
+                              /^#define DOCTEST_VERSION_PATCH /{c=$3}
+                              END{print a"."b"."c}' firmware/vendor/doctest/doctest.h)
+          have_zephyr=$(awk '/name: zephyr$/{f=1} f&&/revision:/{sub(/^v/,"",$2); print $2; exit}' \
+                            firmware/west.yml)
+
+          want_doctest=$(gh api /repos/doctest/doctest/releases/latest --jq .tag_name | sed 's/^v//')
+          want_zephyr=$(gh api /repos/zephyrproject-rtos/zephyr/releases/latest --jq .tag_name | sed 's/^v//')
+
+          echo "doctest: have $have_doctest, upstream $want_doctest"
+          echo "zephyr:  have $have_zephyr, upstream $want_zephyr"
+
+          body=""
+          [ "$have_doctest" != "$want_doctest" ] && body="${body}
+          - **doctest** \`$have_doctest\` -> \`$want_doctest\` — vendored single header at
+            \`firmware/vendor/doctest/doctest.h\`. Re-apply the four comment patches recorded in
+            \`firmware/vendor/doctest/LOCAL-CHANGES.md\`, or drop the vendored copy and fetch it
+            at configure time."
+          [ "$have_zephyr" != "$want_zephyr" ] && body="${body}
+          - **Zephyr** \`$have_zephyr\` -> \`$want_zephyr\` — pinned in \`firmware/west.yml\`. A minor
+            bump moves every module with it (hal_nordic, mbedtls, MCUboot), so treat it as a
+            migration: build, check the flash budget, and exercise the device before merging."
+
+          if [ -z "$body" ]; then
+            echo "everything current; nothing to report"
+            exit 0
+          fi
+
+          title="deps: upstream versions available for the vendored C++ dependencies"
+          existing=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still behind as of $(date -u +%Y-%m-%d):${body}"
+          else
+            gh issue create --title "$title" \
+              --body "Dependabot cannot see either of these (no C/C++ ecosystem fits how they are vendored), so this is checked weekly by \`.github/workflows/deps-check.yml\`.${body}"
+          fi
