@@ -1,3 +1,4 @@
+#include <cstdlib>  // std::abs
 #include <cstring>
 #include <string>
 
