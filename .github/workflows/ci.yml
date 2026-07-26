@@ -58,9 +58,11 @@ jobs:
           west build -b t_echo_plus . --sysbuild \
             -- -DBOARD_ROOT=$(pwd)
 
+      # scripts/ is at the repo root, but the .elf is under firmware/build, so this
+      # step runs from firmware/ and reaches back up for the script.
       - name: flash-size budget
         working-directory: firmware
-        run: python3 scripts/size_check.py build/skyblip_go/zephyr/zephyr.elf 512000
+        run: python3 ../scripts/size_check.py build/skyblip_go/zephyr/zephyr.elf 512000
 
       - name: upload firmware artifacts
         uses: actions/upload-artifact@v4
