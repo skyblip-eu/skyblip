@@ -55,8 +55,27 @@ void AdslPacket::set_track_c9(uint16_t w) {
     Position[10] = static_cast<uint8_t>(w >> 1);
 }
 
-void AdslPacket::scramble() { fec::xxtea_scramble_key0(Word, 5, 6); }
-void AdslPacket::descramble() { fec::xxtea_descramble_key0(Word, 5, 6); }
+// XXTEA works on 32-bit words, but this struct is packed, so it has an alignment
+// requirement of 1 and an instance can legally sit at an odd address. Handing
+// &Word[0] to the scrambler would then be a misaligned uint32_t* - undefined
+// behaviour, and on Cortex-M a real fault the moment the optimiser reaches for
+// LDM/STM, which require word alignment. It would fault in the RX path, in the
+// air, depending on where the packet happened to land on the stack. So copy
+// through an aligned local instead: 40 bytes of stack and two 20-byte copies per
+// packet, against a few frames per second. GCC catches this as
+// -Waddress-of-packed-member; clang does not, so do not rely on the compiler.
+void AdslPacket::scramble() {
+    uint32_t w[5];
+    __builtin_memcpy(w, Byte, sizeof(w));
+    fec::xxtea_scramble_key0(w, 5, 6);
+    __builtin_memcpy(Byte, w, sizeof(w));
+}
+void AdslPacket::descramble() {
+    uint32_t w[5];
+    __builtin_memcpy(w, Byte, sizeof(w));
+    fec::xxtea_descramble_key0(w, 5, 6);
+    __builtin_memcpy(Byte, w, sizeof(w));
+}
 
 void AdslPacket::set_crc() {
     uint32_t w = fec::adsl_pi_calc(reinterpret_cast<const uint8_t*>(&Version), kCrcCoverBytes);
