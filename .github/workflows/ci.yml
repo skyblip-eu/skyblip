@@ -13,7 +13,7 @@ jobs:
     name: host unit tests (doctest)
     runs-on: ubuntu-26.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: build & run host tests
         working-directory: firmware
         run: make test
@@ -24,7 +24,7 @@ jobs:
     name: clang-format
     runs-on: ubuntu-26.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # PINNED. `apt-get install clang-format` is whatever the runner image ships
       # (18 today) and the versions disagree: 18 mangles `struct spi_buf b{x, y}`
       # brace-init into a multi-line block. An unpinned formatter is a gate that
@@ -52,12 +52,17 @@ jobs:
       # level. The old `path: skyblip` nested it one level deeper than app-path
       # claimed, and `west init -l` then found no manifest to build a workspace
       # from: "no west workspace found".
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Installs west, fetches Zephyr + modules per firmware/west.yml, and
       # provisions the arm-zephyr-eabi SDK (modern GCC → C++20).
       - name: set up Zephyr
-        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        # THIRD-PARTY, and it downloads and runs the toolchain that compiles this
+        # firmware - so it is pinned to a commit, not to the mutable `v1` tag
+        # (which moved on 2026-07-24). A compromised tag here would mean a
+        # compromised compiler, silently, on a safety-critical image. GitHub-owned
+        # actions above stay on major tags; anything else gets a SHA.
+        uses: zephyrproject-rtos/action-zephyr-setup@be8136a8bba01580485d98b7ad2d32477c36a49a  # v1 @ 2026-07-24
         with:
           app-path: firmware
           manifest-file-name: west.yml
@@ -76,7 +81,7 @@ jobs:
         run: python3 ../scripts/size_check.py build/firmware/zephyr/zephyr.elf 512000
 
       - name: upload firmware artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: t_echo_plus-firmware
           path: |
