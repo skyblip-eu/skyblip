@@ -4,6 +4,7 @@
 #define SKYBLIP_DEVICES_SOC_ZEPHYR_ZEPHYR_KVSTORE_H
 #if defined(__ZEPHYR__)
 
+#include <zephyr/drivers/flash.h>  // flash_pages_info, flash_get_page_info_by_offs
 #include <zephyr/fs/nvs.h>
 #include <zephyr/storage/flash_map.h>
 

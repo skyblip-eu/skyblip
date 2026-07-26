@@ -2,6 +2,7 @@
 // tests (roadmap 2.1, 3-ARCHITECTURE §3 "test a radio protocol with zero RF").
 // The RF channel is reduced to an injectable BER; we distinguish *detected
 // failure* from *silent miscorrection* (the real anti-collision danger).
+#include <cstdlib>  // std::abs - libc++ pulls it in transitively, libstdc++ does not
 #include <cstring>
 
 #include "core/protocol/adsl.h"
