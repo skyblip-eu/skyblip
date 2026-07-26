@@ -5,7 +5,10 @@
 #if defined(__ZEPHYR__)
 
 #include <zephyr/drivers/flash.h>  // flash_pages_info, flash_get_page_info_by_offs
-#include <zephyr/fs/nvs.h>
+// NVS moved to the KVSS subsystem in Zephyr 4.4; zephyr/fs/nvs.h is now a
+// deprecated shim that warns. The API is identical - same nvs_fs, same nvs_mount
+// / nvs_read / nvs_write / nvs_delete - so this is a relocation, not a redesign.
+#include <zephyr/kvss/nvs.h>
 #include <zephyr/storage/flash_map.h>
 
 #include "hal/kvstore.h"
