@@ -1,0 +1,191 @@
+/dts-v1/;
+#include <nordic/nrf52840_qiaa.dtsi>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/*
+ * LilyGO T-Echo (Plus) — nRF52840 + SX1262 + SSD1681 1.54" e-paper + L76K GPS.
+ *
+ * Pins are taken from the Meshtastic `t-echo-plus` variant (the Plus-specific
+ * reference), cross-checked against published T-Echo pin maps and
+ * devices/boards/techo/pins.h. Radio SPI (SCK P0.19 / MOSI P0.22 / MISO P0.23),
+ * e-paper, GNSS UART, and the Plus buzzer (P0.06) / vibro-DRV_EN (P0.08) are all
+ * confirmed. NOTE: the SX1262 TCXO is on DIO3 @ 1.8 V and DIO2 is the RF switch
+ * — configured by the driver (sx1262.cpp begin()), not here.
+ *
+ * Peripheral-instance choice avoids nRF52840 EasyDMA base conflicts:
+ *   radio  -> SPIM3 (dedicated, high-speed)
+ *   e-paper-> SPIM2
+ *   GNSS   -> UARTE0
+ *   console-> USB CDC ACM (T-Echo has no dedicated debug UART; it uses USB)
+ *
+ * Power note: IO_PWR (P0.12) and 3V3_PWR (P0.13) gate the radio + e-paper. They
+ * are asserted in software at boot (products/skyblip/main.cpp::power_up_rails).
+ */
+
+/ {
+	model = "LilyGO T-Echo Plus";
+	compatible = "lilygo,t-echo-plus";
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
+	};
+
+	aliases {
+		radio-spi = &spi3;
+		epd-spi = &spi2;
+		gnss-uart = &uart0;
+		buzzer = &buzzer_pwm;
+		watchdog0 = &wdt0;
+	};
+
+	pwmleds {
+		compatible = "pwm-leds";
+		buzzer_pwm: buzzer_pwm {
+			pwms = <&pwm0 0 PWM_HZ(2000) PWM_POLARITY_NORMAL>;
+		};
+	};
+};
+
+&pinctrl {
+	/* Radio SPI (SX1262): SCK P0.19, MOSI P0.22, MISO P0.23. Confirmed. */
+	spi3_default: spi3_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 19)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 22)>,
+				<NRF_PSEL(SPIM_MISO, 0, 23)>;
+		};
+	};
+	spi3_sleep: spi3_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 19)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 22)>,
+				<NRF_PSEL(SPIM_MISO, 0, 23)>;
+			low-power-enable;
+		};
+	};
+
+	/* E-paper SPI (SSD1681): SCK P0.31, MOSI P0.29, MISO P1.07. Confirmed. */
+	spi2_default: spi2_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 31)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 29)>,
+				<NRF_PSEL(SPIM_MISO, 1, 7)>;
+		};
+	};
+	spi2_sleep: spi2_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 31)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 29)>,
+				<NRF_PSEL(SPIM_MISO, 1, 7)>;
+			low-power-enable;
+		};
+	};
+
+	/* GNSS UART (L76K): nRF TX P1.08 -> GPS RX, nRF RX P1.09 <- GPS TX. Confirmed. */
+	uart0_default: uart0_default {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 8)>;
+		};
+		group2 {
+			psels = <NRF_PSEL(UART_RX, 1, 9)>;
+			bias-pull-up;
+		};
+	};
+	uart0_sleep: uart0_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 8)>, <NRF_PSEL(UART_RX, 1, 9)>;
+			low-power-enable;
+		};
+	};
+
+	/* Buzzer PWM on P0.06 (Meshtastic t-echo-plus PIN_BUZZER). Plus-only. */
+	pwm0_default: pwm0_default {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 6)>;
+		};
+	};
+	pwm0_sleep: pwm0_sleep {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 6)>;
+			low-power-enable;
+		};
+	};
+};
+
+&gpio0 { status = "okay"; };
+&gpio1 { status = "okay"; };
+&gpiote { status = "okay"; };
+
+&pwm0 {
+	status = "okay";
+	pinctrl-0 = <&pwm0_default>;
+	pinctrl-1 = <&pwm0_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+&spi3 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	pinctrl-0 = <&spi3_default>;
+	pinctrl-1 = <&spi3_sleep>;
+	pinctrl-names = "default", "sleep";
+	/* CS driven manually by the SX1262 driver (io::Spi::select) on P0.24. */
+	cs-gpios = <&gpio0 24 GPIO_ACTIVE_LOW>;
+};
+
+&spi2 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	pinctrl-0 = <&spi2_default>;
+	pinctrl-1 = <&spi2_sleep>;
+	pinctrl-names = "default", "sleep";
+	/* CS driven manually by the SSD1681 driver on P0.30. */
+	cs-gpios = <&gpio0 30 GPIO_ACTIVE_LOW>;
+};
+
+&uart0 {
+	compatible = "nordic,nrf-uarte";
+	status = "okay";
+	current-speed = <9600>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-1 = <&uart0_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+/* USB CDC ACM = console/log + (later) MCUmgr DFU transport. */
+&usbd {
+	status = "okay";
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+/* nRF52840 1 MB flash: MCUboot + A/B image slots + NVS settings storage. */
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 0x0000C000>;
+		};
+		slot0_partition: partition@c000 {
+			label = "image-0";
+			reg = <0x0000C000 0x00076000>;
+		};
+		slot1_partition: partition@82000 {
+			label = "image-1";
+			reg = <0x00082000 0x00076000>;
+		};
+		storage_partition: partition@f8000 {
+			label = "storage";
+			reg = <0x000F8000 0x00008000>;
+		};
+	};
+};

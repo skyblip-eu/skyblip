@@ -1,0 +1,6 @@
+board:
+  name: t_echo_plus
+  full_name: LilyGO T-Echo Plus (skyBlip Go)
+  vendor: lilygo
+  socs:
+    - name: nrf52840

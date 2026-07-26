@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    name: host unit tests (doctest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build & run host tests
+        working-directory: firmware
+        run: make test
+      - name: test-coverage structural gate
+        run: python3 scripts/check_test_coverage.py
+
+  lint:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # PINNED. `apt-get install clang-format` is whatever the runner image ships
+      # (18 today) and the versions disagree: 18 mangles `struct spi_buf b{x, y}`
+      # brace-init into a multi-line block. An unpinned formatter is a gate that
+      # changes its mind on an image bump, so take the version from PyPI.
+      - name: install clang-format
+        run: pipx install clang-format==21.1.8
+      - name: check formatting
+        run: |
+          find firmware/core firmware/ui firmware/hal firmware/devices \
+               firmware/products firmware/test \
+            -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
+
+  device-build:
+    name: zephyr firmware build (t_echo_plus)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: skyblip
+
+      # Installs west, fetches Zephyr + modules per firmware/west.yml, and
+      # provisions the arm-zephyr-eabi SDK (modern GCC → C++20).
+      - name: set up Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: skyblip/firmware
+          manifest-file-name: west.yml
+          toolchains: arm-zephyr-eabi
+
+      - name: west build (sysbuild → MCUboot + app)
+        working-directory: skyblip/firmware
+        run: |
+          west build -b t_echo_plus . --sysbuild \
+            -- -DBOARD_ROOT=$(pwd)
+
+      - name: flash-size budget
+        working-directory: skyblip/firmware
+        run: python3 scripts/size_check.py build/skyblip_go/zephyr/zephyr.elf 512000
+
+      - name: upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: t_echo_plus-firmware
+          path: |
+            skyblip/firmware/build/skyblip_go/zephyr/zephyr.hex
+            skyblip/firmware/build/skyblip_go/zephyr/zephyr.bin
+            skyblip/firmware/build/**/zephyr.signed.bin
+            skyblip/firmware/build/**/merged.hex
+          if-no-files-found: warn

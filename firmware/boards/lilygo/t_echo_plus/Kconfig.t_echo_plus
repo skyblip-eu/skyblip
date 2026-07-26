@@ -1,0 +1,3 @@
+config BOARD_T_ECHO_PLUS
+	select SOC_NRF52840_QIAA
+	select SOC_NRF52840

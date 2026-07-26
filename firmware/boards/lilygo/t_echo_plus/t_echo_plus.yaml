@@ -1,0 +1,17 @@
+identifier: t_echo_plus
+name: LilyGO T-Echo Plus (skyBlip Go)
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 256
+flash: 1024
+supported:
+  - gpio
+  - spi
+  - uart
+  - pwm
+  - bluetooth
+  - flash
+vendor: lilygo

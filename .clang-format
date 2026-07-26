@@ -1,0 +1,43 @@
+# skyBlip firmware formatting. Self-contained ON PURPOSE: there is no
+# BasedOnStyle line, so nothing here inherits a third party's house style and the
+# repo cites no one. Every option that matters is stated below, which also means
+# a new clang-format release cannot silently redefine our style by changing a
+# preset. CI pins the formatter version for the same reason.
+#
+# The rules follow the code as it is actually written: 4-space indent, 100
+# columns, dense one-liners for accessors and `case X: return N;` dispatch
+# tables, and 2 spaces before a trailing comment (~89 of them carry the
+# reasoning for a constant, so they are load-bearing, not decoration).
+IndentWidth: 4
+ColumnLimit: 100
+AccessModifierOffset: -1
+AlignEscapedNewlines: Left
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AlwaysBreakBeforeMultilineStrings: true
+BreakTemplateDeclarations: Yes
+DerivePointerAlignment: false
+FixNamespaceComments: false
+IncludeBlocks: Regroup
+IncludeIsMainRegex: '([-_](test|unittest))?$'
+IndentCaseLabels: true
+PackConstructorInitializers: NextLine
+PenaltyBreakBeforeFirstCallParameter: 1
+PenaltyReturnTypeOnItsOwnLine: 200
+PointerAlignment: Left
+SortIncludes: CaseInsensitive
+SpacesBeforeTrailingComments: 2
+
+# Include order: system headers with .h first, then other system headers, then
+# our own quoted headers last.
+IncludeCategories:
+  - Regex: '^<ext/.*\.h>'
+    Priority: 2
+  - Regex: '^<.*\.h>'
+    Priority: 1
+  - Regex: '^<.*'
+    Priority: 2
+  - Regex: '.*'
+    Priority: 3
