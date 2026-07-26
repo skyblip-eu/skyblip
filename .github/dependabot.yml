@@ -1,13 +1,18 @@
-# Pinning actions only helps if something tells you when the pin is stale.
-# Dependabot updates SHA pins in place and rewrites the trailing version comment,
-# so the Zephyr setup action stays pinned AND stays current, as a reviewable PR
-# rather than a silent change under a mutable tag.
+# Pinning actions only helps if something tells you when a pin is stale.
+# Dependabot rewrites SHA pins and their trailing version comments, so the Zephyr
+# setup action stays pinned AND current, as a reviewable PR rather than a silent
+# change under a mutable tag. github-actions is the only ecosystem here: Zephyr
+# modules come from west.yml, which Dependabot does not read, and the scripts are
+# stdlib-only Python.
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    directory: "/"
     schedule:
-      interval: monthly
+      interval: weekly
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps(actions)"
     groups:
       actions:
         patterns: ["*"]
