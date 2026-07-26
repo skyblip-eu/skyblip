@@ -6,6 +6,10 @@ on:
 
 jobs:
   host-tests:
+    # arm64 ON PURPOSE: closer to the Cortex-M target than x86_64 is. Plain `char`
+    # is unsigned on ARM and signed on x86, and unaligned access is less
+    # forgiving - so the host suite now runs with the target's signedness rather
+    # than one that hides a whole class of parser bug until it reaches hardware.
     name: host unit tests (doctest)
     runs-on: ubuntu-26.04-arm
     steps:
@@ -34,8 +38,15 @@ jobs:
             -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
   device-build:
+    # x86_64 ON PURPOSE, unlike the other two jobs. This is a CROSS build:
+    # arm-zephyr-eabi-gcc emits the same bytes for the nRF52840 whichever
+    # architecture the host is, so an arm64 runner buys nothing here. It costs
+    # something though - on ubuntu-26.04-arm the Zephyr SDK fails to register
+    # its CMake package and FindZephyr-sdk.cmake:57 dies on an empty variable
+    # (`( zephyr STREQUAL )`). Keep the firmware image built by the combination
+    # that is known to work.
     name: zephyr firmware build (t_echo_plus)
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04
     steps:
       # No `path:` - the repo root IS the app root, so firmware/ is at the top
       # level. The old `path: skyblip` nested it one level deeper than app-path
