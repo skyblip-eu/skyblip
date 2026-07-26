@@ -37,27 +37,29 @@ jobs:
     name: zephyr firmware build (t_echo_plus)
     runs-on: ubuntu-latest
     steps:
+      # No `path:` - the repo root IS the app root, so firmware/ is at the top
+      # level. The old `path: skyblip` nested it one level deeper than app-path
+      # claimed, and `west init -l` then found no manifest to build a workspace
+      # from: "no west workspace found".
       - uses: actions/checkout@v4
-        with:
-          path: skyblip
 
       # Installs west, fetches Zephyr + modules per firmware/west.yml, and
       # provisions the arm-zephyr-eabi SDK (modern GCC → C++20).
       - name: set up Zephyr
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          app-path: skyblip/firmware
+          app-path: firmware
           manifest-file-name: west.yml
           toolchains: arm-zephyr-eabi
 
       - name: west build (sysbuild → MCUboot + app)
-        working-directory: skyblip/firmware
+        working-directory: firmware
         run: |
           west build -b t_echo_plus . --sysbuild \
             -- -DBOARD_ROOT=$(pwd)
 
       - name: flash-size budget
-        working-directory: skyblip/firmware
+        working-directory: firmware
         run: python3 scripts/size_check.py build/skyblip_go/zephyr/zephyr.elf 512000
 
       - name: upload firmware artifacts
@@ -65,8 +67,8 @@ jobs:
         with:
           name: t_echo_plus-firmware
           path: |
-            skyblip/firmware/build/skyblip_go/zephyr/zephyr.hex
-            skyblip/firmware/build/skyblip_go/zephyr/zephyr.bin
-            skyblip/firmware/build/**/zephyr.signed.bin
-            skyblip/firmware/build/**/merged.hex
+            firmware/build/skyblip_go/zephyr/zephyr.hex
+            firmware/build/skyblip_go/zephyr/zephyr.bin
+            firmware/build/**/zephyr.signed.bin
+            firmware/build/**/merged.hex
           if-no-files-found: warn
