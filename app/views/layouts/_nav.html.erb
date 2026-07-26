@@ -2,9 +2,10 @@
   <% brand = capture do %><span class="wordmark wordmark-nav"><span class="quiet">sky</span><span class="loud">Bl<span class="glyph">&#305;<svg class="overlay overlay-blip" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="34" r="5.5" fill="#FF4F1F"/><path d="M10 25 A14 14 0 0 1 30 25" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".65"/><path d="M4 15 A22 22 0 0 1 36 15" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".3"/></svg></span>p</span></span><% end %>
   <%= link_to_page "index", label: brand, class: "site-nav-brand" %>
   <div class="site-nav-links">
-    <%= link_to_page "devices", label: t("nav.devices"), class: "cta" %>
-    <%= link_to_page "safety", label: t("nav.safety"), class: "cta" %>
-    <%= link_to_page "vision", label: t("nav.vision"), class: "cta" %>
+    <%= link_to_page "see-and-avoid", label_type: :nav, class: "cta" %>
+    <%= link_to_page "devices", label_type: :nav, class: "cta" %>
+    <%= link_to_page "safety", label_type: :nav, class: "cta" %>
+    <%= link_to_page "vision", label_type: :nav, class: "cta" %>
   </div>
   <%= render "layouts/locale_switcher" %>
 </nav>

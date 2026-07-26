@@ -3,6 +3,7 @@ Page = Decant.define(dir: "content/pages", ext: "html.erb") do
 
   frontmatter :title
   frontmatter :description
+  frontmatter :nav_title
 
   def self.find(slug, locale: I18n.locale)
     locale = locale.to_sym
@@ -13,5 +14,9 @@ Page = Decant.define(dir: "content/pages", ext: "html.erb") do
 
   def to_param
     frontmatter&.dig(:slug)&.to_s.presence || base_slug
+  end
+
+  def nav_label
+    nav_title.presence || title
   end
 end
