@@ -16,12 +16,20 @@ def main():
     if len(sys.argv) < 2:
         print("usage: size_check.py <firmware.elf> [budget_bytes]")
         return 2
+    import os
     elf = sys.argv[1]
     budget = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_BUDGET
     # Prefer the Zephyr SDK toolchain; fall back to the generic ARM/host size.
-    import os
+    # The host `size` may not be able to read an arm-zephyr-eabi ELF at all, so
+    # the SDK's own tool is the one that should be found first.
     candidates = [os.environ.get("SIZE"), "arm-zephyr-eabi-size",
                   "arm-none-eabi-size", "size"]
+    if not os.path.isfile(elf):
+        # Say which file is missing. Falling through to `size` here produced a
+        # 12-line CalledProcessError traceback that read like a broken script
+        # rather than "the build did not put the .elf where CI looked".
+        print(f"ERROR: no such ELF: {elf}")
+        return 1
     out = None
     for size_tool in [c for c in candidates if c]:
         try:
@@ -29,6 +37,9 @@ def main():
             break
         except FileNotFoundError:
             continue
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR: {size_tool} failed on {elf}: {e}")
+            return 1
     if out is None:
         print("WARN: no *-size tool found; skipping size check")
         return 0

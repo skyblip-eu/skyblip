@@ -7,7 +7,7 @@ on:
 jobs:
   host-tests:
     name: host unit tests (doctest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v4
       - name: build & run host tests
@@ -18,7 +18,7 @@ jobs:
 
   lint:
     name: clang-format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v4
       # PINNED. `apt-get install clang-format` is whatever the runner image ships
@@ -35,7 +35,7 @@ jobs:
 
   device-build:
     name: zephyr firmware build (t_echo_plus)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-arm
     steps:
       # No `path:` - the repo root IS the app root, so firmware/ is at the top
       # level. The old `path: skyblip` nested it one level deeper than app-path
@@ -62,15 +62,15 @@ jobs:
       # step runs from firmware/ and reaches back up for the script.
       - name: flash-size budget
         working-directory: firmware
-        run: python3 ../scripts/size_check.py build/skyblip_go/zephyr/zephyr.elf 512000
+        run: python3 ../scripts/size_check.py build/firmware/zephyr/zephyr.elf 512000
 
       - name: upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: t_echo_plus-firmware
           path: |
-            firmware/build/skyblip_go/zephyr/zephyr.hex
-            firmware/build/skyblip_go/zephyr/zephyr.bin
+            firmware/build/firmware/zephyr/zephyr.hex
+            firmware/build/firmware/zephyr/zephyr.bin
             firmware/build/**/zephyr.signed.bin
             firmware/build/**/merged.hex
           if-no-files-found: warn
