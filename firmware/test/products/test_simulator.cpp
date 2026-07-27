@@ -1,4 +1,4 @@
-// test/products/test_sim.cpp — end-to-end tests through the device simulator.
+// test/products/test_simulator.cpp — end-to-end tests through the simulator.
 // These are the strongest tests in the suite: simulated GNSS emits real NMEA
 // that the production parser decodes, and virtual aircraft are encoded as real
 // ADS-L frames that the production receive path (CRC → descramble → to_obs)
@@ -6,19 +6,19 @@
 #include <cstdlib>
 
 #include "doctest/doctest.h"
-#include "products/sim/harness.h"
+#include "products/skyblip_go/simulator/t_echo_plus.h"
 
 using namespace skyblip;
 
 namespace {
-// Run the harness forward from `from` to `to` ms in 50 ms slices.
-void run(sim::SimHarness& h, uint32_t from, uint32_t to) {
+// Run the virtual board forward from `from` to `to` ms in 50 ms slices.
+void run(simulator::TEchoPlus& h, uint32_t from, uint32_t to) {
     for (uint32_t t = from; t <= to; t += 50) h.step(t);
 }
 }  // namespace
 
 TEST_CASE("sim: simulated GNSS drives own-ship state via the real NMEA parser") {
-    sim::SimHarness h;
+    simulator::TEchoPlus h;
     REQUIRE(h.setup() == Status::Ok);
     h.set_fix(true);
     h.set_sats(11);
@@ -41,7 +41,7 @@ TEST_CASE("sim: simulated GNSS drives own-ship state via the real NMEA parser") 
 }
 
 TEST_CASE("sim: losing the fix clears own-ship validity (fail closed)") {
-    sim::SimHarness h;
+    simulator::TEchoPlus h;
     REQUIRE(h.setup() == Status::Ok);
     run(h, 0, 2000);
     REQUIRE(h.own().fix_valid);
@@ -52,7 +52,7 @@ TEST_CASE("sim: losing the fix clears own-ship validity (fail closed)") {
 }
 
 TEST_CASE("sim: a virtual aircraft arrives as a real ADS-L frame and enters traffic") {
-    sim::SimHarness h;
+    simulator::TEchoPlus h;
     REQUIRE(h.setup() == Status::Ok);
     run(h, 0, 2000);
     REQUIRE(h.own().fix_valid);
@@ -67,7 +67,7 @@ TEST_CASE("sim: a virtual aircraft arrives as a real ADS-L frame and enters traf
 }
 
 TEST_CASE("sim: a converging aircraft raises the collision alarm and buzzer") {
-    sim::SimHarness h;
+    simulator::TEchoPlus h;
     REQUIRE(h.setup() == Status::Ok);
     run(h, 0, 2000);
     REQUIRE(h.own().fix_valid);
@@ -81,7 +81,7 @@ TEST_CASE("sim: a converging aircraft raises the collision alarm and buzzer") {
 }
 
 TEST_CASE("sim: clearing traffic empties the table and silences the alarm") {
-    sim::SimHarness h;
+    simulator::TEchoPlus h;
     REQUIRE(h.setup() == Status::Ok);
     run(h, 0, 2000);
     h.add_threat();
@@ -95,12 +95,12 @@ TEST_CASE("sim: clearing traffic empties the table and silences the alarm") {
 }
 
 TEST_CASE("sim: every page renders ink to the panel") {
-    sim::SimHarness h;
+    simulator::TEchoPlus h;
     REQUIRE(h.setup() == Status::Ok);
     h.add_aircraft(1500, 500, 50);
     run(h, 0, 2500);
 
-    for (int i = 0; i < static_cast<int>(product::Page::kCount); i++) {
+    for (int i = 0; i < static_cast<int>(go::Page::kCount); i++) {
         run(h, 2500 + static_cast<uint32_t>(i) * 1500, 3500 + static_cast<uint32_t>(i) * 1500);
         CHECK(h.framebuffer().count_black() > 20);  // something was drawn
         h.button();

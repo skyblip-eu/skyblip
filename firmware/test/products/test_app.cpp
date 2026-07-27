@@ -8,7 +8,7 @@
 #include "devices/models/link.h"
 #include "devices/models/sx1262.h"
 #include "doctest/doctest.h"
-#include "products/skyblip/app.h"
+#include "products/skyblip_go/app.h"
 
 using namespace skyblip;
 
@@ -21,8 +21,8 @@ struct Rig {
     models::KvStore kv;
     drivers::Sx1262 radio{bus, bus, bus.busy_pin, bus.reset_pin, bus.dio1_pin};
 
-    product::Ports ports() {
-        product::Ports p{clock, link, radio};
+    go::Ports ports() {
+        go::Ports p{clock, link, radio};
         p.kv = &kv;
         p.device_addr = 0x0ABBCC;
         return p;
@@ -33,7 +33,7 @@ struct Rig {
 
 TEST_CASE("app: setup() wires the radio up to Rx (composition root, no framework)") {
     Rig rig;
-    product::App app(rig.ports());
+    go::App app(rig.ports());
     CHECK(app.setup() == Status::Ok);
     CHECK(app.started());
     CHECK(rig.radio.mode() == drivers::RadioMode::Rx);
@@ -44,14 +44,14 @@ TEST_CASE("app: setup() wires the radio up to Rx (composition root, no framework
 
 TEST_CASE("app: setup() is idempotent") {
     Rig rig;
-    product::App app(rig.ports());
+    go::App app(rig.ports());
     CHECK(app.setup() == Status::Ok);
     CHECK(app.setup() == Status::Ok);
 }
 
 TEST_CASE("app: step() runs the service cycle deterministically under a modelled clock") {
     Rig rig;
-    product::App app(rig.ports());
+    go::App app(rig.ports());
     REQUIRE(app.setup() == Status::Ok);
     for (uint32_t t = 0; t <= 3000; t += 100) {
         rig.clock.set_millis(t);
@@ -68,9 +68,9 @@ TEST_CASE("app: step() runs the service cycle deterministically under a modelled
 TEST_CASE("app: the e-paper is refreshed on cadence when a display is present") {
     Rig rig;
     models::Display display;
-    product::Ports ports = rig.ports();
+    go::Ports ports = rig.ports();
     ports.display = &display;
-    product::App app(ports);
+    go::App app(ports);
     REQUIRE(app.setup() == Status::Ok);
     for (uint32_t t = 0; t <= 3000; t += 100) {
         rig.clock.set_millis(t);
@@ -84,46 +84,46 @@ TEST_CASE("app: the e-paper is refreshed on cadence when a display is present") 
 TEST_CASE("app: a button press switches the page and forces a full refresh") {
     Rig rig;
     models::Display display;
-    product::Ports ports = rig.ports();
+    go::Ports ports = rig.ports();
     ports.display = &display;
-    product::App app(ports);
+    go::App app(ports);
     REQUIRE(app.setup() == Status::Ok);
-    CHECK(app.page() == product::Page::Radar);
+    CHECK(app.page() == go::Page::Radar);
 
     rig.clock.set_millis(100);
     app.step(100);  // initial full render
     app.on_button();
-    CHECK(app.page() == product::Page::AltVs);
+    CHECK(app.page() == go::Page::AltVs);
     rig.clock.set_millis(150);
     app.step(150);  // page change forces an immediate FULL refresh
     CHECK(display.last_mode == hal::Refresh::Full);
 
     // Three pages (roadmap 2.6d): radar -> alt/vs -> status -> radar.
     app.on_button();
-    CHECK(app.page() == product::Page::Status);
+    CHECK(app.page() == go::Page::Status);
     app.on_button();
-    CHECK(app.page() == product::Page::Radar);
+    CHECK(app.page() == go::Page::Radar);
 }
 
 TEST_CASE("app: page_mask disables pages so the button skips them") {
     Rig rig;
     models::Display display;
-    product::Ports ports = rig.ports();
+    go::Ports ports = rig.ports();
     ports.display = &display;
-    product::App app(ports);
+    go::App app(ports);
     REQUIRE(app.setup() == Status::Ok);
     // Enable radar + status only (bit0 | bit2).
     app.settings().page_mask = 0x05;
-    CHECK(app.page() == product::Page::Radar);
+    CHECK(app.page() == go::Page::Radar);
     app.on_button();
-    CHECK(app.page() == product::Page::Status);  // AltVs skipped
+    CHECK(app.page() == go::Page::Status);  // AltVs skipped
     app.on_button();
-    CHECK(app.page() == product::Page::Radar);
+    CHECK(app.page() == go::Page::Radar);
 }
 
 TEST_CASE("app: backlight state is tracked and forwarded to the display") {
     Rig rig;
-    product::App app(rig.ports());
+    go::App app(rig.ports());
     REQUIRE(app.setup() == Status::Ok);
     CHECK_FALSE(app.backlight());
     app.set_backlight(true);
@@ -138,7 +138,7 @@ TEST_CASE("app: persisted settings are loaded on setup()") {
     settings::to_blob(s, blob, sizeof(blob));
     REQUIRE(rig.kv.write("settings", blob, settings::blob_size()) == Status::Ok);
 
-    product::App app(rig.ports());
+    go::App app(rig.ports());
     REQUIRE(app.setup() == Status::Ok);
     CHECK(app.settings().alarm_volume == 1);
     CHECK(app.settings().device_addr == 0x111111);

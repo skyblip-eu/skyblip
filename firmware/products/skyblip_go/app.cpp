@@ -1,5 +1,5 @@
-// products/skyblip/app.cpp — see app.h. Pure C++17; no framework headers.
-#include "products/skyblip/app.h"
+// products/skyblip_go/app.cpp — see app.h. Pure C++17; no framework headers.
+#include "products/skyblip_go/app.h"
 
 #include "core/protocol/adsl.h"
 #include "core/protocol/nmea_out.h"
@@ -7,7 +7,7 @@
 #include "core/util/units.h"
 #include "products/common/tasks.h"
 
-namespace skyblip::product {
+namespace skyblip::go {
 
 App::App(const Ports& ports) : p_(ports), config_(ports.link, settings_, ports.dfu) {}
 
@@ -154,7 +154,7 @@ void App::step(uint32_t now_ms) {
     apply_gnss(now_ms);
 
     // 2) radio watchdog: reinit if Rx has gone silent too long (§8 recovery).
-    p_.radio.service(dt, kRadioNoRxReinitMs);
+    p_.radio.service(dt, product::kRadioNoRxReinitMs);
 
     // 3) drain the radio: decode ADS-L → traffic fusion table.
     drain_radio(now_ms);
@@ -273,4 +273,4 @@ void App::render() {
                         full ? hal::Refresh::Full : hal::Refresh::Partial);
 }
 
-}  // namespace skyblip::product
+}  // namespace skyblip::go

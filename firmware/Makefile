@@ -47,7 +47,7 @@ SRC := \
   ui/screens/altvs.cpp \
   ui/screens/status.cpp \
   ui/framebuffer.cpp \
-  products/skyblip/app.cpp \
+  products/skyblip_go/app.cpp \
   devices/drivers/sx1262.cpp \
   devices/drivers/ssd1681.cpp \
   devices/models/rf_channel.cpp \
@@ -61,16 +61,16 @@ OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC) $(TEST_SRC))
 
 BIN := $(BUILD)/skyblip_tests
 
-# Device simulator (SimHarness = the virtual T-Echo running the real firmware).
-# Two frontends over the same harness:
-#   make sim   terminal frontend  -> ./build/skyblip_sim   (ASCII e-paper, keys)
-#   make web   browser  frontend  -> products/sim/web/*.wasm (needs Emscripten)
-SIM_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC) products/sim/term_main.cpp)
-SIM_BIN := $(BUILD)/skyblip_sim
+# Device simulator: the VIRTUAL T-Echo Plus running the real firmware.
+# Two frontends over the same virtual board:
+#   make sim   terminal frontend  -> ./build/skyblip_simulator (ASCII e-paper)
+#   make web   browser  frontend  -> simulator/browser/*.wasm  (needs Emscripten)
+SIM_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC) products/skyblip_go/simulator/terminal.cpp)
+SIM_BIN := $(BUILD)/skyblip_simulator
 
 EMCC ?= emcc
-WEB_SRC := $(SRC) products/sim/web_main.cpp
-WEB_OUT := products/sim/web/skyblip_sim.js
+WEB_SRC := $(SRC) products/skyblip_go/simulator/browser.cpp
+WEB_OUT := products/skyblip_go/simulator/browser/skyblip_simulator.js
 # Incremental browser build: compile to objects under build/web/ and link, so
 # editing one file rebuilds one file (a single emcc pass over all sources costs
 # ~30 s every save; this makes the edit->reload loop a couple of seconds).
@@ -97,7 +97,7 @@ $(SIM_BIN): $(SIM_OBJ)
 
 # Browser build. Requires Emscripten (https://emscripten.org).
 #   make web     build (incremental)
-#   make serve   serve products/sim/web with auto-reload (needs node/npx)
+#   make serve   serve simulator/browser with auto-reload (needs node/npx)
 #   make watch WATCH=web   rebuild on every save
 web:
 	@command -v $(EMCC) >/dev/null 2>&1 || { \
@@ -114,7 +114,7 @@ $(WEB_OUT): $(WEB_OBJ)
 	  -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8 \
 	  -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=0 \
 	  -o $(WEB_OUT)
-	@echo "built $(WEB_OUT) + .wasm — serve products/sim/web/ and open index.html"
+	@echo "built $(WEB_OUT) + .wasm — serve $(dir $(WEB_OUT)) and open index.html"
 
 $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
@@ -159,10 +159,10 @@ watch:
 serve: web
 	@if command -v npx >/dev/null 2>&1; then \
 	  echo "serving http://localhost:8000 (auto-reload)"; \
-	  npx --yes live-server products/sim/web --port=8000 --no-browser; \
+	  npx --yes live-server $(dir $(WEB_OUT)) --port=8000 --no-browser; \
 	else \
 	  echo "serving http://localhost:8000 (manual refresh; install node for auto-reload)"; \
-	  python3 -m http.server -d products/sim/web 8000; \
+	  python3 -m http.server -d $(dir $(WEB_OUT)) 8000; \
 	fi
 
 # One command for the browser loop: watcher in the background, server in the

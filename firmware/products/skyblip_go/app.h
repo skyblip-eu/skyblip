@@ -1,17 +1,18 @@
-// products/skyblip/app.h — the composition root, MINUS the framework.
+// products/skyblip_go/app.h — THE PRODUCT: all of skyBlip Go's wiring and
+// service logic in one pure, host-testable object, MINUS the framework.
 //
-// 3-ARCHITECTURE §8 acceptance invariant: "products/skyblip links for env:native
-// with zero source changes (swap only the board)." `App` holds ALL the wiring
-// and service logic in one pure, host-testable object, OUT of the framework
-// entry point.
+// 3-ARCHITECTURE §8 acceptance invariant: "products/skyblip_go links natively
+// with zero source changes (swap only the board)." App touches NO framework
+// header — it depends only on core/, hal/ ports and the shared drivers — which
+// is what makes the two shells beside it possible:
 //
-// The framework shell (Zephyr main() — see products/skyblip/main.cpp) does
-// exactly two things: (1) construct the concrete adapters for its SoC, and
-// (2) drive App::setup()/App::step(). App itself touches NO framework header
-// (no Zephyr) — it depends only on core/, hal/ ports and the shared drivers.
-// That is what keeps it linkable and testable on the host.
-#ifndef SKYBLIP_PRODUCTS_SKYBLIP_APP_H
-#define SKYBLIP_PRODUCTS_SKYBLIP_APP_H
+//   device/     the board on silicon, driven by a Zephyr main()
+//   simulator/  the same board out of devices/models, driven by two frontends
+//
+// A shell does exactly two things: construct the adapters for its world, and
+// drive App::setup()/App::step(). Anything else belongs in here.
+#ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_APP_H
+#define SKYBLIP_PRODUCTS_SKYBLIP_GO_APP_H
 
 #include "core/comms/config.h"
 #include "core/gnss/nmea.h"
@@ -32,7 +33,7 @@
 #include "ui/screens/radar.h"
 #include "ui/screens/status.h"
 
-namespace skyblip::product {
+namespace skyblip::go {
 
 // The e-paper pages (roadmap 2.6d). settings.page_mask (0x07) enables/disables
 // them individually; the button cycles through the enabled ones.
@@ -150,6 +151,6 @@ class App {
     static constexpr uint32_t kVsWindowMs = 2000;
 };
 
-}  // namespace skyblip::product
+}  // namespace skyblip::go
 
 #endif

@@ -1,12 +1,12 @@
-// products/sim/web_main.cpp — BROWSER (WASM) frontend of the device simulator.
+// products/skyblip_go/simulator/browser.cpp — BROWSER (WASM) frontend.
 //
-// Exposes the SimHarness control surface as C entry points that JavaScript
+// Exposes the virtual board's control surface as C entry points that JavaScript
 // calls; the framebuffer is read straight out of the WASM heap and painted onto
-// a <canvas> by products/sim/web/index.html. Runs the REAL firmware in the
+// a <canvas> by simulator/browser/index.html. Runs the REAL firmware in the
 // browser — nothing to install for whoever opens the page.
 //
-// Build (needs Emscripten): `make web`  →  products/sim/web/skyblip_sim.{js,wasm}
-#include "products/sim/harness.h"
+// Build (needs Emscripten): `make browser` → build/browser/skyblip_simulator.js
+#include "products/skyblip_go/simulator/t_echo_plus.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -18,7 +18,7 @@
 using namespace skyblip;
 
 namespace {
-sim::SimHarness g_h;
+simulator::TEchoPlus g_h;
 }
 
 extern "C" {
@@ -36,7 +36,7 @@ KEEPALIVE void sim_backlight(int on) { g_h.backlight(on != 0); }
 KEEPALIVE void sim_power(int on) { g_h.power(on != 0); }
 KEEPALIVE void sim_set_range(int m) { g_h.set_range_m(m); }
 
-// ---- simulated GNSS / sensors ---------------------------------------------
+// ---- modelled GNSS / sensors ----------------------------------------------
 KEEPALIVE void sim_set_fix(int on) { g_h.set_fix(on != 0); }
 KEEPALIVE void sim_set_sats(int n) { g_h.set_sats(n); }
 KEEPALIVE void sim_set_alt(int m) { g_h.set_altitude_m(m); }
@@ -48,7 +48,7 @@ KEEPALIVE void sim_set_position(int lat_1e7, int lon_1e7) {
     g_h.gnss().lon_1e7 = lon_1e7;
 }
 
-// ---- simulated traffic -----------------------------------------------------
+// ---- virtual traffic -------------------------------------------------------
 KEEPALIVE void sim_add_aircraft(int north_m, int east_m, int up_m, int speed_mps, int track_deg) {
     g_h.add_aircraft(north_m, east_m, up_m, speed_mps, track_deg);
 }

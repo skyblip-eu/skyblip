@@ -6,7 +6,7 @@
 #   west build -b t_echo_plus firmware --sysbuild
 #
 # core/ + ui/ are pure C++ (no Zephyr); the devices/soc/zephyr adapters are the
-# only vendor-coupled sources. devices/host/* (test fakes) are NEVER built here.
+# only vendor-coupled sources. devices/models/* are NEVER built here.
 cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
@@ -29,6 +29,6 @@ target_sources(app PRIVATE
   devices/drivers/ssd1681.cpp
   devices/soc/zephyr/ble.cpp
   devices/soc/zephyr/mcumgr_hooks.cpp
-  products/skyblip/app.cpp
-  products/skyblip/main.cpp
+  products/skyblip_go/app.cpp
+  products/skyblip_go/device/main.cpp
 )

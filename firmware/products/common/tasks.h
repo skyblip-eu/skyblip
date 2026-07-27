@@ -1,4 +1,6 @@
 // products/common/tasks.h — shared boot scaffolding (3-ARCHITECTURE §8): task
+// priorities, queue depths and watchdog budgets. Shared by EVERY product, so
+// this is skyblip::product, not one product's namespace.
 #ifndef SKYBLIP_PRODUCTS_COMMON_TASKS_H
 #define SKYBLIP_PRODUCTS_COMMON_TASKS_H
 

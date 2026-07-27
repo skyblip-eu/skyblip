@@ -1,9 +1,9 @@
-// products/sim/term_main.cpp — TERMINAL frontend of the device simulator.
-// Renders the captured e-paper framebuffer as ASCII, maps keys to the device
-// controls AND to the simulated sensors (GNSS + traffic). Thin: all behaviour
-// lives in SimHarness (the virtual T-Echo).
+// products/skyblip_go/simulator/terminal.cpp — TERMINAL frontend.
+// Renders the captured e-paper framebuffer as ASCII and maps keys to the device
+// controls AND to the modelled sensors (GNSS + traffic). Thin: all behaviour
+// lives in the virtual board next door (simulator/t_echo_plus.h).
 //
-//   make sim && ./build/skyblip_sim
+//   make simulator && ./build/skyblip_simulator
 #include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -11,7 +11,7 @@
 #include <chrono>
 #include <cstdio>
 
-#include "products/sim/harness.h"
+#include "products/skyblip_go/simulator/t_echo_plus.h"
 
 using namespace skyblip;
 
@@ -40,7 +40,7 @@ uint32_t now_ms() {
 const char* kPages[] = {"radar", "alt/vs", "status"};
 const char* kAlarm[] = {"none", "info", "IMPORTANT", "URGENT"};
 
-void render(sim::SimHarness& h) {
+void render(simulator::TEchoPlus& h) {
     if (!h.powered()) {
         std::printf("\033[2J\033[H[e-paper POWERED OFF]  ([o] power on, [q] quit)\n");
         std::fflush(stdout);
@@ -79,14 +79,14 @@ void render(sim::SimHarness& h) {
 }  // namespace
 
 int main() {
-    sim::SimHarness h;
+    simulator::TEchoPlus h;
     if (h.setup() != Status::Ok) {
-        std::printf("harness setup failed\n");
+        std::printf("simulator setup failed\n");
         return 1;
     }
     h.backlight(true);
 
-    // Local mirrors of the sensor sliders (the harness owns the truth).
+    // Local mirrors of the sensor sliders (the virtual board owns the truth).
     bool fix = true;
     int32_t alt = 1000, spd = 45, trk = 90;
 
@@ -101,7 +101,7 @@ int main() {
                 case 'p': h.button(); break;
                 case 'b': h.backlight(!h.backlight_on()); break;
                 case 'o': h.power(!h.powered()); break;
-                // simulated GNSS
+                // modelled GNSS
                 case 'f':
                     fix = !fix;
                     h.set_fix(fix);
@@ -130,7 +130,7 @@ int main() {
                     trk = (trk + 345) % 360;
                     h.set_track_deg(trk);
                     break;
-                // simulated traffic
+                // virtual traffic
                 case 'g': h.add_aircraft(1500, 800, 50, 30, 250); break;
                 case 'h': h.add_threat(); break;
                 case 'k': h.clear_aircraft(); break;
