@@ -28,6 +28,7 @@ target_sources(app PRIVATE
   devices/drivers/sx1262.cpp
   devices/drivers/ssd1681.cpp
   devices/drivers/l76k.cpp
+  devices/drivers/bhi260ap.cpp
   devices/soc/zephyr/ble.cpp
   devices/soc/zephyr/mcumgr_hooks.cpp
   products/skyblip_go/app.cpp

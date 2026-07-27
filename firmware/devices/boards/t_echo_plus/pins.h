@@ -2,6 +2,8 @@
 #ifndef SKYBLIP_DEVICES_BOARDS_T_ECHO_PLUS_PINS_H
 #define SKYBLIP_DEVICES_BOARDS_T_ECHO_PLUS_PINS_H
 
+#include <cstdint>
+
 namespace skyblip::board::t_echo_plus {
 
 constexpr int kPinNum(int port, int pin) { return port * 32 + pin; }
@@ -27,12 +29,31 @@ constexpr int kEpdRst = kPinNum(0, 2);
 constexpr int kEpdBusy = kPinNum(0, 3);
 constexpr int kEpdBacklight = kPinNum(1, 11);
 
+// Sensor I2C. Three parts share it, and two of them are NOT guaranteed present:
+// the barometer is "optional, selected" in the BOM and the IMU is a pluggable
+// daughter module (LilyGO ships both T-BHI260 and T-ICM29048 into the same 5-pin
+// header), so both are probed at runtime rather than assumed.
 constexpr int kSda = kPinNum(0, 26);
 constexpr int kScl = kPinNum(0, 27);
 
-constexpr int kSflMosi = kPinNum(1, 12);
-constexpr int kSflMiso = kPinNum(1, 13);
-constexpr int kSflSck = kPinNum(1, 14);
+// BME280. Our BOM says 0x76; LilyGO's own README I2C table and SoftRF
+// (platform/nRF52.h) both say 0x77. Nobody has settled it on a bench, so the
+// devicetree declares BOTH and the board takes whichever answers.
+constexpr uint8_t kBaroAddrPrimary = 0x76;
+constexpr uint8_t kBaroAddrAlternate = 0x77;
+
+// BHI260AP host interface. 0x29 if the module's U1 short-point is closed.
+constexpr uint8_t kImuAddr = 0x28;
+// The BHI260AP's HIRQ line is NOT connected on this board (LilyGO README I2C
+// table lists it as NC), so the host must poll; never wait on an interrupt.
+constexpr bool kImuHasIrq = false;
+
+// The external 2 MB QSPI flash (MX25R1635F) sits on P1.12/13/14/15 + P0.05/0.07
+// as a FOUR-LANE QSPI, not a 3-wire SPI. It is driven by Zephyr's
+// nordic,qspi-nor via the qspi_default pinctrl group in the board devicetree,
+// which is the single source of truth for those six pins - nothing here reads
+// them, so they are deliberately not duplicated as constants. The old kSflMosi/
+// kSflMiso/kSflSck names were a mis-transcription of a QSPI bus as an SPI one.
 
 constexpr int kButton = kPinNum(1, 10);   // main button (active-low, pull-up)
 constexpr int kButton2 = kPinNum(0, 18);  // 2nd button (reset-labelled, usable GPIO)

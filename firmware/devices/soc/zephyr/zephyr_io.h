@@ -9,6 +9,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/drivers/uart.h>
 
@@ -62,6 +63,27 @@ class ZephyrSpi : public io::Spi {
     struct spi_config cfg_;
     const struct device* cs_port_;
     gpio_pin_t cs_pin_;
+};
+
+class ZephyrI2c : public io::I2c {
+   public:
+    explicit ZephyrI2c(const struct device* bus) : bus_(bus) {}
+
+    bool ready() const { return device_is_ready(bus_); }
+
+    bool write(uint8_t addr, const uint8_t* data, size_t len) override {
+        return i2c_write(bus_, data, len, addr) == 0;
+    }
+    bool read(uint8_t addr, uint8_t* data, size_t len) override {
+        return i2c_read(bus_, data, len, addr) == 0;
+    }
+    bool write_read(uint8_t addr, const uint8_t* tx, size_t tx_len, uint8_t* rx,
+                    size_t rx_len) override {
+        return i2c_write_read(bus_, addr, tx, tx_len, rx, rx_len) == 0;
+    }
+
+   private:
+    const struct device* bus_;
 };
 
 // Polling UART for the GNSS (L76K). Interrupt/async ingest is a later optimisation;

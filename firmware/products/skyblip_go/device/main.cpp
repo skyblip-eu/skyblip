@@ -26,6 +26,15 @@ bool dfu_gate() { return g_app != nullptr && g_app->config().upload_allowed(); }
 // 4 Hz is already twice the vertical-speed window.
 constexpr uint32_t kBaroPeriodMs = 250;
 
+const char* imu_presence_str(drivers::ImuPresence p) {
+    switch (p) {
+        case drivers::ImuPresence::Present: return "bhi260ap";
+        case drivers::ImuPresence::Mismatch: return "other";
+        case drivers::ImuPresence::Absent: break;
+    }
+    return "none";
+}
+
 }  // namespace
 
 int main(void) {
@@ -43,8 +52,10 @@ int main(void) {
     soc::zephyr::set_dfu_gate(dfu_gate);
 
     if (app.setup() != Status::Ok) LOG_ERR("app setup failed");
-    LOG_INF("skyBlip up: addr=%06x epd=%d baro=%d", ports.device_addr, board.have_epd,
-            board.have_baro);
+    // The hardware inventory, logged once: three of these parts are optional or
+    // pluggable, so "which unit is this" is a real question during bring-up.
+    LOG_INF("skyBlip up: addr=%06x epd=%d gnss=%d baro=%d imu=%s", ports.device_addr,
+            board.have_epd, board.have_gnss, board.have_baro, imu_presence_str(board.imu_presence));
 
     messages::RxFrame frame;
     uint32_t last_baro_ms = 0;
@@ -56,7 +67,7 @@ int main(void) {
         if (board.have_baro && now_ms - last_baro_ms >= kBaroPeriodMs) {
             last_baro_ms = now_ms;
             uint32_t pa = 0;
-            if (board.baro.read_pressure_pa(pa)) app.on_baro(pa, now_ms);
+            if (board.baro->read_pressure_pa(pa)) app.on_baro(pa, now_ms);
         }
         app.step(now_ms);
         k_sleep(K_MSEC(10));  // cooperative cadence; tighten for slot timing.

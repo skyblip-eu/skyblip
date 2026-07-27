@@ -28,6 +28,11 @@ class I2c {
     virtual ~I2c() = default;
     virtual bool write(uint8_t addr, const uint8_t* data, size_t len) = 0;
     virtual bool read(uint8_t addr, uint8_t* data, size_t len) = 0;
+    // Register read as ONE transaction with a repeated start. Not write() then
+    // read(): a STOP in between lets another master interleave, and some parts
+    // reset their register pointer on it.
+    virtual bool write_read(uint8_t addr, const uint8_t* tx, size_t tx_len, uint8_t* rx,
+                            size_t rx_len) = 0;
 };
 
 class Uart {
