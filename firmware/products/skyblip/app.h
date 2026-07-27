@@ -67,7 +67,7 @@ class App {
 
     // One cooperative iteration. `now_ms` is hal::Clock::millis() — passing it
     // in (rather than reading the clock inside) keeps App deterministic under a
-    // fake clock in host tests.
+    // modelled clock in host tests.
     void step(uint32_t now_ms);
 
     // Deliver a companion-link RX frame to the config state machine. The shell's

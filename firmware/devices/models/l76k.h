@@ -1,12 +1,10 @@
-// products/sim/sim_gnss.h — a simulated L76K GNSS receiver.
-//
-// It is an io::Uart, so App reads it exactly as it reads the real receiver: this
-// generates genuine NMEA-0183 $GPRMC/$GPGGA sentences (built with the production
-// formatters + nmea_finish checksum) and the REAL core/gnss parser decodes them.
+// devices/models/l76k.h — a model of the L76K GNSS receiver at the io::Uart
+// seam, so the REAL parser runs against it unchanged: it emits genuine NMEA-0183
+// $GPRMC/$GPGGA sentences (production formatters + nmea_finish checksum).
 // Nothing is stubbed at the state level — moving the aircraft here exercises the
 // whole chain: NMEA → parser → own-ship state → screens/alarms/protocol.
-#ifndef SKYBLIP_PRODUCTS_SIM_SIM_GNSS_H
-#define SKYBLIP_PRODUCTS_SIM_SIM_GNSS_H
+#ifndef SKYBLIP_DEVICES_MODELS_L76K_H
+#define SKYBLIP_DEVICES_MODELS_L76K_H
 
 #include <cmath>
 #include <string>
@@ -15,11 +13,11 @@
 #include "core/util/format.h"
 #include "devices/io/io.h"
 
-namespace skyblip::sim {
+namespace skyblip::models {
 
-class SimGnss : public io::Uart {
+class L76k : public io::Uart {
    public:
-    // ---- simulated sensor state (driven by the frontends) -------------------
+    // ---- modelled receiver state (driven by the caller) ---------------------
     bool fix{true};
     uint8_t sats{9};
     int32_t lat_1e7{485000000};  // 48.5 N
@@ -40,7 +38,7 @@ class SimGnss : public io::Uart {
     }
     size_t available() override { return pending_.size(); }
 
-    // Advance the simulated aircraft and emit a 1 Hz NMEA burst.
+    // Advance own-ship along its track and emit a 1 Hz NMEA burst.
     void tick(uint32_t now_ms) {
         if (last_ms_ == 0) last_ms_ = now_ms;
         uint32_t dt = now_ms - last_ms_;
@@ -118,6 +116,6 @@ class SimGnss : public io::Uart {
     uint32_t last_ms_{0};
 };
 
-}  // namespace skyblip::sim
+}  // namespace skyblip::models
 
 #endif

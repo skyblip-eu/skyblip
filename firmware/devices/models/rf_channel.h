@@ -1,15 +1,16 @@
-// devices/host/ber_channel.h — the RF channel reduced to an injectable scalar
-#ifndef SKYBLIP_DEVICES_HOST_BER_CHANNEL_H
-#define SKYBLIP_DEVICES_HOST_BER_CHANNEL_H
+// devices/models/rf_channel.h — the RF channel reduced to an injectable scalar:
+// a bit error rate, a burst length, or a symbol-error count applied to a frame.
+#ifndef SKYBLIP_DEVICES_MODELS_RF_CHANNEL_H
+#define SKYBLIP_DEVICES_MODELS_RF_CHANNEL_H
 
 #include <cstddef>
 #include <cstdint>
 
-namespace skyblip::host {
+namespace skyblip::models {
 
-class BerChannel {
+class RfChannel {
    public:
-    explicit BerChannel(uint32_t seed = 1) : seed_(seed) {}
+    explicit RfChannel(uint32_t seed = 1) : seed_(seed) {}
 
     int apply_ber(uint8_t* data, size_t len, double ber, uint8_t* err = nullptr);
 

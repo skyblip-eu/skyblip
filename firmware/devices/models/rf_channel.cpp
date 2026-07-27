@@ -1,8 +1,8 @@
-#include "devices/host/ber_channel.h"
+#include "devices/models/rf_channel.h"
 
-namespace skyblip::host {
+namespace skyblip::models {
 
-int BerChannel::apply_ber(uint8_t* data, size_t len, double ber, uint8_t* err) {
+int RfChannel::apply_ber(uint8_t* data, size_t len, double ber, uint8_t* err) {
     int flips = 0;
     for (size_t i = 0; i < len; i++) {
         for (int b = 0; b < 8; b++) {
@@ -17,7 +17,7 @@ int BerChannel::apply_ber(uint8_t* data, size_t len, double ber, uint8_t* err) {
     return flips;
 }
 
-int BerChannel::apply_burst(uint8_t* data, size_t len, int burst_bits, uint8_t* err) {
+int RfChannel::apply_burst(uint8_t* data, size_t len, int burst_bits, uint8_t* err) {
     size_t total_bits = len * 8;
     if (total_bits == 0) return 0;
     size_t start = next() % total_bits;
@@ -33,7 +33,7 @@ int BerChannel::apply_burst(uint8_t* data, size_t len, int burst_bits, uint8_t* 
     return flips;
 }
 
-int BerChannel::apply_symbol_errors(uint8_t* data, size_t len, int n) {
+int RfChannel::apply_symbol_errors(uint8_t* data, size_t len, int n) {
     if (len == 0) return 0;
     int applied = 0;
     for (int i = 0; i < n; i++) {

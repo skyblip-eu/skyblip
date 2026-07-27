@@ -50,10 +50,8 @@ SRC := \
   products/skyblip/app.cpp \
   devices/drivers/sx1262.cpp \
   devices/drivers/ssd1681.cpp \
-  devices/host/fake_clock.cpp \
-  devices/host/fake_link.cpp \
-  devices/host/ber_channel.cpp \
-  devices/host/fake_display.cpp
+  devices/models/rf_channel.cpp \
+  devices/models/display.cpp
 
 # Test sources (mirrored tree).
 TEST_SRC := test/test_main.cpp $(wildcard test/core/*.cpp) $(wildcard test/ui/*.cpp) \

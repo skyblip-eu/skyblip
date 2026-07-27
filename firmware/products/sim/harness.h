@@ -20,41 +20,16 @@
 
 #include "core/protocol/adsl.h"
 #include "devices/drivers/sx1262.h"
-#include "devices/host/fake_clock.h"
-#include "devices/host/fake_link.h"
-#include "devices/host/fake_sx1262.h"
-#include "products/sim/capture_display.h"
-#include "products/sim/sim_gnss.h"
+#include "devices/models/annunciator.h"
+#include "devices/models/clock.h"
+#include "devices/models/display.h"
+#include "devices/models/kvstore.h"
+#include "devices/models/l76k.h"
+#include "devices/models/link.h"
+#include "devices/models/sx1262.h"
 #include "products/skyblip/app.h"
 
 namespace skyblip::sim {
-
-// In-memory settings store (no persistence needed for the sim).
-class MemKv : public hal::KvStore {
-   public:
-    Status read(const char*, uint8_t*, size_t, size_t&) override { return Status::NotFound; }
-    Status write(const char*, const uint8_t*, size_t) override { return Status::Ok; }
-    Status erase(const char*) override { return Status::Ok; }
-};
-
-// Records buzzer / vibration so a frontend can show the alarm firing.
-class CaptureAnnunciator : public hal::Annunciator {
-   public:
-    void alarm(uint8_t level, uint8_t volume) override {
-        level_ = level;
-        volume_ = volume;
-    }
-    void vibrate(uint16_t ms) override { vibro_ms_ = ms; }
-    void silence() override { level_ = 0; }
-
-    uint8_t level() const { return level_; }
-    uint8_t volume() const { return volume_; }
-    uint16_t vibro_ms() const { return vibro_ms_; }
-
-   private:
-    uint8_t level_{0}, volume_{0};
-    uint16_t vibro_ms_{0};
-};
 
 // A virtual aircraft in the sky around own-ship, held in local N/E/U metres and
 // re-broadcast ~1 Hz like a real transmitter would.
@@ -95,7 +70,7 @@ class SimHarness {
     void set_range_m(int32_t m) { app_.set_range_m(m); }
 
     // ---- simulated sensors -------------------------------------------------
-    SimGnss& gnss() { return gnss_; }
+    models::L76k& gnss() { return gnss_; }
     void set_fix(bool on) { gnss_.fix = on; }
     void set_sats(int n) { gnss_.sats = static_cast<uint8_t>(n < 0 ? 0 : (n > 32 ? 32 : n)); }
     void set_altitude_m(int32_t m) { gnss_.alt_m = m; }
@@ -158,7 +133,7 @@ class SimHarness {
     }
 
     // Advance each virtual aircraft and inject ONE real ADS-L frame per call
-    // (round-robin) — the fake radio holds a single frame at a time, and App
+    // (round-robin) — the radio model holds a single frame at a time, and App
     // drains one per step, so this mimics ~1 Hz per aircraft.
     void service_aircraft(uint32_t now_ms) {
         if (now_ms - last_acft_ms_ < 100) return;
@@ -181,7 +156,7 @@ class SimHarness {
     }
 
     // Encode a virtual aircraft as a genuine on-air ADS-L frame and hand it to
-    // the fake radio, so App's receive path (CRC → descramble → to_obs) runs.
+    // the radio model, so App's receive path (CRC → descramble → to_obs) runs.
     void transmit(const SimAircraft& a) {
         const messages::OwnState& own = app_.own();
         const double coslat = std::cos(own.lat_1e7 / 1e7 * 3.14159265358979 / 180.0);
@@ -217,13 +192,13 @@ class SimHarness {
         bus_.queue_rx(wire, static_cast<uint8_t>(sizeof(wire)));
     }
 
-    host::FakeClock clock_;
-    host::FakeLink link_;
-    host::FakeSx1262 bus_;
-    MemKv kv_;
-    CaptureDisplay display_;
-    CaptureAnnunciator ann_;
-    SimGnss gnss_;
+    models::Clock clock_;
+    models::Link link_;
+    models::Sx1262 bus_;
+    models::KvStore kv_;
+    models::Display display_;
+    models::Annunciator ann_;
+    models::L76k gnss_;
     drivers::Sx1262 radio_;  // declared after bus_ (ctor uses it)
     product::App app_;       // declared last (ctor uses all of the above)
 

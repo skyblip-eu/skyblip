@@ -15,8 +15,8 @@
 #include "core/protocol/nmea_out.h"
 #include "core/traffic/alarm.h"
 #include "core/traffic/table.h"
-#include "devices/host/ber_channel.h"
-#include "devices/host/fake_link.h"
+#include "devices/models/link.h"
+#include "devices/models/rf_channel.h"
 #include "doctest/doctest.h"
 
 using namespace skyblip;
@@ -64,7 +64,7 @@ TEST_CASE("scenario: GNSS -> own, direct ADS-L RX over BER channel -> alarm -> N
     uint8_t coded[48];
     fec::manchester_encode(reinterpret_cast<const uint8_t*>(&tx.Version),
                            protocol::AdslPacket::kDataBytes, coded);
-    host::BerChannel chan(12345);
+    models::RfChannel chan(12345);
     chan.apply_ber(coded, sizeof(coded), 0.002);  // ~0.2% chip errors
 
     protocol::AdslPacket rx = tx;  // start from a copy; overwrite the data region
@@ -92,7 +92,7 @@ TEST_CASE("scenario: GNSS -> own, direct ADS-L RX over BER channel -> alarm -> N
     table.at(idx)->alarm_level = a.level;
 
     // 6) NMEA out to the EFB link
-    host::FakeLink efb;
+    models::Link efb;
     char buf[128];
     int n = protocol::format_pflaa(buf, sizeof(buf), own, obs, a.level);
     REQUIRE(n > 0);

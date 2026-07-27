@@ -1,4 +1,4 @@
-#include "devices/host/fake_display.h"
+#include "devices/models/display.h"
 #include "doctest/doctest.h"
 #include "ui/framebuffer.h"
 #include "ui/screens/altvs.h"
@@ -154,14 +154,14 @@ TEST_CASE("altvs: draws altitude and vs bar") {
     CHECK(fb.count_black() > 50);
 }
 
-TEST_CASE("fake_display: records present and can save a PGM") {
+TEST_CASE("display model: records present and can save a PGM") {
     Framebuffer fb;
     AltVsSnapshot s;
     s.have_data = true;
     s.alt_ft = 3000;
     s.vs_fpm = -200;
     draw_altvs(fb, s);
-    skyblip::host::FakeDisplay disp;
+    skyblip::models::Display disp;
     disp.present(fb, {0, 0, 200, 200}, skyblip::hal::Refresh::Full);
     CHECK(disp.present_count == 1);
     CHECK(disp.last_mode == skyblip::hal::Refresh::Full);

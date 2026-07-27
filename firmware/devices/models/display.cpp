@@ -1,19 +1,18 @@
-#include "devices/host/fake_display.h"
+#include "devices/models/display.h"
 
 #include <cstdio>
-#include <cstring>
 
-namespace skyblip::host {
+namespace skyblip::models {
 
-void FakeDisplay::present(const ui::Framebuffer& fb, hal::Rect region, hal::Refresh mode) {
-    std::memcpy(last_fb_.data(), fb.data(), ui::Framebuffer::kBytes);
+void Display::present(const ui::Framebuffer& fb, hal::Rect region, hal::Refresh mode) {
     last_region = region;
     last_mode = mode;
     present_count++;
-    powered_ = true;
+    // An unpowered panel keeps showing whatever was on it: e-paper is bistable.
+    if (powered_) last_fb_ = fb;
 }
 
-bool FakeDisplay::save_pgm(const char* path) const {
+bool Display::save_pgm(const char* path) const {
     FILE* f = std::fopen(path, "wb");
     if (!f) return false;
     std::fprintf(f, "P5\n%d %d\n255\n", ui::Framebuffer::kW, ui::Framebuffer::kH);
@@ -27,4 +26,4 @@ bool FakeDisplay::save_pgm(const char* path) const {
     return true;
 }
 
-}
+}  // namespace skyblip::models

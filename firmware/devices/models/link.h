@@ -1,15 +1,16 @@
-// devices/host/fake_link.h — an observable + drivable hal::Link test spy (§3).
-#ifndef SKYBLIP_DEVICES_HOST_FAKE_LINK_H
-#define SKYBLIP_DEVICES_HOST_FAKE_LINK_H
+// devices/models/link.h — a model of the companion link: records every frame it
+// was asked to send, and can be forced to fail so the caller's error path runs.
+#ifndef SKYBLIP_DEVICES_MODELS_LINK_H
+#define SKYBLIP_DEVICES_MODELS_LINK_H
 
 #include <string>
 #include <vector>
 
 #include "hal/link.h"
 
-namespace skyblip::host {
+namespace skyblip::models {
 
-class FakeLink : public hal::Link {
+class Link : public hal::Link {
    public:
     struct Frame {
         messages::Endpoint endpoint;

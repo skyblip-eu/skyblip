@@ -1,13 +1,12 @@
 // test/products/test_app.cpp — enforces the §8 acceptance invariant on HOST:
-// the real composition root (App) links and runs against fakes, with ZERO
+// the real composition root (App) links and runs against device models, with ZERO
 // framework code. If App ever leaks a framework (Zephyr) include, this stops
 // compiling — which is exactly the guard the invariant was supposed to have.
-#include <string>
-
-#include "devices/host/fake_clock.h"
-#include "devices/host/fake_display.h"
-#include "devices/host/fake_link.h"
-#include "devices/host/fake_sx1262.h"
+#include "devices/models/clock.h"
+#include "devices/models/display.h"
+#include "devices/models/kvstore.h"
+#include "devices/models/link.h"
+#include "devices/models/sx1262.h"
 #include "doctest/doctest.h"
 #include "products/skyblip/app.h"
 
@@ -15,57 +14,11 @@ using namespace skyblip;
 
 namespace {
 
-// Minimal in-memory KvStore fake (kept local; App treats kv as optional).
-class FakeKv : public hal::KvStore {
-   public:
-    Status read(const char* key, uint8_t* buf, size_t cap, size_t& out_len) override {
-        for (auto& e : e_)
-            if (e.used && e.key == key) {
-                if (e.len > cap) return Status::OutOfRange;
-                for (size_t i = 0; i < e.len; i++) buf[i] = e.data[i];
-                out_len = e.len;
-                return Status::Ok;
-            }
-        return Status::NotFound;
-    }
-    Status write(const char* key, const uint8_t* buf, size_t len) override {
-        Entry* slot = nullptr;
-        for (auto& e : e_)
-            if (e.used && e.key == key) slot = &e;
-        if (!slot)
-            for (auto& e : e_)
-                if (!e.used) {
-                    slot = &e;
-                    slot->key = key;
-                    slot->used = true;
-                    break;
-                }
-        if (!slot || len > sizeof(slot->data)) return Status::Full;
-        for (size_t i = 0; i < len; i++) slot->data[i] = buf[i];
-        slot->len = len;
-        return Status::Ok;
-    }
-    Status erase(const char* key) override {
-        for (auto& e : e_)
-            if (e.used && e.key == key) e.used = false;
-        return Status::Ok;
-    }
-
-   private:
-    struct Entry {
-        bool used{false};
-        std::string key;
-        uint8_t data[64]{};
-        size_t len{0};
-    };
-    Entry e_[4];
-};
-
 struct Rig {
-    host::FakeClock clock;
-    host::FakeLink link;
-    host::FakeSx1262 bus;
-    FakeKv kv;
+    models::Clock clock;
+    models::Link link;
+    models::Sx1262 bus;
+    models::KvStore kv;
     drivers::Sx1262 radio{bus, bus, bus.busy_pin, bus.reset_pin, bus.dio1_pin};
 
     product::Ports ports() {
@@ -96,7 +49,7 @@ TEST_CASE("app: setup() is idempotent") {
     CHECK(app.setup() == Status::Ok);
 }
 
-TEST_CASE("app: step() runs the service cycle deterministically under a fake clock") {
+TEST_CASE("app: step() runs the service cycle deterministically under a modelled clock") {
     Rig rig;
     product::App app(rig.ports());
     REQUIRE(app.setup() == Status::Ok);
@@ -114,7 +67,7 @@ TEST_CASE("app: step() runs the service cycle deterministically under a fake clo
 
 TEST_CASE("app: the e-paper is refreshed on cadence when a display is present") {
     Rig rig;
-    host::FakeDisplay display;
+    models::Display display;
     product::Ports ports = rig.ports();
     ports.display = &display;
     product::App app(ports);
@@ -130,7 +83,7 @@ TEST_CASE("app: the e-paper is refreshed on cadence when a display is present") 
 
 TEST_CASE("app: a button press switches the page and forces a full refresh") {
     Rig rig;
-    host::FakeDisplay display;
+    models::Display display;
     product::Ports ports = rig.ports();
     ports.display = &display;
     product::App app(ports);
@@ -154,7 +107,7 @@ TEST_CASE("app: a button press switches the page and forces a full refresh") {
 
 TEST_CASE("app: page_mask disables pages so the button skips them") {
     Rig rig;
-    host::FakeDisplay display;
+    models::Display display;
     product::Ports ports = rig.ports();
     ports.display = &display;
     product::App app(ports);

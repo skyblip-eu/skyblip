@@ -1,6 +1,6 @@
 // devices/drivers/ssd1681.cpp — SSD1681 1.54" 200x200 e-paper driver, written
 // ONCE and shared (like sx1262). Talks only to io::Spi / io::Gpio, so it runs
-// unchanged on Zephyr, on the host (against a fake bus), and anywhere else.
+// unchanged on Zephyr, on the host (against models/ssd1681.h), and anywhere else.
 //
 // Command set per the Solomon SSD1681 datasheet + the GDEH0154D67 panel init
 // sequence for the T-Echo panel. Full and partial (fast) refresh.
@@ -127,7 +127,7 @@ void Ssd1681::set_cursor(int x, int y) {
 }
 
 void Ssd1681::wait_busy(uint32_t max_spins) {
-    // BUSY is high while the panel is working. Bounded spin (host fake drives it
+    // BUSY is high while the panel is working. Bounded spin (the panel model drives it
     // low immediately; real panel needs a few hundred ms — the shell may yield).
     for (uint32_t i = 0; i < max_spins; i++) {
         if (!gpio_.get(busy_)) return;
