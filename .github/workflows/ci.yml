@@ -68,25 +68,67 @@ jobs:
           manifest-file-name: west.yml
           toolchains: arm-zephyr-eabi
 
+      # sysbuild.conf reads SKYBLIP_SIGNING_KEY from the environment and an unset
+      # value is a hard build failure - deliberately, because MCUboot's Kconfig
+      # default is its own PUBLISHED root-ec-p256.pem, which everyone has and
+      # which makes the signature prove nothing.
+      #
+      # Release builds use the real key from Actions secrets. Ordinary CI runs
+      # get a throwaway key generated here: it proves the signing path works
+      # end to end without ever putting a distributable key in the repo, and an
+      # artifact from a PR build simply will not boot on a production unit.
+      - name: provision a signing key
+        run: |
+          python3 -m pip install --quiet imgtool
+          if [ -n "${{ secrets.SKYBLIP_SIGNING_KEY_PEM }}" ]; then
+            echo "${{ secrets.SKYBLIP_SIGNING_KEY_PEM }}" > "$RUNNER_TEMP/signing.pem"
+            echo "using the release signing key"
+          else
+            imgtool keygen -k "$RUNNER_TEMP/signing.pem" -t ecdsa-p256
+            echo "using an EPHEMERAL signing key (artifacts will not boot a production unit)"
+          fi
+          chmod 600 "$RUNNER_TEMP/signing.pem"
+          echo "SKYBLIP_SIGNING_KEY=$RUNNER_TEMP/signing.pem" >> "$GITHUB_ENV"
+
       - name: west build (sysbuild → MCUboot + app)
         working-directory: firmware
         run: |
           west build -b t_echo_plus . --sysbuild \
             -- -DBOARD_ROOT=$(pwd)
 
+      # Guards against silently regressing to a key anyone can sign with. The
+      # default lives in the mcuboot module directory, so any resolved key path
+      # under it is a failure regardless of which algorithm was chosen.
+      - name: assert the image was not signed with MCUboot's published key
+        working-directory: firmware
+        run: |
+          key=$(grep -h '^CONFIG_BOOT_SIGNATURE_KEY_FILE=' build/mcuboot/zephyr/.config | cut -d'"' -f2)
+          echo "signing key: $key"
+          case "$key" in
+            "") echo "FAIL: no signing key configured"; exit 1 ;;
+            *bootloader/mcuboot*|*root-ec-p256.pem|*root-rsa-2048.pem|*root-ed25519.pem)
+              echo "FAIL: signed with an MCUboot sample key"; exit 1 ;;
+          esac
+
       # scripts/ is at the repo root, but the .elf is under firmware/build, so this
       # step runs from firmware/ and reaches back up for the script.
       - name: flash-size budget
         working-directory: firmware
-        run: python3 ../scripts/size_check.py build/firmware/zephyr/zephyr.elf 512000
+        run: python3 ../scripts/size_check.py build/firmware/zephyr/zephyr.elf
+
+      # Also the guard that the image cannot land on the factory MBR/SoftDevice
+      # or above the bootloader's silent write ceiling. See scripts/mkuf2.py.
+      - name: build the drag-and-drop .uf2
+        working-directory: firmware
+        run: python3 ../scripts/mkuf2.py build/merged.hex build/skyblip-go.uf2
 
       - name: upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
           name: t_echo_plus-firmware
           path: |
-            firmware/build/firmware/zephyr/zephyr.hex
-            firmware/build/firmware/zephyr/zephyr.bin
+            firmware/build/skyblip-go.uf2
             firmware/build/**/zephyr.signed.bin
-            firmware/build/**/merged.hex
+            firmware/build/**/zephyr.signed.confirmed.bin
+            firmware/build/merged.hex
           if-no-files-found: warn

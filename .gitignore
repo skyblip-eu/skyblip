@@ -16,3 +16,4 @@ firmware/products/sim/web/skyblip_sim.js
 .DS_Store
 .vscode/
 compile_commands.json
+__pycache__/

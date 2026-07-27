@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """CI flash-size budget gate (3-ARCHITECTURE §1, roadmap E0.3).
 
-Fail if the app .elf text+data exceeds the budget. A comparable e-paper tracker
-app is ~668 KB (~81% of the usable region); we set a hard ceiling early because
-dieting at 81% full is painful. Default 500 KB (proposed).
+Fail if the app .elf text+data exceeds what MCUboot can actually swap into
+slot0. With the secondary slot on the external QSPI part, slot0 is
+0x034000..0x0EA000 = 0xB6000 = 182 sectors of 4 KB, and swap-using-offset gives
+
+    max image = N * sector_size - image_trailer_sectors_size
+              = 182 * 4096      - 4096                        = 741376 B
+
+(mcuboot docs/design.md:305-315). imgtool enforces the hard limit at sign time;
+this gate exists to fail earlier and to print how much headroom is left, because
+dieting at 90% full is painful.
+
 Usage: size_check.py <firmware.elf> [budget_bytes]
 """
 import subprocess
 import sys
 
-DEFAULT_BUDGET = 500 * 1024
+# 182 slot0 sectors less one sector of image trailer, at 4096 B per sector.
+DEFAULT_BUDGET = (182 - 1) * 4096
 
 
 def main():
