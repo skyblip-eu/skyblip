@@ -1,8 +1,8 @@
 # scenarios/
 
-Recorded flights + encounter scripts for the host simulator (3-ARCHITECTURE §8
-skeleton). A scenario feeds the pure `core/` through the `devices/host` fakes:
-scripted GNSS NMEA (fake L76K), scripted radio RX packets over the `BerChannel`,
+Recorded flights + encounter scripts for the simulator (3-ARCHITECTURE §8
+skeleton). A scenario feeds the pure `core/` through `devices/models`: scripted
+GNSS NMEA (`models/l76k.h`), scripted radio RX packets over the `RfChannel`,
 and a simulated PPS phase into the slot `Scheduler`. Used for end-to-end
 regression (see `test/core/test_scenario.cpp`) and PER-vs-dBm curves.
 
