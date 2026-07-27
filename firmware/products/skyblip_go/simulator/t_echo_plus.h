@@ -26,6 +26,7 @@
 #include <cstring>
 
 #include "core/protocol/adsl.h"
+#include "devices/boards/t_echo_plus/pins.h"
 #include "devices/drivers/sx1262.h"
 #include "devices/models/annunciator.h"
 #include "devices/models/clock.h"
@@ -37,6 +38,8 @@
 #include "products/skyblip_go/app.h"
 
 namespace skyblip::simulator {
+
+namespace pins = skyblip::board::t_echo_plus;
 
 // A virtual aircraft in the sky around own-ship, held in local N/E/U metres and
 // re-broadcast ~1 Hz like a real transmitter would.
@@ -53,7 +56,15 @@ class TEchoPlus {
    public:
     static constexpr int kMaxAircraft = 8;
 
-    TEchoPlus() : radio_(bus_, bus_, bus_.busy_pin, bus_.reset_pin, bus_.dio1_pin), app_(ports()) {}
+    // Wired with the SAME pin map as device/t_echo_plus.h, so a pin mistake
+    // surfaces here instead of only on hardware.
+    TEchoPlus()
+        : radio_(radio_chip_, radio_chip_, pins::kRadioBusy, pins::kRadioRst, pins::kRadioDio1),
+          app_(ports()) {
+        radio_chip_.busy_pin = pins::kRadioBusy;
+        radio_chip_.reset_pin = pins::kRadioRst;
+        radio_chip_.dio1_pin = pins::kRadioDio1;
+    }
 
     Status setup() { return app_.setup(); }
 
@@ -195,17 +206,17 @@ class TEchoPlus {
 
         uint8_t wire[protocol::AdslPacket::kTxBytes];
         std::memcpy(wire, &p, sizeof(wire));
-        bus_.queue_rx(wire, static_cast<uint8_t>(sizeof(wire)));
+        radio_chip_.queue_rx(wire, static_cast<uint8_t>(sizeof(wire)));
     }
 
     models::Clock clock_;
     models::Link link_;
-    models::Sx1262 bus_;
+    models::Sx1262 radio_chip_;
     models::KvStore kv_;
     models::Display display_;
     models::Annunciator ann_;
     models::L76k gnss_;
-    drivers::Sx1262 radio_;  // declared after bus_ (ctor uses it)
+    drivers::Sx1262 radio_;  // declared after radio_chip_ (ctor uses it)
     go::App app_;            // declared last (ctor uses all of the above)
 
     VirtualAircraft acft_[kMaxAircraft]{};
