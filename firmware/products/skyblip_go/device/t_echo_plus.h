@@ -22,6 +22,7 @@
 #include "devices/drivers/ssd1681.h"
 #include "devices/drivers/sx1262.h"
 #include "devices/soc/zephyr/zephyr_annunciator.h"
+#include "devices/soc/zephyr/zephyr_baro.h"
 #include "devices/soc/zephyr/zephyr_ble.h"
 #include "devices/soc/zephyr/zephyr_clock.h"
 #include "devices/soc/zephyr/zephyr_dfu.h"
@@ -40,6 +41,7 @@ inline const struct device* const kGpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
 inline const struct device* const kRadioSpi = DEVICE_DT_GET(DT_ALIAS(radio_spi));
 inline const struct device* const kEpdSpi = DEVICE_DT_GET(DT_ALIAS(epd_spi));
 inline const struct device* const kGnssUart = DEVICE_DT_GET(DT_ALIAS(gnss_uart));
+inline const struct device* const kBaro = DEVICE_DT_GET(DT_ALIAS(baro));
 
 inline const struct pwm_dt_spec kBuzzer = PWM_DT_SPEC_GET(DT_ALIAS(buzzer));
 
@@ -80,6 +82,9 @@ struct TEchoPlus {
     sz::ZephyrUart gnss_uart{kGnssUart};
     drivers::L76k gnss{gnss_uart};
 
+    // BME280. "optional, selected" in the BOM, so absence is normal, not a fault.
+    sz::ZephyrBaro baro{kBaro};
+
     // The main button (P1.10) is active-low with a pull-up: the ONLY input on
     // this board, so without it a unit is stuck on whichever page it booted on.
     // kButton2 is the reset-labelled pin and kTouch is a capacitive pad whose
@@ -88,6 +93,7 @@ struct TEchoPlus {
 
     bool have_epd{false};
     bool have_gnss{false};
+    bool have_baro{false};
     bool have_link{false};
 
     // Bring the peripherals up. Constructing the adapters above touches no
@@ -108,6 +114,7 @@ struct TEchoPlus {
         annunciator.begin();
         have_link = link.begin() == Status::Ok;
         have_gnss = device_is_ready(kGnssUart);
+        have_baro = baro.ready();
         return Status::Ok;
     }
 

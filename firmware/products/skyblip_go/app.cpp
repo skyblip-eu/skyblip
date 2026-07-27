@@ -62,20 +62,34 @@ void App::apply_gnss(uint32_t now_ms) {
 
     clock_state_.utc_valid = f.utc_valid;
 
-    // Vertical speed over a ~2 s window: climb_e8 is eighth-m/s.
-    if (vs_ref_ms_ == 0) {
-        vs_ref_ms_ = now_ms;
-        vs_ref_alt_m_ = f.alt_m;
-    } else if (now_ms - vs_ref_ms_ >= kVsWindowMs) {
-        int32_t dt_ms = static_cast<int32_t>(now_ms - vs_ref_ms_);
-        int32_t d_alt = f.alt_m - vs_ref_alt_m_;
-        int32_t e8 = (d_alt * 8 * 1000) / dt_ms;
-        if (e8 > 32767) e8 = 32767;
-        if (e8 < -32768) e8 = -32768;
-        own_.climb_e8 = static_cast<int16_t>(e8);
-        vs_ref_ms_ = now_ms;
-        vs_ref_alt_m_ = f.alt_m;
+    // A barometer, once it has spoken, owns vertical speed. Keep the GNSS
+    // reference moving anyway so losing the sensor falls back seamlessly.
+    int16_t e8 = 0;
+    const bool have =
+        vs_from_alt_cm(f.alt_m * 100, now_ms, kVsWindowMs, vs_ref_alt_cm_, vs_ref_ms_, e8);
+    if (have && !baro_active()) own_.climb_e8 = e8;
+}
+
+void App::on_baro(uint32_t pressure_pa, uint32_t now_ms) {
+    const int32_t alt_cm = flight::pressure_to_alt_cm(pressure_pa);
+    int16_t e8 = 0;
+    if (vs_from_alt_cm(alt_cm, now_ms, kBaroVsWindowMs, baro_ref_alt_cm_, baro_ref_ms_, e8))
+        own_.climb_e8 = e8;
+}
+
+bool App::vs_from_alt_cm(int32_t alt_cm, uint32_t now_ms, uint32_t window_ms, int32_t& ref_alt_cm,
+                         uint32_t& ref_ms, int16_t& out_e8) const {
+    if (ref_ms == 0) {  // first sample only anchors the window
+        ref_ms = now_ms == 0 ? 1 : now_ms;
+        ref_alt_cm = alt_cm;
+        return false;
     }
+    if (now_ms - ref_ms < window_ms) return false;
+
+    const bool ok = flight::climb_e8_from_alt(alt_cm, ref_alt_cm, now_ms - ref_ms, out_e8);
+    ref_ms = now_ms;
+    ref_alt_cm = alt_cm;
+    return ok;
 }
 
 // Pull received frames off the radio and turn valid ADS-L packets into traffic.

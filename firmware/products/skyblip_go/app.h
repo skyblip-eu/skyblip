@@ -15,6 +15,7 @@
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_APP_H
 
 #include "core/comms/config.h"
+#include "core/flight/atmosphere.h"
 #include "core/gnss/nmea.h"
 #include "core/messages/messages.h"
 #include "core/settings/settings.h"
@@ -81,6 +82,15 @@ class App {
         have_pending_fix_ = true;
     }
 
+    // Deliver a barometric pressure sample. Vertical speed comes from pressure
+    // whenever one of these has arrived, because a RATE needs no agreement with
+    // anyone about datum, and differentiated GNSS altitude is our noisiest
+    // signal. The altitude we BROADCAST stays GNSS: the alarm compares relative
+    // altitude between aircraft, so the datum is a protocol question.
+    void on_baro(uint32_t pressure_pa, uint32_t now_ms);
+
+    bool baro_active() const { return baro_ref_ms_ != 0; }
+
     // UI input from the shell (button press). Cycles the page and forces a full
     // e-paper refresh on the next step.
     void on_button();
@@ -123,6 +133,11 @@ class App {
         return own_.utc_valid ? own_.utc : now_ms / 1000;
     }
 
+    // Vertical speed from the altitude trend over a window, shared by the GNSS
+    // and barometric paths. Returns false until the window has elapsed.
+    bool vs_from_alt_cm(int32_t alt_cm, uint32_t now_ms, uint32_t window_ms, int32_t& ref_alt_cm,
+                        uint32_t& ref_ms, int16_t& out_e8) const;
+
     Ports p_;
     settings::Settings settings_{};
     timing::Scheduler scheduler_{};
@@ -137,8 +152,10 @@ class App {
     uint32_t last_ms_{0};
     uint32_t last_render_ms_{0};
     uint32_t gnss_fixes_{0};
-    int32_t vs_ref_alt_m_{0};
+    int32_t vs_ref_alt_cm_{0};
     uint32_t vs_ref_ms_{0};
+    int32_t baro_ref_alt_cm_{0};
+    uint32_t baro_ref_ms_{0};
     uint32_t rx_ok_{0};
     uint32_t rx_bad_{0};
     uint8_t max_alarm_{0};
@@ -155,6 +172,9 @@ class App {
 
     static constexpr uint32_t kRenderPeriodMs = 1000;
     static constexpr uint32_t kVsWindowMs = 2000;
+    // Pressure is far quieter than differentiated GNSS altitude, so the same
+    // confidence needs a shorter window - which is the point of having a baro.
+    static constexpr uint32_t kBaroVsWindowMs = 1000;
 };
 
 }  // namespace skyblip::go

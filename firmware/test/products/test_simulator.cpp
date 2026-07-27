@@ -5,6 +5,7 @@
 // decodes into the traffic table and the collision alarm. No mocks of logic.
 #include <cstdlib>
 
+#include "core/flight/atmosphere.h"
 #include "doctest/doctest.h"
 #include "products/skyblip_go/simulator/t_echo_plus.h"
 
@@ -106,4 +107,22 @@ TEST_CASE("sim: every page renders ink to the panel") {
         h.button();
     }
     CHECK(h.present_count() > 0);
+}
+
+TEST_CASE("sim: a modelled climb reaches own-ship state through the barometer") {
+    simulator::TEchoPlus h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.set_fix(true);
+    h.set_altitude_m(1000);
+    h.set_climb_e1(30);  // +3.0 m/s, integrated by the GNSS model's altitude
+    run(h, 0, 6000);
+
+    // Both sensors see the same air, and the barometer is what publishes the rate.
+    CHECK(h.own().climb_e8 > 16);                            // climbing at more than 2 m/s
+    CHECK(h.own().climb_e8 < 40);                            // and less than 5 m/s
+    CHECK(h.baro().pressure_pa() < flight::kIsaSeaLevelPa);  // above sea level
+
+    h.set_climb_e1(-30);  // now sinking
+    run(h, 6000, 14000);
+    CHECK(h.own().climb_e8 < 0);
 }

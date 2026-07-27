@@ -2,6 +2,7 @@
 // the real composition root (App) links and runs against device models, with ZERO
 // framework code. If App ever leaks a framework (Zephyr) include, this stops
 // compiling — which is exactly the guard the invariant was supposed to have.
+#include "core/flight/atmosphere.h"
 #include "devices/models/clock.h"
 #include "devices/models/display.h"
 #include "devices/models/kvstore.h"
@@ -142,4 +143,74 @@ TEST_CASE("app: persisted settings are loaded on setup()") {
     REQUIRE(app.setup() == Status::Ok);
     CHECK(app.settings().alarm_volume == 1);
     CHECK(app.settings().device_addr == 0x111111);
+}
+
+TEST_CASE("app: barometric pressure drives vertical speed") {
+    Rig rig;
+    go::App app(rig.ports());
+    REQUIRE(app.setup() == Status::Ok);
+    CHECK_FALSE(app.baro_active());
+
+    // Climb 1000 m -> 1010 m over 2 s, expressed only as pressure.
+    app.on_baro(flight::alt_cm_to_pressure(100000), 1000);
+    CHECK(app.baro_active());
+    app.on_baro(flight::alt_cm_to_pressure(101000), 3000);
+
+    // +10 m in 2 s = +5 m/s = 40 eighth-m/s.
+    CHECK(app.own().climb_e8 == doctest::Approx(40).epsilon(0.05));
+}
+
+TEST_CASE("app: a sample inside the window is ignored, not extrapolated") {
+    Rig rig;
+    go::App app(rig.ports());
+    REQUIRE(app.setup() == Status::Ok);
+    app.on_baro(flight::alt_cm_to_pressure(100000), 1000);
+    app.on_baro(flight::alt_cm_to_pressure(199000), 1100);  // 100 ms later
+    CHECK(app.own().climb_e8 == 0);                         // no absurd rate published
+}
+
+TEST_CASE("app: with no barometer, vertical speed still comes from GNSS") {
+    Rig rig;
+    go::App app(rig.ports());
+    REQUIRE(app.setup() == Status::Ok);
+
+    gnss::GnssFix f{};
+    f.valid = true;
+    f.alt_m = 1000;
+    f.updates = 1;
+    app.on_gnss_fix(f);
+    app.step(1000);
+
+    f.alt_m = 1010;  // +10 m over the 2 s GNSS window
+    f.updates = 2;
+    app.on_gnss_fix(f);
+    app.step(3000);
+
+    CHECK_FALSE(app.baro_active());
+    CHECK(app.own().climb_e8 == doctest::Approx(40).epsilon(0.05));
+}
+
+TEST_CASE("app: once the barometer speaks, GNSS stops setting vertical speed") {
+    Rig rig;
+    go::App app(rig.ports());
+    REQUIRE(app.setup() == Status::Ok);
+
+    app.on_baro(flight::alt_cm_to_pressure(100000), 500);
+    app.on_baro(flight::alt_cm_to_pressure(100200), 1500);  // +2 m in 1 s = +16 e8
+    const int16_t from_baro = app.own().climb_e8;
+    CHECK(from_baro == doctest::Approx(16).epsilon(0.1));
+
+    // A GNSS altitude sequence implying a wildly different rate must not win.
+    gnss::GnssFix f{};
+    f.valid = true;
+    f.alt_m = 1000;
+    f.updates = 1;
+    app.on_gnss_fix(f);
+    app.step(2000);
+    f.alt_m = 1200;
+    f.updates = 2;
+    app.on_gnss_fix(f);
+    app.step(4000);
+
+    CHECK(app.own().climb_e8 == from_baro);
 }

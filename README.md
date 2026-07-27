@@ -31,7 +31,7 @@ Dependencies point inward at contracts: `hal/` and `devices/io/` include nothing
 
 ```
 cd firmware
-make test        # all doctest suites (-Werror) — 108 cases, 8126 assertions
+make test        # all doctest suites (-Werror) — 128 cases, 9243 assertions
 make simulator   # terminal simulator: ./build/skyblip_simulator
 make browser     # browser simulator → build/browser/ (needs Emscripten)
 make serve       # serve the browser simulator at :8000 with live reload

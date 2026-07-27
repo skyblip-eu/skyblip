@@ -30,6 +30,7 @@
 #include "devices/drivers/l76k.h"
 #include "devices/drivers/sx1262.h"
 #include "devices/models/annunciator.h"
+#include "devices/models/baro.h"
 #include "devices/models/clock.h"
 #include "devices/models/display.h"
 #include "devices/models/kvstore.h"
@@ -73,6 +74,15 @@ class TEchoPlus {
         clock_.set_millis(now_ms);
         gnss_chip_.tick(now_ms);  // modelled GNSS → NMEA bytes
         if (gnss_.poll()) app_.on_gnss_fix(gnss_.fix());
+        if (now_ms - last_baro_ms_ >= kBaroPeriodMs) {
+            last_baro_ms_ = now_ms;
+            // One altitude, two sensors: the GNSS model integrates climb into its
+            // own altitude, so the barometer reads THAT, exactly as both sensors
+            // would see the same air. Setting the two independently would let the
+            // simulator show a climb rate no real pair of sensors could produce.
+            baro_.set_altitude_m(gnss_chip_.alt_m);
+            app_.on_baro(baro_.pressure_pa(), now_ms);
+        }
         service_aircraft(now_ms);  // virtual aircraft → real ADS-L frames
         app_.step(now_ms);
     }
@@ -93,6 +103,7 @@ class TEchoPlus {
     void set_fix(bool on) { gnss_chip_.fix = on; }
     void set_sats(int n) { gnss_chip_.sats = static_cast<uint8_t>(n < 0 ? 0 : (n > 32 ? 32 : n)); }
     void set_altitude_m(int32_t m) { gnss_chip_.alt_m = m; }
+    models::Baro& baro() { return baro_; }
     void set_speed_kt(int32_t kt) { gnss_chip_.speed_kt = kt; }
     void set_track_deg(int32_t deg) { gnss_chip_.track_deg = ((deg % 360) + 360) % 360; }
     void set_climb_e1(int32_t e1) { gnss_chip_.climb_mps_e1 = e1; }
@@ -216,10 +227,14 @@ class TEchoPlus {
     models::KvStore kv_;
     models::Display display_;
     models::Annunciator ann_;
+    models::Baro baro_;
     models::L76k gnss_chip_;
     drivers::L76k gnss_{gnss_chip_};  // declared after gnss_chip_ (ctor uses it)
     drivers::Sx1262 radio_;           // declared after radio_chip_ (ctor uses it)
     go::App app_;                     // declared last (ctor uses all of the above)
+
+    static constexpr uint32_t kBaroPeriodMs = 250;
+    uint32_t last_baro_ms_{0};
 
     VirtualAircraft acft_[kMaxAircraft]{};
     uint32_t last_acft_ms_{0};

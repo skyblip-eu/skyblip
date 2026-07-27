@@ -1,6 +1,7 @@
 /dts-v1/;
 #include <nordic/nrf52840_qiaa.dtsi>
 #include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
 
 /*
  * LilyGO T-Echo (Plus) — nRF52840 + SX1262 + SSD1681 1.54" e-paper + L76K GPS.
@@ -40,6 +41,7 @@
 		epd-spi = &spi2;
 		gnss-uart = &uart0;
 		buzzer = &buzzer_pwm;
+		baro = &bme280;
 		watchdog0 = &wdt0;
 	};
 
@@ -141,6 +143,21 @@
 		};
 	};
 
+	/* Sensor I2C (BME280 @ 0x76): SDA P0.26, SCL P0.27. 2-DEVICES.md BOM.
+	 * TWIM0 shares its peripheral ID with SPIM0/SPIS0, which this board does
+	 * not use (the radio is on spi3, the panel on spi2), so i2c0 is free. */
+	i2c0_default: i2c0_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 26)>, <NRF_PSEL(TWIM_SCL, 0, 27)>;
+		};
+	};
+	i2c0_sleep: i2c0_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 26)>, <NRF_PSEL(TWIM_SCL, 0, 27)>;
+			low-power-enable;
+		};
+	};
+
 	/* Buzzer PWM on P0.06 (Meshtastic t-echo-plus PIN_BUZZER). Plus-only. */
 	pwm0_default: pwm0_default {
 		group1 {
@@ -184,6 +201,24 @@
 	pinctrl-names = "default", "sleep";
 	/* CS driven manually by the SSD1681 driver on P0.30. */
 	cs-gpios = <&gpio0 30 GPIO_ACTIVE_LOW>;
+};
+
+/* The BME280 is listed "optional, selected" in the BOM, so a unit may not have
+ * one. The application treats a missing or silent sensor as "no baro" and falls
+ * back to GNSS-derived vertical speed rather than failing to boot. */
+&i2c0 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-1 = <&i2c0_sleep>;
+	pinctrl-names = "default", "sleep";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+
+	bme280: bme280@76 {
+		compatible = "bosch,bme280";
+		reg = <0x76>;
+		status = "okay";
+	};
 };
 
 &uart0 {

@@ -14,7 +14,7 @@ FW = os.path.join(ROOT, "firmware")
 # Modules that must be exercised by the host test suite.
 REQUIRED = [
     "core/util", "core/fec", "core/protocol", "core/gnss", "core/timing",
-    "core/traffic", "core/settings", "core/comms", "ui",
+    "core/traffic", "core/settings", "core/comms", "core/flight", "ui",
     "devices/drivers",
 ]
 

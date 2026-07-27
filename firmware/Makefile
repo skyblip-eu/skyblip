@@ -43,6 +43,7 @@ SRC := \
   core/traffic/alarm.cpp \
   core/settings/settings.cpp \
   core/comms/config.cpp \
+  core/flight/atmosphere.cpp \
   ui/screens/radar.cpp \
   ui/screens/altvs.cpp \
   ui/screens/status.cpp \
