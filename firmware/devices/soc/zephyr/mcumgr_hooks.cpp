@@ -11,8 +11,12 @@
 // The decision itself is not made in this file. core/comms/config.cpp owns it
 // (positively-on-the-ground, airborne-latched, opened by a physical button
 // press, closed on disconnect or timeout) and is covered by the host suite.
-#include <zephyr/mgmt/mcumgr/grp/img_mgmt/img_mgmt_callbacks.h>
-#include <zephyr/mgmt/mcumgr/grp/os_mgmt/os_mgmt_callbacks.h>
+// callbacks.h is the only include needed and the only one that is safe: it pulls
+// in img_mgmt_callbacks.h and os_mgmt_callbacks.h itself, guarded on
+// CONFIG_MCUMGR_GRP_IMG / _OS (callbacks.h:19-25), after defining the
+// MGMT_DEF_EVT_OP_ID and MGMT_EVT_GRP_* macros they expand. Including those two
+// group headers directly does not compile, because clang-format sorts `grp/`
+// ahead of `mgmt/` and they then see none of those macros.
 #include <zephyr/mgmt/mcumgr/mgmt/callbacks.h>
 #include <zephyr/mgmt/mcumgr/mgmt/mgmt_defines.h>
 
