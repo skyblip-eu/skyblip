@@ -44,7 +44,9 @@ int main(void) {
     for (;;) {
         while (board.link.pop_rx(frame)) app.on_link_rx(frame);
         if (board.have_gnss && board.gnss.poll()) app.on_gnss_fix(board.gnss.fix());
-        app.step(board.clock.millis());
+        const uint32_t now_ms = board.clock.millis();
+        if (board.button_pressed(now_ms)) app.on_button();
+        app.step(now_ms);
         k_sleep(K_MSEC(10));  // cooperative cadence; tighten for slot timing.
     }
     return 0;

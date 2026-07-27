@@ -28,6 +28,7 @@
 #include "devices/soc/zephyr/zephyr_io.h"
 #include "devices/soc/zephyr/zephyr_kvstore.h"
 #include "products/skyblip_go/app.h"
+#include "ui/input/button.h"
 
 namespace skyblip::go::device {
 
@@ -79,6 +80,12 @@ struct TEchoPlus {
     sz::ZephyrUart gnss_uart{kGnssUart};
     drivers::L76k gnss{gnss_uart};
 
+    // The main button (P1.10) is active-low with a pull-up: the ONLY input on
+    // this board, so without it a unit is stuck on whichever page it booted on.
+    // kButton2 is the reset-labelled pin and kTouch is a capacitive pad whose
+    // behaviour needs bench bring-up; neither is read yet.
+    ui::Button button{};
+
     bool have_epd{false};
     bool have_gnss{false};
     bool have_link{false};
@@ -95,12 +102,17 @@ struct TEchoPlus {
         have_epd = device_is_ready(kEpdSpi);
         if (have_epd) epd.begin();
 
+        gpio.mode_input(pins::kButton, /*pullup=*/true);
+
         kv.begin();
         annunciator.begin();
         have_link = link.begin() == Status::Ok;
         have_gnss = device_is_ready(kGnssUart);
         return Status::Ok;
     }
+
+    // True on a debounced press. Active-low, so a pressed button reads 0.
+    bool button_pressed(uint32_t now_ms) { return button.update(!gpio.get(pins::kButton), now_ms); }
 
     go::Ports ports() {
         go::Ports p{clock, link, radio};
