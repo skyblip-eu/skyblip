@@ -1,6 +1,7 @@
 /dts-v1/;
 #include <nordic/nrf52840_qiaa.dtsi>
 #include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
 
 /*
  * LilyGO T-Echo (Plus) — nRF52840 + SX1262 + SSD1681 1.54" e-paper + L76K GPS.
@@ -73,8 +74,9 @@
 	 * E-paper SPI (SSD1681): SCK P0.31, MOSI P0.29, MISO P1.07.
 	 *
 	 * P1.07 is a placeholder MISO — the panel is write-only. It is P1.07 and
-	 * not P0.07 on purpose: P0.07 is QSPI IO2 (see qspi_default below), and
-	 * Meshtastic's t-echo-plus variant.h:113 picks P1.07 for the same reason.
+	 * not P0.07 on purpose: P0.07 belongs to the external flash (IO2/WP#, see
+	 * board.c), and Meshtastic's t-echo-plus variant.h:113 picks P1.07 for the
+	 * same reason.
 	 */
 	spi2_default: spi2_default {
 		group1 {
@@ -92,35 +94,28 @@
 		};
 	};
 
-	/*
-	 * QSPI to the on-board MX25R1635F. Pins agree across three independent
+	/* External flash, on SPIM1 rather than the QSPI peripheral - see the node
+	 * below for why. Same six lines as the QSPI wiring:
+	 *   SCK P1.14  CS P1.15  IO0/MOSI P1.12  IO1/MISO P1.13  IO2 P0.07  IO3 P0.05
+	 * IO2/IO3 are WP# and HOLD# in single-line mode and are driven high by
+	 * board.c, not by pinctrl, because they must be high before MCUboot's flash
+	 * driver runs.
 	 * sources: Meshtastic t-echo-plus variant.h:70-75, nrf52-ogn-tracker
 	 * variants/t_echo/variant.h:56-61, and SoftRF iomap/LilyGO_TEcho.h:88-93.
-	 *   SCK P1.14  CS P1.15  IO0 P1.12  IO1 P1.13  IO2 P0.07  IO3 P0.05
 	 */
-	qspi_default: qspi_default {
+	spi1_default: spi1_default {
 		group1 {
-			psels = <NRF_PSEL(QSPI_SCK, 1, 14)>,
-				<NRF_PSEL(QSPI_CSN, 1, 15)>,
-				<NRF_PSEL(QSPI_IO0, 1, 12)>,
-				<NRF_PSEL(QSPI_IO1, 1, 13)>,
-				<NRF_PSEL(QSPI_IO2, 0, 7)>,
-				<NRF_PSEL(QSPI_IO3, 0, 5)>;
+			psels = <NRF_PSEL(SPIM_SCK, 1, 14)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 12)>,
+				<NRF_PSEL(SPIM_MISO, 1, 13)>;
 		};
 	};
-	qspi_sleep: qspi_sleep {
+	spi1_sleep: spi1_sleep {
 		group1 {
-			psels = <NRF_PSEL(QSPI_SCK, 1, 14)>,
-				<NRF_PSEL(QSPI_IO0, 1, 12)>,
-				<NRF_PSEL(QSPI_IO1, 1, 13)>,
-				<NRF_PSEL(QSPI_IO2, 0, 7)>,
-				<NRF_PSEL(QSPI_IO3, 0, 5)>;
+			psels = <NRF_PSEL(SPIM_SCK, 1, 14)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 12)>,
+				<NRF_PSEL(SPIM_MISO, 1, 13)>;
 			low-power-enable;
-		};
-		group2 {
-			psels = <NRF_PSEL(QSPI_CSN, 1, 15)>;
-			low-power-enable;
-			bias-pull-up;
 		};
 	};
 
@@ -137,6 +132,21 @@
 	uart0_sleep: uart0_sleep {
 		group1 {
 			psels = <NRF_PSEL(UART_TX, 1, 8)>, <NRF_PSEL(UART_RX, 1, 9)>;
+			low-power-enable;
+		};
+	};
+
+	/* Sensor I2C (BME280 @ 0x76): SDA P0.26, SCL P0.27. 2-DEVICES.md BOM.
+	 * TWIM0 shares its peripheral ID with SPIM0/SPIS0, which this board does
+	 * not use (the radio is on spi3, the panel on spi2), so i2c0 is free. */
+	i2c0_default: i2c0_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 26)>, <NRF_PSEL(TWIM_SCL, 0, 27)>;
+		};
+	};
+	i2c0_sleep: i2c0_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 26)>, <NRF_PSEL(TWIM_SCL, 0, 27)>;
 			low-power-enable;
 		};
 	};
@@ -184,6 +194,40 @@
 	pinctrl-names = "default", "sleep";
 	/* CS driven manually by the SSD1681 driver on P0.30. */
 	cs-gpios = <&gpio0 30 GPIO_ACTIVE_LOW>;
+};
+
+/* Sensor I2C. Nothing on this bus is guaranteed to be fitted.
+ *
+ * The BME280 is "optional, selected" in our BOM, AND its address is disputed:
+ * project/2-DEVICES.md says 0x76, LilyGO's own README I2C table and SoftRF's
+ * platform/nRF52.h both say 0x77. Nobody has checked a unit. So BOTH are
+ * declared: Zephyr's driver verifies the chip id at init, the absent one simply
+ * never becomes ready, and the application takes whichever answered. Two device
+ * instances cost a few hundred bytes and buy one image that boots on either
+ * variant instead of silently having no barometer on half of them.
+ *
+ * The IMU header (0x28 BHI260AP / 0x68 ICM-20948) is deliberately not declared:
+ * nothing drives it. See decisions in 3-ARCHITECTURE §8.
+ */
+&i2c0 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-1 = <&i2c0_sleep>;
+	pinctrl-names = "default", "sleep";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+
+	bme280_76: bme280@76 {
+		compatible = "bosch,bme280";
+		reg = <0x76>;
+		status = "okay";
+	};
+
+	bme280_77: bme280@77 {
+		compatible = "bosch,bme280";
+		reg = <0x77>;
+		status = "okay";
+	};
 };
 
 &uart0 {
@@ -243,7 +287,7 @@ zephyr_udc0: &usbd {
  * — MCUboot and slot0 — therefore lives strictly below 0xEA000, and NVS lives
  * above it inside the 40 KB the bootloader reserves for application data.
  *
- * The secondary slot is NOT here: it is on the external QSPI part (&mx25r16
+ * The secondary slot is NOT here: it is on the external SPI NOR part (&ext_flash
  * below), which is what buys slot0 its full 728 KB.
  */
 &flash0 {
@@ -293,30 +337,59 @@ zephyr_udc0: &usbd {
 };
 
 /*
- * On-board Macronix MX25R1635F, 16 Mbit / 2 MiB, on the nRF52840 QSPI.
+ * On-board external 2 MiB SPI NOR flash. THE PART IS NOT FIXED.
  *
- * Geometry and identity from Adafruit_SPIFlash flash_devices.h:216-222 (vendored
- * in oss/SoftRF-lyusupov): manufacturer 0xC2, memory type 0x28, capacity 0x15;
- * 2 MiB; 8 MHz in the default low-power mode; quad-enable via status register 1
- * bit 6, which is this binding's `quad-enable-requirements` default of "S1B6".
+ * LilyGO's own README states it: "Flash Chip Variants: Flash will choose either
+ * MX25R1635FZUIL0 or ZD25WQ16B depending on availability." There is no revision
+ * or date split - you cannot tell from the board rev, the silkscreen or the
+ * serial. SoftRF and nrf52-ogn-tracker both keep BOTH parts in a runtime JEDEC
+ * probe table for every revision.
  *
- * Node shape follows the upstream nrf52840dk MX25R64 node.
+ * That is why this is `jedec,spi-nor` with CONFIG_SPI_NOR_SFDP_RUNTIME=y and not
+ * `nordic,qspi-nor`. The QSPI driver compares the devicetree `jedec-id` against
+ * the chip and returns -ENODEV on mismatch (drivers/flash/nrf_qspi_nor.c), which
+ * leaves the device permanently not-ready: the unit boots, flies, and - because
+ * slot1 lives here - can NEVER be updated over the air, silently. The generic
+ * driver compiles that check out under SFDP_RUNTIME and reads geometry, page
+ * size, erase sizes and the quad-enable requirement from the chip's own SFDP
+ * tables, so one image serves both parts and any future third source.
+ *
+ * A single image could not use quad mode anyway: the two parts differ in
+ * quad-enable bit (MX25R SR1 bit 6 vs ZD25 SR2 bit 1) and in quad page-program
+ * opcode (38h vs 32h), and both are compile-time devicetree properties. Plain
+ * 03h READ is spec'd at 33 MHz on both, which is why `use-fast-read` is NOT set:
+ * 0Bh is capped at 8 MHz on the MX25R in its default ultra-low-power mode.
+ *
+ * SPIM1, not SPIM3: SPIM3 is the only 32 MHz instance and the SX1262 has it.
+ * SPIM1 tops out at 8 MHz, so this is ~1 MB/s against the ~4 MB/s of the old
+ * 8 MHz quad setup. That does not matter - an MCUboot swap is dominated by
+ * nRF52840 internal page erases (~85 ms x 182 pages is over 15 s), against which
+ * the extra ~1.5 s of external transfer disappears.
  */
-&qspi {
+&spi1 {
+	compatible = "nordic,nrf-spim";
 	status = "okay";
-	pinctrl-0 = <&qspi_default>;
-	pinctrl-1 = <&qspi_sleep>;
+	pinctrl-0 = <&spi1_default>;
+	pinctrl-1 = <&spi1_sleep>;
 	pinctrl-names = "default", "sleep";
+	cs-gpios = <&gpio1 15 GPIO_ACTIVE_LOW>;
 
-	mx25r16: mx25r1635f@0 {
-		compatible = "nordic,qspi-nor";
+	ext_flash: flash@0 {
+		compatible = "jedec,spi-nor";
 		reg = <0>;
-		writeoc = "pp4io";
-		readoc = "read4io";
-		/* Low-power mode tops out at 8 MHz; we never enter high-power mode. */
-		sck-frequency = <8000000>;
+		/* 8 MHz is the SPIM1 ceiling and is within 03h READ spec on both parts. */
+		spi-max-frequency = <8000000>;
+		/* NOT read under CONFIG_SPI_NOR_SFDP_RUNTIME - the driver takes both
+		 * from SFDP. Kept because the binding wants them and because they
+		 * record what we EXPECT to find; they are not enforced, which is the
+		 * entire point of this node. */
 		jedec-id = [c2 28 15];
-		size-in-bytes = <2097152>;
+		/* BITS, not bytes: this binding's `size` is a bit count (upstream
+		 * nrf52840dk gives its 8 MiB MX25R64 as 67108864). 16 Mbit = 2 MiB. */
+		size = <16777216>;
+		/* Both parts support B9h/ABh. MCUboot or a previous image may have left
+		 * the chip in deep power-down, so the driver must issue the release -
+		 * SoftRF sends a bare ABh before probing for the same reason. */
 		has-dpd;
 		t-enter-dpd = <10000>;
 		t-exit-dpd = <35000>;
@@ -346,7 +419,8 @@ zephyr_udc0: &usbd {
 			 * usable image size is unchanged either way.
 			 *
 			 * Both slots must have the same sector size for this mode:
-			 * nRF52840 page = 4096 B, MX25R sector = 4096 B.
+			 * nRF52840 page = 4096 B, and 4 KB sectors on both candidate
+			 * external parts (they differ in quad config, not geometry).
 			 */
 			slot1_partition: partition@0 {
 				label = "image-1";

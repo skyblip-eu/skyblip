@@ -1,12 +1,13 @@
-// devices/host/fake_clock.h — injectable clock (§3): set time directly, no
-#ifndef SKYBLIP_DEVICES_HOST_FAKE_CLOCK_H
-#define SKYBLIP_DEVICES_HOST_FAKE_CLOCK_H
+// devices/models/clock.h — a model of time: driven directly instead of running,
+// so every test and the simulator advance the clock deterministically.
+#ifndef SKYBLIP_DEVICES_MODELS_CLOCK_H
+#define SKYBLIP_DEVICES_MODELS_CLOCK_H
 
 #include "hal/clock.h"
 
-namespace skyblip::host {
+namespace skyblip::models {
 
-class FakeClock : public hal::Clock {
+class Clock : public hal::Clock {
    public:
     uint32_t millis() const override { return static_cast<uint32_t>(us_ / 1000); }
     uint64_t micros() const override { return us_; }

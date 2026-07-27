@@ -1,8 +1,10 @@
-// devices/boards/techo/pins.h — LilyGO T-Echo Plus (nRF52840) pin map.
-#ifndef SKYBLIP_DEVICES_BOARDS_TECHO_PINS_H
-#define SKYBLIP_DEVICES_BOARDS_TECHO_PINS_H
+// devices/boards/t_echo_plus/pins.h — LilyGO T-Echo Plus (nRF52840) pin map.
+#ifndef SKYBLIP_DEVICES_BOARDS_T_ECHO_PLUS_PINS_H
+#define SKYBLIP_DEVICES_BOARDS_T_ECHO_PLUS_PINS_H
 
-namespace skyblip::board::techo {
+#include <cstdint>
+
+namespace skyblip::board::t_echo_plus {
 
 constexpr int kPinNum(int port, int pin) { return port * 32 + pin; }
 
@@ -27,12 +29,24 @@ constexpr int kEpdRst = kPinNum(0, 2);
 constexpr int kEpdBusy = kPinNum(0, 3);
 constexpr int kEpdBacklight = kPinNum(1, 11);
 
+// Sensor I2C. Nothing on it is guaranteed present: the barometer is "optional,
+// selected" in the BOM, and the IMU header may carry a T-BHI260, a T-ICM29048 or
+// nothing at all. Driven by Zephyr (bosch,bme280); no first-party io::I2c user.
 constexpr int kSda = kPinNum(0, 26);
 constexpr int kScl = kPinNum(0, 27);
 
-constexpr int kSflMosi = kPinNum(1, 12);
-constexpr int kSflMiso = kPinNum(1, 13);
-constexpr int kSflSck = kPinNum(1, 14);
+// BME280. Our BOM says 0x76; LilyGO's own README I2C table and SoftRF
+// (platform/nRF52.h) both say 0x77. Nobody has settled it on a bench, so the
+// devicetree declares BOTH and the board takes whichever answers.
+constexpr uint8_t kBaroAddrPrimary = 0x76;
+constexpr uint8_t kBaroAddrAlternate = 0x77;
+
+// The external 2 MB QSPI flash (MX25R1635F) sits on P1.12/13/14/15 + P0.05/0.07
+// as a FOUR-LANE QSPI, not a 3-wire SPI. It is driven by Zephyr's
+// nordic,qspi-nor via the qspi_default pinctrl group in the board devicetree,
+// which is the single source of truth for those six pins - nothing here reads
+// them, so they are deliberately not duplicated as constants. The old kSflMosi/
+// kSflMiso/kSflSck names were a mis-transcription of a QSPI bus as an SPI one.
 
 constexpr int kButton = kPinNum(1, 10);   // main button (active-low, pull-up)
 constexpr int kButton2 = kPinNum(0, 18);  // 2nd button (reset-labelled, usable GPIO)

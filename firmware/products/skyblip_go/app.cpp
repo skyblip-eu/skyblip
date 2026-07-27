@@ -1,5 +1,5 @@
-// products/skyblip/app.cpp — see app.h. Pure C++17; no framework headers.
-#include "products/skyblip/app.h"
+// products/skyblip_go/app.cpp — see app.h. Pure C++17; no framework headers.
+#include "products/skyblip_go/app.h"
 
 #include "core/protocol/adsl.h"
 #include "core/protocol/nmea_out.h"
@@ -7,7 +7,7 @@
 #include "core/util/units.h"
 #include "products/common/tasks.h"
 
-namespace skyblip::product {
+namespace skyblip::go {
 
 App::App(const Ports& ports) : p_(ports), config_(ports.link, settings_, ports.dfu) {}
 
@@ -39,22 +39,15 @@ Status App::setup() {
     return Status::Ok;
 }
 
-void App::drain_gnss() {
-    if (!p_.gnss) return;
-    uint8_t c = 0;
-    while (p_.gnss->read(&c, 1) == 1) {
-        gnss_.feed(static_cast<char>(c));
-    }
-}
-
-// Copy the parsed GNSS fix into the own-ship state and derive vertical speed
+// Copy the pushed GNSS fix into the own-ship state and derive vertical speed
 // from the altitude trend. own_ is what the protocol encoder, the alarm logic
 // and every screen read — so this is the single point where "sensor" becomes
 // "state".
 void App::apply_gnss(uint32_t now_ms) {
-    const gnss::GnssFix& f = gnss_.fix();
-    if (f.updates == gnss_updates_) return;  // nothing new
-    gnss_updates_ = f.updates;
+    if (!have_pending_fix_) return;
+    have_pending_fix_ = false;
+    const gnss::GnssFix& f = pending_fix_;
+    gnss_fixes_++;
 
     own_.fix_valid = f.valid;
     own_.utc_valid = f.utc_valid;
@@ -69,20 +62,39 @@ void App::apply_gnss(uint32_t now_ms) {
 
     clock_state_.utc_valid = f.utc_valid;
 
-    // Vertical speed over a ~2 s window: climb_e8 is eighth-m/s.
-    if (vs_ref_ms_ == 0) {
-        vs_ref_ms_ = now_ms;
-        vs_ref_alt_m_ = f.alt_m;
-    } else if (now_ms - vs_ref_ms_ >= kVsWindowMs) {
-        int32_t dt_ms = static_cast<int32_t>(now_ms - vs_ref_ms_);
-        int32_t d_alt = f.alt_m - vs_ref_alt_m_;
-        int32_t e8 = (d_alt * 8 * 1000) / dt_ms;
-        if (e8 > 32767) e8 = 32767;
-        if (e8 < -32768) e8 = -32768;
-        own_.climb_e8 = static_cast<int16_t>(e8);
-        vs_ref_ms_ = now_ms;
-        vs_ref_alt_m_ = f.alt_m;
+    // A barometer, once it has spoken, owns vertical speed. Keep the GNSS
+    // reference moving anyway so losing the sensor falls back seamlessly.
+    int16_t e8 = 0;
+    const bool have =
+        vs_from_alt_cm(f.alt_m * 100, now_ms, kVsWindowMs, vs_ref_alt_cm_, vs_ref_ms_, e8);
+    if (have && !baro_active()) {
+        own_.climb_e8 = e8;
+        own_.climb_valid = true;
     }
+}
+
+void App::on_baro(uint32_t pressure_pa, uint32_t now_ms) {
+    const int32_t alt_cm = flight::pressure_to_alt_cm(pressure_pa);
+    int16_t e8 = 0;
+    if (vs_from_alt_cm(alt_cm, now_ms, kBaroVsWindowMs, baro_ref_alt_cm_, baro_ref_ms_, e8)) {
+        own_.climb_e8 = e8;
+        own_.climb_valid = true;
+    }
+}
+
+bool App::vs_from_alt_cm(int32_t alt_cm, uint32_t now_ms, uint32_t window_ms, int32_t& ref_alt_cm,
+                         uint32_t& ref_ms, int16_t& out_e8) const {
+    if (ref_ms == 0) {  // first sample only anchors the window
+        ref_ms = now_ms == 0 ? 1 : now_ms;
+        ref_alt_cm = alt_cm;
+        return false;
+    }
+    if (now_ms - ref_ms < window_ms) return false;
+
+    const bool ok = flight::climb_e8_from_alt(alt_cm, ref_alt_cm, now_ms - ref_ms, out_e8);
+    ref_ms = now_ms;
+    ref_alt_cm = alt_cm;
+    return ok;
 }
 
 // Pull received frames off the radio and turn valid ADS-L packets into traffic.
@@ -131,6 +143,7 @@ void App::update_alarms() {
         }
     }
     if (worst != max_alarm_) {
+        const bool escalated = worst > max_alarm_;
         max_alarm_ = worst;
         dirty_ = true;
         if (p_.annunciator && settings_.alarm_enabled) {
@@ -138,6 +151,12 @@ void App::update_alarms() {
                 p_.annunciator->alarm(worst, settings_.alarm_volume);
             else
                 p_.annunciator->silence();
+            // Haptics only on the way UP, and only from "important": this device
+            // rides in a pocket or a harness where the buzzer is muffled, which
+            // is precisely when a pilot needs to feel it. Buzzing AND vibrating
+            // on every info-level contact would train pilots to ignore both.
+            if (escalated && worst >= kVibroFromLevel)
+                p_.annunciator->vibrate(worst >= kUrgentLevel ? kVibroUrgentMs : kVibroImportantMs);
         }
     }
 }
@@ -149,12 +168,11 @@ void App::step(uint32_t now_ms) {
     config_.tick(now_ms);
     confirm_image_once_healthy();
 
-    // 1) GNSS: pull NMEA bytes, advance the parser, update own-ship state.
-    drain_gnss();
+    // 1) GNSS: fold the fix the shell pushed into own-ship state.
     apply_gnss(now_ms);
 
     // 2) radio watchdog: reinit if Rx has gone silent too long (§8 recovery).
-    p_.radio.service(dt, kRadioNoRxReinitMs);
+    p_.radio.service(dt, product::kRadioNoRxReinitMs);
 
     // 3) drain the radio: decode ADS-L → traffic fusion table.
     drain_radio(now_ms);
@@ -178,12 +196,12 @@ void App::step(uint32_t now_ms) {
 // A fresh image swapped in by MCUboot is on probation: unless it declares
 // itself good, the bootloader restores the previous one on the next boot. That
 // guarantee is only worth something if "good" means more than "main() ran", so
-// wait until the radio is up AND the GNSS parser has produced a sentence —
-// between them that exercises SPI, the SX1262, the UART and core/gnss. A build
-// that boots but cannot talk to its own peripherals will be rolled back.
+// wait until the radio is up AND a GNSS fix has arrived — between them that
+// exercises SPI, the SX1262, the UART and core/gnss. A build that boots but
+// cannot talk to its own peripherals will be rolled back.
 void App::confirm_image_once_healthy() {
     if (image_confirmed_ || p_.dfu == nullptr) return;
-    if (!started_ || gnss_updates_ == 0) return;
+    if (!started_ || gnss_fixes_ == 0) return;
     p_.dfu->confirm();
     image_confirmed_ = true;
 }
@@ -273,4 +291,4 @@ void App::render() {
                         full ? hal::Refresh::Full : hal::Refresh::Partial);
 }
 
-}  // namespace skyblip::product
+}  // namespace skyblip::go

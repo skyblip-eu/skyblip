@@ -1,64 +1,51 @@
-// products/sim/harness.h — SimHarness: the "virtual T-Echo".
+// products/skyblip_go/simulator/t_echo_plus.h — the VIRTUAL T-Echo Plus.
 //
-// This is the shared, frontend-agnostic core of the device simulator. It wires
-// the real `App` to VIRTUAL peripherals and exposes a control surface. Both
-// simulator frontends drive it identically:
+// Twin of products/skyblip_go/device/t_echo_plus.h: same board, same product,
+// assembled out of devices/models instead of devices/soc/zephyr. Diff the two
+// and the difference IS the list of what is virtualised.
 //
-//   products/sim/term_main.cpp   terminal frontend  (ASCII e-paper, TTY keys)
-//   products/sim/web_main.cpp    browser frontend   (WASM, <canvas> + buttons)
+// Both frontends drive this identically, so neither holds any behaviour:
+//
+//   simulator/terminal.cpp   ASCII e-paper, TTY keys
+//   simulator/browser.cpp    WASM, <canvas> + buttons
 //
 // It runs the REAL firmware (core/ + ui/ + drivers + App) — no reimplementation.
-// The simulated sensors are honest: GNSS produces real NMEA that the production
-// parser decodes, and virtual aircraft are encoded as real ADS-L frames
-// (scrambled + CRC) that the production receive path decodes. So exercising the
-// simulator exercises the shipping logic, not a mock of it.
-#ifndef SKYBLIP_PRODUCTS_SIM_HARNESS_H
-#define SKYBLIP_PRODUCTS_SIM_HARNESS_H
+// The models are honest: GNSS emits real NMEA that the production parser
+// decodes, and virtual aircraft are encoded as real ADS-L frames (scrambled +
+// CRC) that the production receive path decodes. Exercising the simulator
+// exercises the shipping logic, not a mock of it.
+//
+// The one seam that is NOT the shipping path: the e-paper stops at
+// hal::Display (models/display.h), so drivers::Ssd1681 does not run here.
+// models/ssd1681.h models the panel at the SPI seam if that ever matters;
+// test/core/test_display_driver.cpp already pins the driver against it.
+#ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_SIMULATOR_T_ECHO_PLUS_H
+#define SKYBLIP_PRODUCTS_SKYBLIP_GO_SIMULATOR_T_ECHO_PLUS_H
 
 #include <cmath>
 #include <cstring>
 
 #include "core/protocol/adsl.h"
+#include "devices/boards/t_echo_plus/pins.h"
+#include "devices/drivers/l76k.h"
 #include "devices/drivers/sx1262.h"
-#include "devices/host/fake_clock.h"
-#include "devices/host/fake_link.h"
-#include "devices/host/fake_sx1262.h"
-#include "products/sim/capture_display.h"
-#include "products/sim/sim_gnss.h"
-#include "products/skyblip/app.h"
+#include "devices/models/annunciator.h"
+#include "devices/models/baro.h"
+#include "devices/models/clock.h"
+#include "devices/models/display.h"
+#include "devices/models/kvstore.h"
+#include "devices/models/l76k.h"
+#include "devices/models/link.h"
+#include "devices/models/sx1262.h"
+#include "products/skyblip_go/app.h"
 
-namespace skyblip::sim {
+namespace skyblip::simulator {
 
-// In-memory settings store (no persistence needed for the sim).
-class MemKv : public hal::KvStore {
-   public:
-    Status read(const char*, uint8_t*, size_t, size_t&) override { return Status::NotFound; }
-    Status write(const char*, const uint8_t*, size_t) override { return Status::Ok; }
-    Status erase(const char*) override { return Status::Ok; }
-};
-
-// Records buzzer / vibration so a frontend can show the alarm firing.
-class CaptureAnnunciator : public hal::Annunciator {
-   public:
-    void alarm(uint8_t level, uint8_t volume) override {
-        level_ = level;
-        volume_ = volume;
-    }
-    void vibrate(uint16_t ms) override { vibro_ms_ = ms; }
-    void silence() override { level_ = 0; }
-
-    uint8_t level() const { return level_; }
-    uint8_t volume() const { return volume_; }
-    uint16_t vibro_ms() const { return vibro_ms_; }
-
-   private:
-    uint8_t level_{0}, volume_{0};
-    uint16_t vibro_ms_{0};
-};
+namespace pins = skyblip::board::t_echo_plus;
 
 // A virtual aircraft in the sky around own-ship, held in local N/E/U metres and
 // re-broadcast ~1 Hz like a real transmitter would.
-struct SimAircraft {
+struct VirtualAircraft {
     bool used{false};
     uint32_t addr{0};
     double north_m{0}, east_m{0}, up_m{0};
@@ -67,18 +54,35 @@ struct SimAircraft {
     int32_t climb_e8{0};
 };
 
-class SimHarness {
+class TEchoPlus {
    public:
     static constexpr int kMaxAircraft = 8;
 
-    SimHarness()
-        : radio_(bus_, bus_, bus_.busy_pin, bus_.reset_pin, bus_.dio1_pin), app_(ports()) {}
+    // Wired with the SAME pin map as device/t_echo_plus.h, so a pin mistake
+    // surfaces here instead of only on hardware.
+    TEchoPlus()
+        : radio_(radio_chip_, radio_chip_, pins::kRadioBusy, pins::kRadioRst, pins::kRadioDio1),
+          app_(ports()) {
+        radio_chip_.busy_pin = pins::kRadioBusy;
+        radio_chip_.reset_pin = pins::kRadioRst;
+        radio_chip_.dio1_pin = pins::kRadioDio1;
+    }
 
     Status setup() { return app_.setup(); }
 
     void step(uint32_t now_ms) {
         clock_.set_millis(now_ms);
-        gnss_.tick(now_ms);        // simulated GNSS → NMEA bytes
+        gnss_chip_.tick(now_ms);  // modelled GNSS → NMEA bytes
+        if (gnss_.poll()) app_.on_gnss_fix(gnss_.fix());
+        if (now_ms - last_baro_ms_ >= kBaroPeriodMs) {
+            last_baro_ms_ = now_ms;
+            // One altitude, two sensors: the GNSS model integrates climb into its
+            // own altitude, so the barometer reads THAT, exactly as both sensors
+            // would see the same air. Setting the two independently would let the
+            // simulator show a climb rate no real pair of sensors could produce.
+            baro_.set_altitude_m(gnss_chip_.alt_m);
+            app_.on_baro(baro_.pressure_pa(), now_ms);
+        }
         service_aircraft(now_ms);  // virtual aircraft → real ADS-L frames
         app_.step(now_ms);
     }
@@ -94,21 +98,22 @@ class SimHarness {
     }
     void set_range_m(int32_t m) { app_.set_range_m(m); }
 
-    // ---- simulated sensors -------------------------------------------------
-    SimGnss& gnss() { return gnss_; }
-    void set_fix(bool on) { gnss_.fix = on; }
-    void set_sats(int n) { gnss_.sats = static_cast<uint8_t>(n < 0 ? 0 : (n > 32 ? 32 : n)); }
-    void set_altitude_m(int32_t m) { gnss_.alt_m = m; }
-    void set_speed_kt(int32_t kt) { gnss_.speed_kt = kt; }
-    void set_track_deg(int32_t deg) { gnss_.track_deg = ((deg % 360) + 360) % 360; }
-    void set_climb_e1(int32_t e1) { gnss_.climb_mps_e1 = e1; }
+    // ---- modelled sensors --------------------------------------------------
+    models::L76k& gnss() { return gnss_chip_; }
+    void set_fix(bool on) { gnss_chip_.fix = on; }
+    void set_sats(int n) { gnss_chip_.sats = static_cast<uint8_t>(n < 0 ? 0 : (n > 32 ? 32 : n)); }
+    void set_altitude_m(int32_t m) { gnss_chip_.alt_m = m; }
+    models::Baro& baro() { return baro_; }
+    void set_speed_kt(int32_t kt) { gnss_chip_.speed_kt = kt; }
+    void set_track_deg(int32_t deg) { gnss_chip_.track_deg = ((deg % 360) + 360) % 360; }
+    void set_climb_e1(int32_t e1) { gnss_chip_.climb_mps_e1 = e1; }
 
     // ---- virtual traffic ---------------------------------------------------
     int add_aircraft(double north_m, double east_m, double up_m, double speed_mps = 30,
                      double track_deg = 270) {
         for (int i = 0; i < kMaxAircraft; i++) {
             if (acft_[i].used) continue;
-            acft_[i] = SimAircraft{};
+            acft_[i] = VirtualAircraft{};
             acft_[i].used = true;
             acft_[i].addr = 0x300000u + static_cast<uint32_t>(i) + 1u;
             acft_[i].north_m = north_m;
@@ -137,28 +142,28 @@ class SimHarness {
     const ui::Framebuffer& framebuffer() const { return display_.framebuffer(); }
     bool backlight_on() const { return display_.backlight(); }
     bool powered() const { return display_.powered(); }
-    product::Page page() const { return app_.page(); }
+    go::Page page() const { return app_.page(); }
     int present_count() const { return display_.present_count; }
     int traffic_count() const { return app_.traffic_count(); }
     uint8_t alarm_level() const { return ann_.level(); }
+    uint16_t vibro_ms() const { return ann_.vibro_ms(); }
     uint32_t rx_ok() const { return app_.rx_ok(); }
     uint32_t rx_bad() const { return app_.rx_bad(); }
     const messages::OwnState& own() const { return app_.own(); }
-    product::App& app() { return app_; }
+    go::App& app() { return app_; }
 
    private:
-    product::Ports ports() {
-        product::Ports p{clock_, link_, radio_};
+    go::Ports ports() {
+        go::Ports p{clock_, link_, radio_};
         p.display = &display_;
         p.kv = &kv_;
         p.annunciator = &ann_;
-        p.gnss = &gnss_;
         p.device_addr = 0x0ABBCC;
         return p;
     }
 
     // Advance each virtual aircraft and inject ONE real ADS-L frame per call
-    // (round-robin) — the fake radio holds a single frame at a time, and App
+    // (round-robin) — the radio model holds a single frame at a time, and App
     // drains one per step, so this mimics ~1 Hz per aircraft.
     void service_aircraft(uint32_t now_ms) {
         if (now_ms - last_acft_ms_ < 100) return;
@@ -181,8 +186,8 @@ class SimHarness {
     }
 
     // Encode a virtual aircraft as a genuine on-air ADS-L frame and hand it to
-    // the fake radio, so App's receive path (CRC → descramble → to_obs) runs.
-    void transmit(const SimAircraft& a) {
+    // the radio model, so App's receive path (CRC → descramble → to_obs) runs.
+    void transmit(const VirtualAircraft& a) {
         const messages::OwnState& own = app_.own();
         const double coslat = std::cos(own.lat_1e7 / 1e7 * 3.14159265358979 / 180.0);
         int32_t lat = own.lat_1e7 + static_cast<int32_t>(a.north_m * 1e7 / 111320.0);
@@ -214,24 +219,29 @@ class SimHarness {
 
         uint8_t wire[protocol::AdslPacket::kTxBytes];
         std::memcpy(wire, &p, sizeof(wire));
-        bus_.queue_rx(wire, static_cast<uint8_t>(sizeof(wire)));
+        radio_chip_.queue_rx(wire, static_cast<uint8_t>(sizeof(wire)));
     }
 
-    host::FakeClock clock_;
-    host::FakeLink link_;
-    host::FakeSx1262 bus_;
-    MemKv kv_;
-    CaptureDisplay display_;
-    CaptureAnnunciator ann_;
-    SimGnss gnss_;
-    drivers::Sx1262 radio_;  // declared after bus_ (ctor uses it)
-    product::App app_;       // declared last (ctor uses all of the above)
+    models::Clock clock_;
+    models::Link link_;
+    models::Sx1262 radio_chip_;
+    models::KvStore kv_;
+    models::Display display_;
+    models::Annunciator ann_;
+    models::Baro baro_;
+    models::L76k gnss_chip_;
+    drivers::L76k gnss_{gnss_chip_};  // declared after gnss_chip_ (ctor uses it)
+    drivers::Sx1262 radio_;           // declared after radio_chip_ (ctor uses it)
+    go::App app_;                     // declared last (ctor uses all of the above)
 
-    SimAircraft acft_[kMaxAircraft]{};
+    static constexpr uint32_t kBaroPeriodMs = 250;
+    uint32_t last_baro_ms_{0};
+
+    VirtualAircraft acft_[kMaxAircraft]{};
     uint32_t last_acft_ms_{0};
     int rr_{0};
 };
 
-}  // namespace skyblip::sim
+}  // namespace skyblip::simulator
 
 #endif

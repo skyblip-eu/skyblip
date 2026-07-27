@@ -1,8 +1,26 @@
 name: ci
 
+# `push:` unqualified fires on EVERY branch push, and a push to a branch with an
+# open PR also fires `pull_request` - so every commit ran the whole matrix twice,
+# including the 5-minute Zephyr build. Pushes are watched on main only (the
+# post-merge signal); everything else is covered by the PR event, and this repo
+# never commits to main directly anyway.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: every job here only ever reads the repository. The device
+# build's artifact upload uses the Actions runtime token, not this one.
+permissions:
+  contents: read
+
+# Supersede in-flight runs on a branch when new commits land, but never cancel a
+# run on main - that one is the record of what the merged tree does.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   host-tests:

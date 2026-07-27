@@ -15,9 +15,11 @@ core/       pure C++, no framework, 100% host-tested
             protocol/ fec/ gnss/ timing/ traffic/ flight/ settings/ comms/ util/
 ui/         1-bit framebuffer + radar / ALT-VS / status screens
 hal/        capability ports (clock, link, display, kvstore, annunciator, dfu)
-devices/    the only vendor zone: io/ drivers/ soc/zephyr/ boards/ host/ (fakes)
-products/   skyblip/ (app.h = framework-agnostic root, main.cpp = Zephyr shell)
-            sim/ (virtual T-Echo: terminal + WASM frontends)
+devices/    the only vendor zone: io/ drivers/ (real chips) models/ (virtual
+            chips, 1:1 by filename) soc/zephyr/ boards/ (pins, shared by both)
+products/   skyblip_go/ app.{h,cpp} = the product, framework-free
+              device/t_echo_plus.h + main.cpp        the board on silicon
+              simulator/t_echo_plus.h + terminal.cpp browser.cpp
 test/       mirrored doctest suites
 ```
 
@@ -29,17 +31,22 @@ Dependencies point inward at contracts: `hal/` and `devices/io/` include nothing
 
 ```
 cd firmware
-make test        # all doctest suites (-Werror) — 102 cases, 8108 assertions
-make sim         # terminal simulator: ./build/skyblip_sim
-make web         # browser simulator (needs Emscripten)
-make serve       # serve the browser sim at :8000 with live reload
-make watch       # incremental rebuild on save (WATCH=web|sim|test)
+make test        # all doctest suites (-Werror) — 128 cases, 9243 assertions
+make simulator   # terminal simulator: ./build/skyblip_simulator
+make browser     # browser simulator → build/browser/ (needs Emscripten)
+make serve       # serve the browser simulator at :8000 with live reload
+make watch       # incremental rebuild on save (WATCH=browser|simulator|test)
 ```
 
-The simulator runs the real firmware against simulated sensors — GNSS emits
-valid `$GPRMC`/`$GPGGA`, traffic is encoded as real scrambled ADS-L frames — so
+The simulator is a **virtual T-Echo Plus**: the same product, the same pin map,
+assembled out of `devices/models` instead of Zephyr adapters. `diff
+products/skyblip_go/{device,simulator}/t_echo_plus.h` is the list of what is
+virtualised. The models are honest — GNSS emits valid `$GPRMC`/`$GPGGA` that the
+production parser decodes, traffic arrives as real scrambled ADS-L frames — so
 the production parse/decode/fusion/alarm path is what executes. Nothing is
-mocked below `App`.
+mocked below `App`. The one seam short of the shipping path is the e-paper, which
+stops at `hal::Display`; the panel driver is pinned separately against
+`devices/models/ssd1681.h`.
 
 ## Build (device)
 

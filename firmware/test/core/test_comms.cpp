@@ -1,11 +1,11 @@
-// core/comms config state machine tested over a fake link with scripted JSON
+// core/comms config state machine tested over a link model with scripted JSON
 // messages, NO device (3-ARCHITECTURE §6/§8). Covers get, set-with-confirmation,
 // the in-flight lockout (fail closed), backpressure and DFU routing.
 #include <cstring>
 #include <string>
 
 #include "core/comms/config.h"
-#include "devices/host/fake_link.h"
+#include "devices/models/link.h"
 #include "doctest/doctest.h"
 #include "hal/dfu.h"
 
@@ -32,7 +32,7 @@ struct SpyDfu : hal::Dfu {
 }  // namespace
 
 TEST_CASE("comms: get returns current config on the Config endpoint") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(0xAA55);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
@@ -43,7 +43,7 @@ TEST_CASE("comms: get returns current config on the Config endpoint") {
 }
 
 TEST_CASE("comms: set on the ground stages, needs confirmation, then applies") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
@@ -61,7 +61,7 @@ TEST_CASE("comms: set on the ground stages, needs confirmation, then applies") {
 }
 
 TEST_CASE("comms: set is REFUSED in flight (fail closed), no staging") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Airborne);
@@ -72,7 +72,7 @@ TEST_CASE("comms: set is REFUSED in flight (fail closed), no staging") {
 }
 
 TEST_CASE("comms: unknown flight-state refuses, and airborne latches") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Unknown);  // never confirmed on ground
@@ -90,7 +90,7 @@ TEST_CASE("comms: unknown flight-state refuses, and airborne latches") {
 }
 
 TEST_CASE("comms: confirm re-checks the gate — becoming airborne cancels apply") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
@@ -105,7 +105,7 @@ TEST_CASE("comms: confirm re-checks the gate — becoming airborne cancels apply
 // so confirming opens a write window instead. The reboot is the client's
 // subsequent `os reset`, or an explicit "apply".
 TEST_CASE("comms: dfu opens an upload window only after on-screen confirmation") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     SpyDfu dfu;
     ConfigService cs(link, s, &dfu);
@@ -122,7 +122,7 @@ TEST_CASE("comms: dfu opens an upload window only after on-screen confirmation")
 }
 
 TEST_CASE("comms: apply routed through confirmation, triggers hal::Dfu once") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     SpyDfu dfu;
     ConfigService cs(link, s, &dfu);
@@ -135,7 +135,7 @@ TEST_CASE("comms: apply routed through confirmation, triggers hal::Dfu once") {
 }
 
 TEST_CASE("comms: recovery reboots into the drag-and-drop bootloader after confirm") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     SpyDfu dfu;
     ConfigService cs(link, s, &dfu);
@@ -148,7 +148,7 @@ TEST_CASE("comms: recovery reboots into the drag-and-drop bootloader after confi
 }
 
 TEST_CASE("comms: recovery refused in flight") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     SpyDfu dfu;
     ConfigService cs(link, s, &dfu);
@@ -161,7 +161,7 @@ TEST_CASE("comms: recovery refused in flight") {
 // Fail closed: takeoff must revoke an authorisation granted on the ground, or a
 // long upload could still be running when the aircraft leaves.
 TEST_CASE("comms: takeoff closes an open upload window and it stays latched") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
@@ -178,7 +178,7 @@ TEST_CASE("comms: takeoff closes an open upload window and it stays latched") {
 }
 
 TEST_CASE("comms: upload window expires") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
@@ -194,7 +194,7 @@ TEST_CASE("comms: upload window expires") {
 }
 
 TEST_CASE("comms: disconnect closes the upload window") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
@@ -208,7 +208,7 @@ TEST_CASE("comms: disconnect closes the upload window") {
 }
 
 TEST_CASE("comms: DFU refused in flight") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     SpyDfu dfu;
     ConfigService cs(link, s, &dfu);
@@ -219,7 +219,7 @@ TEST_CASE("comms: DFU refused in flight") {
 }
 
 TEST_CASE("comms: link down cancels a pending change") {
-    host::FakeLink link;
+    models::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);

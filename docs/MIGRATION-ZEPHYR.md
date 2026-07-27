@@ -29,9 +29,10 @@ this migration required in shared code was to **extract the composition root out
 of the Arduino entry point** into a framework-agnostic object:
 
 ```
-products/skyblip/app.{h,cpp}  App: wiring + service loop, pure C++, zero
-                              framework headers. Host-tested.
-products/skyblip/main.cpp     the (Zephyr) shell → constructs adapters, drives App
+products/skyblip_go/app.{h,cpp}         App: wiring + service loop, pure C++,
+                                       zero framework headers. Host-tested.
+products/skyblip_go/device/t_echo_plus.h  the board: adapters → Ports
+products/skyblip_go/device/main.cpp       the (Zephyr) shell → drives App
 ```
 
 `App` depends only on `core/`, `hal/` ports, and the shared drivers. The shell
@@ -52,7 +53,8 @@ devices/soc/zephyr/
   zephyr_annunciator.h hal::Annunciator over PWM buzzer + GPIO vibro
   zephyr_dfu.h         hal::Dfu over MCUboot (boot_request_upgrade + reboot)
   zephyr_ble.h / ble.cpp  hal::Link over BT GATT
-products/skyblip/main.cpp  the Zephyr composition root (+ power-gate sequencing)
+products/skyblip_go/device/t_echo_plus.h  board assembly (+ TCXO settle)
+products/skyblip_go/device/main.cpp       Zephyr entry point + service loop
 
 CMakeLists.txt  prj.conf  sysbuild.conf  west.yml   Zephyr build
 boards/lilygo/t_echo_plus/…                          custom board (HWMv2)
@@ -98,9 +100,10 @@ risk:
 
 ## Run it on your desktop first (no hardware)
 
-`SimHarness` (`products/sim/harness.h`) is a virtual T-Echo running the real
-firmware with host adapters. Two frontends drive it: `make sim` (terminal) and
-`make web` (browser/WASM). Both let you page-switch, toggle backlight, power the
+`products/skyblip_go/simulator/t_echo_plus.h` is a virtual T-Echo Plus running
+the real firmware against `devices/models`. It is the twin of
+`device/t_echo_plus.h` — same name, same shape, different adapters. Two frontends
+drive it: `make simulator` (terminal) and `make browser` (WASM). Both let you page-switch, toggle backlight, power the
 panel, and inject radio traffic. Because `App` is framework-agnostic, the
 simulator, the Zephyr shell, and the host tests all drive the *same* logic — so
 most of the bring-up (UI, config state machine, traffic, driver command

@@ -1,6 +1,8 @@
-// devices/host/fake_sx1262.h — a BEHAVIORAL SX1262 model (not a byte-recorder):
-#ifndef SKYBLIP_DEVICES_HOST_FAKE_SX1262_H
-#define SKYBLIP_DEVICES_HOST_FAKE_SX1262_H
+// devices/models/sx1262.h — a behavioural SX1262 model at the SPI/GPIO seam, so
+// the REAL drivers::Sx1262 runs against it unchanged: it answers opcodes, raises
+// DIO1 on Rx/Tx-done, and can be stuck busy or made to report a CRC error.
+#ifndef SKYBLIP_DEVICES_MODELS_SX1262_H
+#define SKYBLIP_DEVICES_MODELS_SX1262_H
 
 #include <cstring>
 #include <vector>
@@ -8,9 +10,9 @@
 #include "devices/drivers/sx1262.h"
 #include "devices/io/io.h"
 
-namespace skyblip::host {
+namespace skyblip::models {
 
-class FakeSx1262 : public io::Spi, public io::Gpio {
+class Sx1262 : public io::Spi, public io::Gpio {
    public:
     void set(int pin, bool level) override {
         if (pin == reset_pin && level) reset_pulses++;
