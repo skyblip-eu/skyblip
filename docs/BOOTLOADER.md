@@ -118,18 +118,27 @@ update path — the one SoftRF and Meshtastic use — and appear nowhere in the 
 
 ## Signing keys
 
-**No signing key is in this repository.** `sysbuild.conf` reads
-`SKYBLIP_SIGNING_KEY` from the environment and an unset value fails the build on
-purpose: MCUboot's Kconfig default is its own *published* `root-ec-p256.pem`,
-which anyone can sign with.
+**No signing key is in this repository**, and `sysbuild.conf` does not name one.
+MCUboot's Kconfig default is its own *published* `root-ec-p256.pem`, which anyone
+can sign with, so the real path is injected as a sysbuild Kconfig fragment.
+
+It has to be a fragment rather than an environment reference: Kconfig expands
+`$(VAR)` only inside Kconfig *definition* files, not inside `.conf` fragments, so
+`SB_CONFIG_BOOT_SIGNATURE_KEY_FILE="$(SOME_VAR)"` survives as a literal and lands
+in `build.ninja` as a bad `$`-escape.
 
 For local development, generate a throwaway key outside the tree:
 
 ```sh
 python3 -m pip install imgtool
 imgtool keygen -k ~/.skyblip/dev-signing.pem -t ecdsa-p256
-export SKYBLIP_SIGNING_KEY=~/.skyblip/dev-signing.pem
+echo "SB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$HOME/.skyblip/dev-signing.pem\"" \
+  > ~/.skyblip/signing.conf
 ```
+
+A build with no fragment still succeeds, signed with MCUboot's sample key. That
+is fine locally — such a build is never distributed — and CI refuses it: the
+workflow asserts the resolved key is not a sample before publishing any artifact.
 
 The release key lives offline plus in the `SKYBLIP_SIGNING_KEY_PEM` Actions
 secret. Losing it means no device already in the field can be updated over the
@@ -145,8 +154,8 @@ first commercial unit, the map above is final.
 ## Build
 
 ```sh
-export SKYBLIP_SIGNING_KEY=~/.skyblip/dev-signing.pem
-west build -b t_echo_plus firmware --sysbuild
+west build -b t_echo_plus firmware --sysbuild \
+  -- -DSB_EXTRA_CONF_FILE=$HOME/.skyblip/signing.conf
 python3 scripts/mkuf2.py firmware/build/merged.hex firmware/build/skyblip-go.uf2
 ```
 

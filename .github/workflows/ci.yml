@@ -68,15 +68,15 @@ jobs:
           manifest-file-name: west.yml
           toolchains: arm-zephyr-eabi
 
-      # sysbuild.conf reads SKYBLIP_SIGNING_KEY from the environment and an unset
-      # value is a hard build failure - deliberately, because MCUboot's Kconfig
-      # default is its own PUBLISHED root-ec-p256.pem, which everyone has and
-      # which makes the signature prove nothing.
+      # MCUboot's Kconfig default signing key is its own PUBLISHED
+      # root-ec-p256.pem, which everyone has - so a signature against it proves
+      # nothing. The real path is injected as a sysbuild Kconfig fragment,
+      # because Kconfig does not expand $(ENV) inside .conf fragments.
       #
-      # Release builds use the real key from Actions secrets. Ordinary CI runs
-      # get a throwaway key generated here: it proves the signing path works
-      # end to end without ever putting a distributable key in the repo, and an
-      # artifact from a PR build simply will not boot on a production unit.
+      # Release builds use the key from Actions secrets. Ordinary CI runs get a
+      # throwaway key generated here: it proves the signing path works end to end
+      # without a distributable key ever being in the repo, and an artifact from a
+      # PR build will not boot a production unit.
       - name: provision a signing key
         run: |
           python3 -m pip install --quiet imgtool
@@ -88,13 +88,16 @@ jobs:
             echo "using an EPHEMERAL signing key (artifacts will not boot a production unit)"
           fi
           chmod 600 "$RUNNER_TEMP/signing.pem"
-          echo "SKYBLIP_SIGNING_KEY=$RUNNER_TEMP/signing.pem" >> "$GITHUB_ENV"
+          echo "SB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$RUNNER_TEMP/signing.pem\"" \
+            > "$RUNNER_TEMP/signing.conf"
+          cat "$RUNNER_TEMP/signing.conf"
 
       - name: west build (sysbuild → MCUboot + app)
         working-directory: firmware
         run: |
           west build -b t_echo_plus . --sysbuild \
-            -- -DBOARD_ROOT=$(pwd)
+            -- -DBOARD_ROOT=$(pwd) \
+               -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf"
 
       # Guards against silently regressing to a key anyone can sign with. The
       # default lives in the mcuboot module directory, so any resolved key path
