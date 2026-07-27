@@ -1,8 +1,8 @@
-// devices/boards/techo/pins.h — LilyGO T-Echo Plus (nRF52840) pin map.
-#ifndef SKYBLIP_DEVICES_BOARDS_TECHO_PINS_H
-#define SKYBLIP_DEVICES_BOARDS_TECHO_PINS_H
+// devices/boards/t_echo_plus/pins.h — LilyGO T-Echo Plus (nRF52840) pin map.
+#ifndef SKYBLIP_DEVICES_BOARDS_T_ECHO_PLUS_PINS_H
+#define SKYBLIP_DEVICES_BOARDS_T_ECHO_PLUS_PINS_H
 
-namespace skyblip::board::techo {
+namespace skyblip::board::t_echo_plus {
 
 constexpr int kPinNum(int port, int pin) { return port * 32 + pin; }
 

@@ -13,7 +13,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-#include "devices/boards/techo/pins.h"
+#include "devices/boards/t_echo_plus/pins.h"
 #include "devices/drivers/ssd1681.h"
 #include "devices/drivers/sx1262.h"
 #include "devices/soc/zephyr/zephyr_ble.h"
@@ -26,7 +26,7 @@
 LOG_MODULE_REGISTER(skyblip, LOG_LEVEL_INF);
 
 using namespace skyblip;
-namespace tp = skyblip::board::techo;
+namespace tp = skyblip::board::t_echo_plus;
 namespace sz = skyblip::soc::zephyr;
 
 namespace {

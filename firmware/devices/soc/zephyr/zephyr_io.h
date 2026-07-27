@@ -16,7 +16,7 @@
 
 namespace skyblip::soc::zephyr {
 
-// The drivers use a flat pin int (port*32 + pin, see boards/techo/pins.h). nRF52840
+// The drivers use a flat pin int (port*32 + pin, see boards/t_echo_plus/pins.h). nRF52840
 // has two GPIO controllers (P0, P1); this maps the flat int onto (controller, pin)
 // so the io::Gpio contract is unchanged — zero ripple into the shared drivers.
 class ZephyrGpio : public io::Gpio {
