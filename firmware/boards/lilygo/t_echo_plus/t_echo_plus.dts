@@ -212,9 +212,8 @@
  * instances cost a few hundred bytes and buy one image that boots on either
  * variant instead of silently having no barometer on half of them.
  *
- * The BHI260AP IMU is a pluggable daughter module (LilyGO ships T-BHI260 and
- * T-ICM29048 into the same 5-pin header) and has no Zephyr driver, so it is NOT
- * declared here - devices/drivers/bhi260ap.cpp probes 0x28 over io::I2c.
+ * The IMU header (0x28 BHI260AP / 0x68 ICM-20948) is deliberately not declared:
+ * nothing drives it. See decisions in 3-ARCHITECTURE §8.
  */
 &i2c0 {
 	compatible = "nordic,nrf-twim";

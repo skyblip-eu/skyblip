@@ -18,7 +18,6 @@
 #include <zephyr/kernel.h>
 
 #include "devices/boards/t_echo_plus/pins.h"
-#include "devices/drivers/bhi260ap.h"
 #include "devices/drivers/l76k.h"
 #include "devices/drivers/ssd1681.h"
 #include "devices/drivers/sx1262.h"
@@ -46,7 +45,6 @@ inline const struct device* const kGnssUart = DEVICE_DT_GET(DT_ALIAS(gnss_uart))
 // one is actually fitted becomes ready, the other never does.
 inline const struct device* const kBaro76 = DEVICE_DT_GET(DT_NODELABEL(bme280_76));
 inline const struct device* const kBaro77 = DEVICE_DT_GET(DT_NODELABEL(bme280_77));
-inline const struct device* const kSensorI2c = DEVICE_DT_GET(DT_NODELABEL(i2c0));
 
 inline const struct pwm_dt_spec kBuzzer = PWM_DT_SPEC_GET(DT_ALIAS(buzzer));
 
@@ -93,14 +91,6 @@ struct TEchoPlus {
     sz::ZephyrBaro baro_alternate{kBaro77};
     sz::ZephyrBaro* baro{nullptr};
 
-    // BHI260AP, probed rather than assumed: the IMU is a pluggable module and a
-    // unit may carry a different one or none. It produces NOTHING without a
-    // ~101 KB firmware image (see devices/drivers/bhi260ap.h), which is not in
-    // this build, so this is identification only.
-    sz::ZephyrI2c sensor_i2c{kSensorI2c};
-    drivers::Bhi260ap imu{sensor_i2c, pins::kImuAddr};
-    drivers::ImuPresence imu_presence{drivers::ImuPresence::Absent};
-
     // The main button (P1.10) is active-low with a pull-up: the ONLY input on
     // this board, so without it a unit is stuck on whichever page it booted on.
     // kButton2 is the reset-labelled pin and kTouch is a capacitive pad whose
@@ -135,7 +125,6 @@ struct TEchoPlus {
                                     : (baro_alternate.ready() ? &baro_alternate : nullptr);
         have_baro = baro != nullptr;
 
-        if (sensor_i2c.ready()) imu_presence = imu.probe();
         return Status::Ok;
     }
 
