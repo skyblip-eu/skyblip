@@ -53,16 +53,17 @@ uint32_t chip_addr() {
     return a & 0x00FFFFFFu;
 }
 
-// The T-Echo power-gates the SX1262 and the e-paper behind IO_PWR / 3V3_PWR.
-// These MUST go high (and settle) before any SPI to the radio or panel, or the
-// bus reads back nothing. This is the #1 hardware bring-up gotcha.
-void power_up_rails(io::Gpio& gpio) {
-    gpio.mode_output(tp::kIoPwr);
-    gpio.set(tp::kIoPwr, true);
-    gpio.mode_output(tp::k3v3Pwr);
-    gpio.set(tp::k3v3Pwr, true);
-    k_msleep(50);  // let the rails and the SX1262 TCXO settle
-}
+// The gated rails themselves are raised much earlier, by
+// boards/lilygo/t_echo_plus/board.c, because MCUboot needs the external flash
+// powered before the application exists. By the time main() runs they are up;
+// what is still owed is the SX1262 TCXO settling time before the first SPI
+// transaction to the radio.
+void wait_for_radio_supply() { k_msleep(50); }
+
+product::App* g_app = nullptr;
+
+// Capture-less so it converts to the plain function pointer the adapter takes.
+bool dfu_gate() { return g_app != nullptr && g_app->config().upload_allowed(); }
 
 }  // namespace
 
@@ -75,7 +76,7 @@ int main(void) {
     static sz::ZephyrClock clock;
     static sz::ZephyrGpio gpio(kGpio0, kGpio1);
 
-    power_up_rails(gpio);
+    wait_for_radio_supply();
 
     // Radio on its shared SPI bus (SS P0.24).
     static sz::ZephyrSpi radio_spi(kRadioSpi, kSpiCfg, kGpio0, tp::kRadioSs & 31);
@@ -104,6 +105,10 @@ int main(void) {
     ports.device_addr = chip_addr();
 
     static product::App app(ports);
+    g_app = &app;
+    // Until this runs, the MCUmgr hooks fail closed and refuse every upload.
+    sz::set_dfu_gate(dfu_gate);
+
     if (app.setup() != Status::Ok) LOG_ERR("app setup failed");
     LOG_INF("skyBlip up: addr=%06x epd=%d", ports.device_addr, have_epd);
 

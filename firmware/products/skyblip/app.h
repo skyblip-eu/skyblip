@@ -102,6 +102,7 @@ class App {
 
    private:
     void load_settings();
+    void confirm_image_once_healthy();
     void drain_gnss();
     void apply_gnss(uint32_t now_ms);
     void drain_radio(uint32_t now_ms);
@@ -137,6 +138,7 @@ class App {
     uint8_t max_alarm_{0};
     int32_t range_m_{10000};
     bool started_{false};
+    bool image_confirmed_{false};
     bool dirty_{true};
     bool backlight_{false};
     Page page_{Page::Radar};

@@ -7,8 +7,18 @@
 
 namespace skyblip::comms {
 
+void ConfigService::tick(uint32_t now_ms) {
+    now_ms_ = now_ms;
+    if (upload_window_open_ && now_ms - window_opened_ms_ >= kUploadWindowMs) {
+        upload_window_open_ = false;
+    }
+}
+
 void ConfigService::set_flight_state(FlightState fs) {
-    if (fs == FlightState::Airborne) airborne_latched_ = true;
+    if (fs == FlightState::Airborne) {
+        airborne_latched_ = true;
+        upload_window_open_ = false;
+    }
     if (fs == FlightState::Ground) airborne_latched_ = false;
     if (airborne_latched_)
         flight_ = FlightState::Airborne;
@@ -23,6 +33,7 @@ void ConfigService::on_link_up(const messages::LinkUp& up) { session_ = up.sessi
 void ConfigService::on_link_down(const messages::LinkDown&) {
     pending_ = Pending::None;
     pending_len_ = 0;
+    upload_window_open_ = false;
 }
 
 void ConfigService::reply(const char* json) {
@@ -83,17 +94,35 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
         return;
     }
 
+    // "dfu" opens an upload window; the image itself then travels over MCUmgr
+    // /SMP, not over this channel. "apply" swaps an image already staged in the
+    // secondary slot. "recovery" reboots into the factory drag-and-drop
+    // bootloader. All three take the same route: refuse in flight, then wait for
+    // a button press.
+    Pending requested = Pending::None;
+    const char* reason = nullptr;
     if (std::strcmp(cmd, "dfu") == 0) {
+        requested = Pending::Dfu;
+        reason = "confirm_dfu";
+    } else if (std::strcmp(cmd, "apply") == 0) {
+        requested = Pending::Apply;
+        reason = "confirm_apply";
+    } else if (std::strcmp(cmd, "recovery") == 0) {
+        requested = Pending::Recovery;
+        reason = "confirm_recovery";
+    }
+
+    if (requested != Pending::None) {
         if (!on_ground()) {
             ack(false, "in_flight");
             return;
         }
-        pending_ = Pending::Dfu;
+        pending_ = requested;
         char buf[64];
         json::Writer w(buf, sizeof(buf));
         w.kv_bool("ack", false);
         w.kv_bool("pending", true);
-        w.kv_str("reason", "confirm_dfu");
+        w.kv_str("reason", reason);
         w.finish();
         reply(buf);
         return;
@@ -121,14 +150,26 @@ void ConfigService::confirm() {
         }
     } else if (pending_ == Pending::Dfu) {
         pending_ = Pending::None;
+        upload_window_open_ = true;
+        window_opened_ms_ = now_ms_;
         ack(true, "dfu");
+    } else if (pending_ == Pending::Apply) {
+        pending_ = Pending::None;
+        upload_window_open_ = false;
+        ack(true, "apply");
         if (dfu_) dfu_->trigger();
+    } else if (pending_ == Pending::Recovery) {
+        pending_ = Pending::None;
+        upload_window_open_ = false;
+        ack(true, "recovery");
+        if (dfu_) dfu_->enter_recovery();
     }
 }
 
 void ConfigService::cancel() {
     pending_ = Pending::None;
     pending_len_ = 0;
+    upload_window_open_ = false;
     ack(false, "cancelled");
 }
 

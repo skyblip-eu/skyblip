@@ -23,7 +23,11 @@ messages::RxFrame frame(const char* json) {
 }
 struct SpyDfu : hal::Dfu {
     int triggered = 0;
+    int confirmed = 0;
+    int recovery = 0;
     void trigger() override { triggered++; }
+    void confirm() override { confirmed++; }
+    void enter_recovery() override { recovery++; }
 };
 }  // namespace
 
@@ -97,17 +101,110 @@ TEST_CASE("comms: confirm re-checks the gate — becoming airborne cancels apply
     CHECK(link.last().bytes.find("in_flight") != std::string::npos);
 }
 
-TEST_CASE("comms: START_DFU routed through confirmation, triggers hal::Dfu once") {
+// "dfu" no longer reboots: under MCUmgr the image arrives over SMP afterwards,
+// so confirming opens a write window instead. The reboot is the client's
+// subsequent `os reset`, or an explicit "apply".
+TEST_CASE("comms: dfu opens an upload window only after on-screen confirmation") {
     host::FakeLink link;
     settings::Settings s = settings::defaults(1);
     SpyDfu dfu;
     ConfigService cs(link, s, &dfu);
     cs.set_flight_state(FlightState::Ground);
+
+    CHECK_FALSE(cs.upload_allowed());
     cs.on_rx(frame("{\"cmd\":\"dfu\"}"));
     CHECK(cs.pending() == Pending::Dfu);
+    CHECK_FALSE(cs.upload_allowed());  // a remote request alone authorises nothing
+
+    cs.confirm();
+    CHECK(cs.upload_allowed());
+    CHECK(dfu.triggered == 0);
+}
+
+TEST_CASE("comms: apply routed through confirmation, triggers hal::Dfu once") {
+    host::FakeLink link;
+    settings::Settings s = settings::defaults(1);
+    SpyDfu dfu;
+    ConfigService cs(link, s, &dfu);
+    cs.set_flight_state(FlightState::Ground);
+    cs.on_rx(frame("{\"cmd\":\"apply\"}"));
+    CHECK(cs.pending() == Pending::Apply);
     CHECK(dfu.triggered == 0);
     cs.confirm();
     CHECK(dfu.triggered == 1);
+}
+
+TEST_CASE("comms: recovery reboots into the drag-and-drop bootloader after confirm") {
+    host::FakeLink link;
+    settings::Settings s = settings::defaults(1);
+    SpyDfu dfu;
+    ConfigService cs(link, s, &dfu);
+    cs.set_flight_state(FlightState::Ground);
+    cs.on_rx(frame("{\"cmd\":\"recovery\"}"));
+    CHECK(cs.pending() == Pending::Recovery);
+    CHECK(dfu.recovery == 0);
+    cs.confirm();
+    CHECK(dfu.recovery == 1);
+}
+
+TEST_CASE("comms: recovery refused in flight") {
+    host::FakeLink link;
+    settings::Settings s = settings::defaults(1);
+    SpyDfu dfu;
+    ConfigService cs(link, s, &dfu);
+    cs.set_flight_state(FlightState::Airborne);
+    cs.on_rx(frame("{\"cmd\":\"recovery\"}"));
+    CHECK(cs.pending() == Pending::None);
+    CHECK(dfu.recovery == 0);
+}
+
+// Fail closed: takeoff must revoke an authorisation granted on the ground, or a
+// long upload could still be running when the aircraft leaves.
+TEST_CASE("comms: takeoff closes an open upload window and it stays latched") {
+    host::FakeLink link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+    cs.on_rx(frame("{\"cmd\":\"dfu\"}"));
+    cs.confirm();
+    REQUIRE(cs.upload_allowed());
+
+    cs.set_flight_state(FlightState::Airborne);
+    CHECK_FALSE(cs.upload_allowed());
+
+    // An "Unknown" reading after takeoff must not read as permission.
+    cs.set_flight_state(FlightState::Unknown);
+    CHECK_FALSE(cs.upload_allowed());
+}
+
+TEST_CASE("comms: upload window expires") {
+    host::FakeLink link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+    cs.tick(1000);
+    cs.on_rx(frame("{\"cmd\":\"dfu\"}"));
+    cs.confirm();
+    REQUIRE(cs.upload_allowed());
+
+    cs.tick(1000 + 9u * 60u * 1000u);
+    CHECK(cs.upload_allowed());
+    cs.tick(1000 + 11u * 60u * 1000u);
+    CHECK_FALSE(cs.upload_allowed());
+}
+
+TEST_CASE("comms: disconnect closes the upload window") {
+    host::FakeLink link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+    cs.on_rx(frame("{\"cmd\":\"dfu\"}"));
+    cs.confirm();
+    REQUIRE(cs.upload_allowed());
+
+    messages::LinkDown down{};
+    cs.on_link_down(down);
+    CHECK_FALSE(cs.upload_allowed());
 }
 
 TEST_CASE("comms: DFU refused in flight") {

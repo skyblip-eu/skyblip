@@ -146,6 +146,9 @@ void App::step(uint32_t now_ms) {
     const uint32_t dt = now_ms - last_ms_;
     last_ms_ = now_ms;
 
+    config_.tick(now_ms);
+    confirm_image_once_healthy();
+
     // 1) GNSS: pull NMEA bytes, advance the parser, update own-ship state.
     drain_gnss();
     apply_gnss(now_ms);
@@ -170,6 +173,19 @@ void App::step(uint32_t now_ms) {
         last_render_ms_ = now_ms;
         render();
     }
+}
+
+// A fresh image swapped in by MCUboot is on probation: unless it declares
+// itself good, the bootloader restores the previous one on the next boot. That
+// guarantee is only worth something if "good" means more than "main() ran", so
+// wait until the radio is up AND the GNSS parser has produced a sentence —
+// between them that exercises SPI, the SX1262, the UART and core/gnss. A build
+// that boots but cannot talk to its own peripherals will be rolled back.
+void App::confirm_image_once_healthy() {
+    if (image_confirmed_ || p_.dfu == nullptr) return;
+    if (!started_ || gnss_updates_ == 0) return;
+    p_.dfu->confirm();
+    image_confirmed_ = true;
 }
 
 void App::on_button() {
