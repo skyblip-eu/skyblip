@@ -21,7 +21,6 @@
 #include "core/timing/slot.h"
 #include "core/traffic/table.h"
 #include "devices/drivers/sx1262.h"
-#include "devices/io/io.h"
 #include "hal/annunciator.h"
 #include "hal/clock.h"
 #include "hal/dfu.h"
@@ -51,7 +50,6 @@ struct Ports {
     hal::KvStore* kv{nullptr};       // durable settings; nullptr => defaults
     hal::Annunciator* annunciator{nullptr};
     hal::Dfu* dfu{nullptr};
-    io::Uart* gnss{nullptr};  // GNSS serial (L76K)
 
     uint32_t device_addr{0};  // SoC unique id → default ADS-L address
 };
@@ -74,6 +72,14 @@ class App {
     // Deliver a companion-link RX frame to the config state machine. The shell's
     // BLE adapter enqueues frames; the shell drains them into here.
     void on_link_rx(const messages::RxFrame& frame) { config_.on_rx(frame); }
+
+    // Deliver a new GNSS fix. The shell polls drivers::L76k and pushes; App
+    // applies it inside the next step(), where it has `now_ms` to derive
+    // vertical speed against. Producers enqueue, App consumes on its own clock.
+    void on_gnss_fix(const gnss::GnssFix& fix) {
+        pending_fix_ = fix;
+        have_pending_fix_ = true;
+    }
 
     // UI input from the shell (button press). Cycles the page and forces a full
     // e-paper refresh on the next step.
@@ -104,7 +110,6 @@ class App {
    private:
     void load_settings();
     void confirm_image_once_healthy();
-    void drain_gnss();
     void apply_gnss(uint32_t now_ms);
     void drain_radio(uint32_t now_ms);
     void update_alarms();
@@ -122,16 +127,16 @@ class App {
     settings::Settings settings_{};
     timing::Scheduler scheduler_{};
     traffic::TrafficTable table_{};
-    gnss::NmeaParser gnss_{};
     comms::ConfigService config_;
 
+    gnss::GnssFix pending_fix_{};
     messages::OwnState own_{};
     timing::ClockState clock_state_{};
     timing::SlotPlan plan_{};
 
     uint32_t last_ms_{0};
     uint32_t last_render_ms_{0};
-    uint32_t gnss_updates_{0};
+    uint32_t gnss_fixes_{0};
     int32_t vs_ref_alt_m_{0};
     uint32_t vs_ref_ms_{0};
     uint32_t rx_ok_{0};
@@ -142,6 +147,7 @@ class App {
     bool image_confirmed_{false};
     bool dirty_{true};
     bool backlight_{false};
+    bool have_pending_fix_{false};
     Page page_{Page::Radar};
     uint8_t rx_buf_[64]{};
     ui::Framebuffer fb_{};

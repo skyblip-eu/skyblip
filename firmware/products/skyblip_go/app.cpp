@@ -39,22 +39,15 @@ Status App::setup() {
     return Status::Ok;
 }
 
-void App::drain_gnss() {
-    if (!p_.gnss) return;
-    uint8_t c = 0;
-    while (p_.gnss->read(&c, 1) == 1) {
-        gnss_.feed(static_cast<char>(c));
-    }
-}
-
-// Copy the parsed GNSS fix into the own-ship state and derive vertical speed
+// Copy the pushed GNSS fix into the own-ship state and derive vertical speed
 // from the altitude trend. own_ is what the protocol encoder, the alarm logic
 // and every screen read — so this is the single point where "sensor" becomes
 // "state".
 void App::apply_gnss(uint32_t now_ms) {
-    const gnss::GnssFix& f = gnss_.fix();
-    if (f.updates == gnss_updates_) return;  // nothing new
-    gnss_updates_ = f.updates;
+    if (!have_pending_fix_) return;
+    have_pending_fix_ = false;
+    const gnss::GnssFix& f = pending_fix_;
+    gnss_fixes_++;
 
     own_.fix_valid = f.valid;
     own_.utc_valid = f.utc_valid;
@@ -149,8 +142,7 @@ void App::step(uint32_t now_ms) {
     config_.tick(now_ms);
     confirm_image_once_healthy();
 
-    // 1) GNSS: pull NMEA bytes, advance the parser, update own-ship state.
-    drain_gnss();
+    // 1) GNSS: fold the fix the shell pushed into own-ship state.
     apply_gnss(now_ms);
 
     // 2) radio watchdog: reinit if Rx has gone silent too long (§8 recovery).
@@ -178,12 +170,12 @@ void App::step(uint32_t now_ms) {
 // A fresh image swapped in by MCUboot is on probation: unless it declares
 // itself good, the bootloader restores the previous one on the next boot. That
 // guarantee is only worth something if "good" means more than "main() ran", so
-// wait until the radio is up AND the GNSS parser has produced a sentence —
-// between them that exercises SPI, the SX1262, the UART and core/gnss. A build
-// that boots but cannot talk to its own peripherals will be rolled back.
+// wait until the radio is up AND a GNSS fix has arrived — between them that
+// exercises SPI, the SX1262, the UART and core/gnss. A build that boots but
+// cannot talk to its own peripherals will be rolled back.
 void App::confirm_image_once_healthy() {
     if (image_confirmed_ || p_.dfu == nullptr) return;
-    if (!started_ || gnss_updates_ == 0) return;
+    if (!started_ || gnss_fixes_ == 0) return;
     p_.dfu->confirm();
     image_confirmed_ = true;
 }

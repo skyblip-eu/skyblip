@@ -50,6 +50,7 @@ SRC := \
   products/skyblip_go/app.cpp \
   devices/drivers/sx1262.cpp \
   devices/drivers/ssd1681.cpp \
+  devices/drivers/l76k.cpp \
   devices/models/rf_channel.cpp \
   devices/models/display.cpp
 

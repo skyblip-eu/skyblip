@@ -40,7 +40,14 @@ class L76k : public io::Uart {
 
     // Advance own-ship along its track and emit a 1 Hz NMEA burst.
     void tick(uint32_t now_ms) {
-        if (last_ms_ == 0) last_ms_ = now_ms;
+        // First tick only anchors the cadence. Anchoring on `last_ms_ == 0`
+        // instead would re-anchor on every call made at t=0, which is a legal
+        // timestamp, not an "unset" marker.
+        if (!armed_) {
+            armed_ = true;
+            last_ms_ = now_ms;
+            return;
+        }
         uint32_t dt = now_ms - last_ms_;
         if (dt < 1000) return;
         last_ms_ = now_ms;
@@ -114,6 +121,7 @@ class L76k : public io::Uart {
 
     std::string pending_;
     uint32_t last_ms_{0};
+    bool armed_{false};
 };
 
 }  // namespace skyblip::models

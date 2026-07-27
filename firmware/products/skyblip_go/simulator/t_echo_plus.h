@@ -27,6 +27,7 @@
 
 #include "core/protocol/adsl.h"
 #include "devices/boards/t_echo_plus/pins.h"
+#include "devices/drivers/l76k.h"
 #include "devices/drivers/sx1262.h"
 #include "devices/models/annunciator.h"
 #include "devices/models/clock.h"
@@ -70,7 +71,8 @@ class TEchoPlus {
 
     void step(uint32_t now_ms) {
         clock_.set_millis(now_ms);
-        gnss_.tick(now_ms);        // modelled GNSS → NMEA bytes
+        gnss_chip_.tick(now_ms);  // modelled GNSS → NMEA bytes
+        if (gnss_.poll()) app_.on_gnss_fix(gnss_.fix());
         service_aircraft(now_ms);  // virtual aircraft → real ADS-L frames
         app_.step(now_ms);
     }
@@ -87,13 +89,13 @@ class TEchoPlus {
     void set_range_m(int32_t m) { app_.set_range_m(m); }
 
     // ---- modelled sensors --------------------------------------------------
-    models::L76k& gnss() { return gnss_; }
-    void set_fix(bool on) { gnss_.fix = on; }
-    void set_sats(int n) { gnss_.sats = static_cast<uint8_t>(n < 0 ? 0 : (n > 32 ? 32 : n)); }
-    void set_altitude_m(int32_t m) { gnss_.alt_m = m; }
-    void set_speed_kt(int32_t kt) { gnss_.speed_kt = kt; }
-    void set_track_deg(int32_t deg) { gnss_.track_deg = ((deg % 360) + 360) % 360; }
-    void set_climb_e1(int32_t e1) { gnss_.climb_mps_e1 = e1; }
+    models::L76k& gnss() { return gnss_chip_; }
+    void set_fix(bool on) { gnss_chip_.fix = on; }
+    void set_sats(int n) { gnss_chip_.sats = static_cast<uint8_t>(n < 0 ? 0 : (n > 32 ? 32 : n)); }
+    void set_altitude_m(int32_t m) { gnss_chip_.alt_m = m; }
+    void set_speed_kt(int32_t kt) { gnss_chip_.speed_kt = kt; }
+    void set_track_deg(int32_t deg) { gnss_chip_.track_deg = ((deg % 360) + 360) % 360; }
+    void set_climb_e1(int32_t e1) { gnss_chip_.climb_mps_e1 = e1; }
 
     // ---- virtual traffic ---------------------------------------------------
     int add_aircraft(double north_m, double east_m, double up_m, double speed_mps = 30,
@@ -144,7 +146,6 @@ class TEchoPlus {
         p.display = &display_;
         p.kv = &kv_;
         p.annunciator = &ann_;
-        p.gnss = &gnss_;
         p.device_addr = 0x0ABBCC;
         return p;
     }
@@ -215,9 +216,10 @@ class TEchoPlus {
     models::KvStore kv_;
     models::Display display_;
     models::Annunciator ann_;
-    models::L76k gnss_;
-    drivers::Sx1262 radio_;  // declared after radio_chip_ (ctor uses it)
-    go::App app_;            // declared last (ctor uses all of the above)
+    models::L76k gnss_chip_;
+    drivers::L76k gnss_{gnss_chip_};  // declared after gnss_chip_ (ctor uses it)
+    drivers::Sx1262 radio_;           // declared after radio_chip_ (ctor uses it)
+    go::App app_;                     // declared last (ctor uses all of the above)
 
     VirtualAircraft acft_[kMaxAircraft]{};
     uint32_t last_acft_ms_{0};

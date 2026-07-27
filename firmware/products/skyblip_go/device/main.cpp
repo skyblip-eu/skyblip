@@ -43,6 +43,7 @@ int main(void) {
     messages::RxFrame frame;
     for (;;) {
         while (board.link.pop_rx(frame)) app.on_link_rx(frame);
+        if (board.have_gnss && board.gnss.poll()) app.on_gnss_fix(board.gnss.fix());
         app.step(board.clock.millis());
         k_sleep(K_MSEC(10));  // cooperative cadence; tighten for slot timing.
     }

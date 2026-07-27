@@ -17,6 +17,7 @@
 #include <zephyr/kernel.h>
 
 #include "devices/boards/t_echo_plus/pins.h"
+#include "devices/drivers/l76k.h"
 #include "devices/drivers/ssd1681.h"
 #include "devices/drivers/sx1262.h"
 #include "devices/soc/zephyr/zephyr_ble.h"
@@ -69,6 +70,7 @@ struct TEchoPlus {
     sz::ZephyrDfu dfu{};
     sz::BleLink& link{sz::ble_link()};
     sz::ZephyrUart gnss_uart{kGnssUart};
+    drivers::L76k gnss{gnss_uart};
 
     bool have_epd{false};
     bool have_gnss{false};
@@ -97,7 +99,6 @@ struct TEchoPlus {
         p.display = have_epd ? &epd : nullptr;
         p.kv = &kv;
         p.dfu = &dfu;
-        p.gnss = have_gnss ? &gnss_uart : nullptr;
         p.device_addr = chip_addr();
         return p;
     }
