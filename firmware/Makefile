@@ -1,12 +1,12 @@
 # Host unit-test + simulator build. Depends on nothing but a C++ compiler, so it
 # runs anywhere g++/clang++ is present.
 #
-#   make test      build + run all host doctest suites
-#   make sim       terminal simulator
-#   make web       browser (WASM) simulator
-#   make serve     serve the browser sim with live reload
-#   make watch     incremental rebuild on save (WATCH=web|sim|test)
-#   make           alias for test
+#   make test        build + run all host doctest suites
+#   make simulator   terminal simulator          (alias: make sim)
+#   make browser     browser (WASM) simulator    (alias: make web)
+#   make serve       serve the browser simulator with live reload
+#   make watch       incremental rebuild on save (WATCH=browser|simulator|test)
+#   make             alias for test
 #   make clean
 #
 # core/ and ui/ must compile with NO framework headers (acceptance invariant).
@@ -16,7 +16,7 @@ CXX      ?= c++
 # -Wconversion is intentionally OFF: fixed-point bit-math (varint/adsl) truncates
 # by design. Keep the high-signal warnings on and treat them as errors.
 # -MMD -MP: emit header dependency files so editing a shared header (e.g. a
-# test fake's struct) recompiles every TU that includes it. Without this, stale
+# device model's struct) recompiles every TU that includes it. Without this, stale
 # objects with mismatched layouts link and crash non-deterministically.
 CXXFLAGS := -std=c++17 -O1 -g -Wall -Wextra -Wshadow -Werror \
             -fno-exceptions -fno-rtti -I. -Ivendor -MMD -MP \
@@ -63,14 +63,16 @@ BIN := $(BUILD)/skyblip_tests
 
 # Device simulator: the VIRTUAL T-Echo Plus running the real firmware.
 # Two frontends over the same virtual board:
-#   make sim   terminal frontend  -> ./build/skyblip_simulator (ASCII e-paper)
-#   make web   browser  frontend  -> simulator/browser/*.wasm  (needs Emscripten)
+#   make simulator  terminal -> ./build/skyblip_simulator   (ASCII e-paper, keys)
+#   make browser    browser  -> ./build/browser/*.wasm       (needs Emscripten)
 SIM_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC) products/skyblip_go/simulator/terminal.cpp)
 SIM_BIN := $(BUILD)/skyblip_simulator
 
 EMCC ?= emcc
 WEB_SRC := $(SRC) products/skyblip_go/simulator/browser.cpp
-WEB_OUT := products/skyblip_go/simulator/browser/skyblip_simulator.js
+WEB_DIST := $(BUILD)/browser
+WEB_PAGE := products/skyblip_go/simulator/browser/index.html
+WEB_OUT := $(WEB_DIST)/skyblip_simulator.js
 # Incremental browser build: compile to objects under build/web/ and link, so
 # editing one file rebuilds one file (a single emcc pass over all sources costs
 # ~30 s every save; this makes the edit->reload loop a couple of seconds).
@@ -80,7 +82,7 @@ WEB_CXXFLAGS := -std=c++17 -O2 -I. -Ivendor -fno-exceptions -fno-rtti -MMD -MP
 # Single line: a `\`-continuation here injects a space that breaks the arg.
 WEB_EXPORTS := _sim_setup,_sim_step,_sim_button,_sim_backlight,_sim_power,_sim_set_range,_sim_set_fix,_sim_set_sats,_sim_set_alt,_sim_set_speed,_sim_set_track,_sim_set_climb,_sim_set_position,_sim_add_aircraft,_sim_add_threat,_sim_clear_traffic,_sim_aircraft_count,_sim_fb,_sim_fb_w,_sim_fb_h,_sim_fb_stride,_sim_backlight_on,_sim_powered,_sim_page,_sim_fix_valid,_sim_sats,_sim_lat_1e7,_sim_lon_1e7,_sim_alt_m,_sim_speed_q,_sim_track_c9,_sim_climb_e8,_sim_traffic_count,_sim_alarm_level,_sim_rx_ok,_sim_rx_bad,_main
 
-.PHONY: test all clean sim web serve watch dev
+.PHONY: test all clean simulator sim browser web serve watch dev
 all: test
 
 test: $(BIN)
@@ -89,32 +91,38 @@ test: $(BIN)
 $(BIN): $(OBJ)
 	$(CXX) $(CXXFLAGS) $(OBJ) -o $@ $(LDFLAGS)
 
-sim: $(SIM_BIN)
+simulator: $(SIM_BIN)
 	@echo "run: ./$(SIM_BIN)"
+
+sim: simulator
 
 $(SIM_BIN): $(SIM_OBJ)
 	$(CXX) $(CXXFLAGS) $(SIM_OBJ) -o $@ $(LDFLAGS)
 
 # Browser build. Requires Emscripten (https://emscripten.org).
-#   make web     build (incremental)
-#   make serve   serve simulator/browser with auto-reload (needs node/npx)
+#   make browser build (incremental)
+#   make serve   serve build/browser with auto-reload (needs node/npx)
 #   make watch WATCH=web   rebuild on every save
-web:
+browser:
 	@command -v $(EMCC) >/dev/null 2>&1 || { \
-	  echo "emcc not found. Install Emscripten, then: make web"; exit 1; }
+	  echo "emcc not found. Install Emscripten, then: make browser"; exit 1; }
 	@$(MAKE) --no-print-directory $(WEB_OUT)
+
+web: browser
 
 $(WEB_BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(EMCC) $(WEB_CXXFLAGS) -c $< -o $@
 
-$(WEB_OUT): $(WEB_OBJ)
+$(WEB_OUT): $(WEB_OBJ) $(WEB_PAGE)
+	@mkdir -p $(WEB_DIST)
+	cp $(WEB_PAGE) $(WEB_DIST)/
 	$(EMCC) -O2 $(WEB_OBJ) \
 	  -sEXPORTED_FUNCTIONS=$(WEB_EXPORTS) \
 	  -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8 \
 	  -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=0 \
 	  -o $(WEB_OUT)
-	@echo "built $(WEB_OUT) + .wasm — serve $(dir $(WEB_OUT)) and open index.html"
+	@echo "built $(WEB_DIST)/ — serve it and open index.html"
 
 $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
@@ -126,12 +134,12 @@ $(BUILD)/%.o: %.cpp
 #
 #   make dev              browser loop: serve + rebuild the wasm on every save
 #   make watch            rebuild + rerun host tests on every save (default)
-#   make watch WATCH=web  rebuild the browser sim on every save
-#   make watch WATCH=sim  rebuild the terminal sim on every save
+#   make watch WATCH=browser    rebuild the browser simulator on every save
+#   make watch WATCH=simulator  rebuild the terminal simulator on every save
 #   make serve            build the wasm, then serve it with auto-reload
 #
-# `make dev` is the one-command browser loop. Doing it by hand needs BOTH
-# halves: `make serve` in one terminal AND `make watch WATCH=web` in another.
+# `make dev` is the one-command browser loop. Doing it by hand needs BOTH halves:
+# `make serve` in one terminal AND `make watch WATCH=browser` in another.
 # `make watch` alone only reruns host tests — the page will not change.
 WATCH ?= test
 WATCH_SRC := core ui hal devices products test
@@ -156,19 +164,19 @@ watch:
 
 # Static server for the browser sim that reloads the page when the .wasm/.js
 # changes. Falls back to python3 (manual refresh) if node isn't available.
-serve: web
+serve: browser
 	@if command -v npx >/dev/null 2>&1; then \
 	  echo "serving http://localhost:8000 (auto-reload)"; \
-	  npx --yes live-server $(dir $(WEB_OUT)) --port=8000 --no-browser; \
+	  npx --yes live-server $(WEB_DIST) --port=8000 --no-browser; \
 	else \
 	  echo "serving http://localhost:8000 (manual refresh; install node for auto-reload)"; \
-	  python3 -m http.server -d $(dir $(WEB_OUT)) 8000; \
+	  python3 -m http.server -d $(WEB_DIST) 8000; \
 	fi
 
 # One command for the browser loop: watcher in the background, server in the
 # foreground; Ctrl-C stops both.
 dev:
-	@$(MAKE) --no-print-directory watch WATCH=web & \
+	@$(MAKE) --no-print-directory watch WATCH=browser & \
 	  watcher=$$!; trap "kill $$watcher 2>/dev/null" EXIT INT TERM; \
 	  $(MAKE) --no-print-directory serve
 
