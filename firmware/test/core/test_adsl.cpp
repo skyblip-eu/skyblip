@@ -160,3 +160,114 @@ TEST_CASE("adsl: Monte-Carlo BER — detected vs silent miscorrection accounting
     // codeword; with only <=3 injected bits it must be essentially zero here.
     CHECK(silent <= 2);
 }
+
+// --- ADS-L 4 SRD860 issue 2, G.1.7 / G.1.8 / G.1.9 -------------------------
+// The three variable-range fields each have an "invalid" code, and uns_vr_encode
+// saturates at exactly that code. The spec is explicit that an out-of-range
+// measurement encodes the LIMIT and that "invalid" means unavailable, so
+// saturation must stop one short. These pin that apart.
+
+TEST_CASE("adsl: an over-range altitude encodes the limit, not 'unavailable'") {
+    AdslPacket p{};
+    p.init();
+    // G.1.7 worked example: 61104 m or more -> 0x3ffe, invalid -> 0x3fff.
+    p.set_alt_m(61104);
+    CHECK_FALSE(p.alt_invalid());
+    p.set_alt_m(100000);  // far past the maximum
+    CHECK_FALSE(p.alt_invalid());
+    p.set_alt_m(2000000000);
+    CHECK_FALSE(p.alt_invalid());
+    // And the spec's other examples still round-trip.
+    p.set_alt_m(0);
+    CHECK(p.alt_m() == 0);
+    p.set_alt_m(1000);
+    CHECK(p.alt_m() == 1000);
+    p.set_alt_m(-320);
+    CHECK(p.alt_m() == -320);
+    p.set_alt_m(-5000);  // below the minimum clamps to it, not to invalid
+    CHECK(p.alt_m() == -320);
+    CHECK_FALSE(p.alt_invalid());
+}
+
+TEST_CASE("adsl: an over-range ground speed encodes the limit, not 'unavailable'") {
+    AdslPacket p{};
+    p.init();
+    p.set_speed_q(236 * 4);  // G.1.8 maximum, 236 m/s
+    CHECK(p.has_speed());
+    p.set_speed_q(65535);
+    CHECK(p.has_speed());
+}
+
+TEST_CASE("adsl: an over-range sink rate encodes the limit, not 'unavailable'") {
+    AdslPacket p{};
+    p.init();
+    p.set_climb_e8(952);  // G.1.9 maximum, +119 m/s
+    CHECK(p.has_climb());
+    p.set_climb_e8(-944);  // G.1.9 minimum, -118 m/s
+    CHECK(p.has_climb());
+    p.set_climb_e8(-32768);  // absurd sink: still a rate, not "unknown"
+    CHECK(p.has_climb());
+    p.set_climb_e8(32767);
+    CHECK(p.has_climb());
+}
+
+TEST_CASE("adsl: the invalid codes are reachable on purpose and round-trip") {
+    AdslPacket p{};
+    p.init();
+    p.set_alt_m(1000);
+    p.set_speed_q(100);
+    p.set_climb_e8(8);
+    REQUIRE_FALSE(p.alt_invalid());
+    REQUIRE(p.has_speed());
+    REQUIRE(p.has_climb());
+
+    p.set_alt_invalid();
+    p.set_speed_invalid();
+    p.set_climb_invalid();
+    CHECK(p.alt_invalid());
+    CHECK_FALSE(p.has_speed());
+    CHECK_FALSE(p.has_climb());
+
+    // Marking one field invalid must not corrupt its packed neighbours: altitude,
+    // climb and track share bytes 7..10.
+    p.set_alt_m(1000);
+    p.set_climb_invalid();
+    p.set_track_c9(256);
+    CHECK(p.alt_m() == 1000);
+    CHECK_FALSE(p.has_climb());
+    CHECK(p.track_c9() == 256);
+    p.set_climb_e8(-16);
+    CHECK(p.alt_m() == 1000);
+    CHECK(p.climb_e8() == -16);
+    CHECK(p.track_c9() == 256);
+}
+
+TEST_CASE("adsl: from_own marks what own-ship does not know") {
+    skyblip::messages::OwnState own{};
+    own.lat_1e7 = 485000000;
+    own.lon_1e7 = 85000000;
+    own.alt_m = 1500;
+    own.speed_q = 200;
+    own.climb_e8 = 16;
+
+    // No fix yet: altitude and ground speed are unavailable, not zero.
+    AdslPacket p{};
+    from_own(p, own, 0xABCDEF, 6, 4, false);
+    CHECK(p.alt_invalid());
+    CHECK_FALSE(p.has_speed());
+    CHECK_FALSE(p.has_climb());  // climb_valid is false too
+
+    // Fix, but no vertical rate derived yet: only the climb stays unavailable.
+    own.fix_valid = true;
+    from_own(p, own, 0xABCDEF, 6, 4, false);
+    CHECK_FALSE(p.alt_invalid());
+    CHECK(p.alt_m() == 1500);
+    CHECK(p.has_speed());
+    CHECK_FALSE(p.has_climb());
+
+    // Everything known.
+    own.climb_valid = true;
+    from_own(p, own, 0xABCDEF, 6, 4, false);
+    CHECK(p.has_climb());
+    CHECK(p.climb_e8() == 16);
+}

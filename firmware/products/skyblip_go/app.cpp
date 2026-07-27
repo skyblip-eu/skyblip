@@ -67,14 +67,19 @@ void App::apply_gnss(uint32_t now_ms) {
     int16_t e8 = 0;
     const bool have =
         vs_from_alt_cm(f.alt_m * 100, now_ms, kVsWindowMs, vs_ref_alt_cm_, vs_ref_ms_, e8);
-    if (have && !baro_active()) own_.climb_e8 = e8;
+    if (have && !baro_active()) {
+        own_.climb_e8 = e8;
+        own_.climb_valid = true;
+    }
 }
 
 void App::on_baro(uint32_t pressure_pa, uint32_t now_ms) {
     const int32_t alt_cm = flight::pressure_to_alt_cm(pressure_pa);
     int16_t e8 = 0;
-    if (vs_from_alt_cm(alt_cm, now_ms, kBaroVsWindowMs, baro_ref_alt_cm_, baro_ref_ms_, e8))
+    if (vs_from_alt_cm(alt_cm, now_ms, kBaroVsWindowMs, baro_ref_alt_cm_, baro_ref_ms_, e8)) {
         own_.climb_e8 = e8;
+        own_.climb_valid = true;
+    }
 }
 
 bool App::vs_from_alt_cm(int32_t alt_cm, uint32_t now_ms, uint32_t window_ms, int32_t& ref_alt_cm,

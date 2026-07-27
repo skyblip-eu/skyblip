@@ -34,6 +34,10 @@ struct OwnState {
     bool fix_valid;
     bool utc_valid;
     bool pps_locked;
+    // Vertical rate arrives later than the fix (it needs two samples over a
+    // window) and can come from a barometer the unit may not have, so it carries
+    // its own validity. ADS-L G.1.9 has an explicit "unavailable" code for it.
+    bool climb_valid;
     int32_t lat_1e7;
     int32_t lon_1e7;
     int32_t alt_m;

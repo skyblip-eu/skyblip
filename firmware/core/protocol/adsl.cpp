@@ -9,7 +9,12 @@ namespace skyblip::protocol {
 
 uint16_t AdslPacket::speed_q() const { return uns_vr_decode<uint16_t, 6>(Position[6]); }
 void AdslPacket::set_speed_q(uint16_t s) {
-    Position[6] = static_cast<uint8_t>(uns_vr_encode<uint16_t, 6>(s));
+    uint16_t w = uns_vr_encode<uint16_t, 6>(s);
+    // uns_vr_encode saturates at 4*thres-1, which for this field IS the invalid
+    // code. G.1.8: over-range "shall be encoded" as the maximum (236 m/s =
+    // 0xFE), so saturation must stop one short of "unavailable".
+    if (w >= kSpeedInvalidCode) w = kSpeedInvalidCode - 1;
+    Position[6] = static_cast<uint8_t>(w);
 }
 
 int32_t AdslPacket::alt_m() const {
@@ -19,11 +24,15 @@ int32_t AdslPacket::alt_m() const {
     return uns_vr_decode<int32_t, 12>(w) - 320;
 }
 void AdslPacket::set_alt_m(int32_t alt) {
-    alt += 320;
-    if (alt < 0) alt = 0;
-    int32_t w = uns_vr_encode<uint32_t, 12>(static_cast<uint32_t>(alt));
+    alt += kAltOffsetM;
+    if (alt < 0) alt = 0;  // G.1.7: below -320 m encodes the limit, 0x0000
+    uint32_t w = uns_vr_encode<uint32_t, 12>(static_cast<uint32_t>(alt));
+    // Same collision as ground speed: saturation lands on 0x3FFF, the code for
+    // "no 3D fix". G.1.7 wants the limit (0x3FFE, 61104 m) instead - the
+    // difference between "very high" and "no idea".
+    if (w >= kAltInvalidCode) w = kAltInvalidCode - 1;
     Position[7] = static_cast<uint8_t>(w);
-    Position[8] = (Position[8] & 0xC0) | ((w >> 8) & 0x3F);
+    Position[8] = static_cast<uint8_t>((Position[8] & 0xC0) | ((w >> 8) & 0x3F));
 }
 
 int16_t AdslPacket::climb_e8() const {
@@ -33,15 +42,23 @@ int16_t AdslPacket::climb_e8() const {
     return sign_vr_decode<int16_t, 6>(w);
 }
 void AdslPacket::set_climb_e8(int16_t c) {
-    int16_t w = sign_vr_encode<int16_t, 6>(c);
-    Position[8] = (Position[8] & 0x3F) | ((w & 0x03) << 6);
-    Position[9] = (Position[9] & 0x80) | (w >> 2);
+    uint16_t w = static_cast<uint16_t>(sign_vr_encode<int16_t, 6>(c)) & 0x1FF;
+    // A sink rate at or beyond the limit encodes sign|0xFF == 0x1FF, the code for
+    // "no vertical rate". G.1.9 wants the limit (-118 m/s), so clamp the
+    // magnitude one short. Positive 0x0FF is a legal +119 m/s and stays.
+    if (w == kClimbInvalidCode) w = kClimbInvalidCode - 1;
+    write_climb_code(w);
+}
+
+void AdslPacket::write_climb_code(uint16_t w) {
+    Position[8] = static_cast<uint8_t>((Position[8] & 0x3F) | ((w & 0x03) << 6));
+    Position[9] = static_cast<uint8_t>((Position[9] & 0x80) | ((w >> 2) & 0x7F));
 }
 bool AdslPacket::has_climb() const {
-    int16_t w = Position[9] & 0x7F;
+    uint16_t w = static_cast<uint16_t>(Position[9] & 0x7F);
     w <<= 2;
-    w |= Position[8] >> 6;
-    return w != 0x1FF;
+    w |= static_cast<uint16_t>(Position[8] >> 6);
+    return w != kClimbInvalidCode;
 }
 
 uint16_t AdslPacket::track_c9() const {
@@ -257,9 +274,27 @@ void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8
     p.Emergency = 1;
     p.set_lat_1e7(own.lat_1e7);
     p.set_lon_1e7(own.lon_1e7);
-    p.set_alt_m(own.alt_m);
-    p.set_speed_q(own.speed_q);
-    p.set_climb_e8(own.climb_e8);
+
+    // Altitude and ground speed come from the 3D fix, so without one they are
+    // UNAVAILABLE and must say so (G.1.7, G.1.8). Transmitting a stale or zeroed
+    // altitude as if it were valid is worse than transmitting nothing: a receiver
+    // would compute relative vertical separation against it.
+    if (own.fix_valid) {
+        p.set_alt_m(own.alt_m);
+        p.set_speed_q(own.speed_q);
+    } else {
+        p.set_alt_invalid();
+        p.set_speed_invalid();
+    }
+
+    // Vertical rate needs two samples over a window, so it arrives later than the
+    // fix and has its own validity. Encoding 0 before then would claim level
+    // flight (G.1.9).
+    if (own.climb_valid)
+        p.set_climb_e8(own.climb_e8);
+    else
+        p.set_climb_invalid();
+
     p.set_track_c9(own.track_c9);
     (void)stealth;
 }

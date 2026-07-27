@@ -126,20 +126,38 @@ struct __attribute__((packed)) AdslPacket {
     void set_lat_1e7(int32_t v) { set_lat_cordic(e7_to_cordic(v)); }
     void set_lon_1e7(int32_t v) { set_lon_cordic(e7_to_cordic(v)); }
 
+    // Three fields carry an explicit "invalid" code, and the spec is emphatic
+    // that it means UNAVAILABLE, not out-of-range: an over-range value "shall be
+    // encoded" as the limit (ADS-L 4 SRD860 issue 2, G.1.7 / G.1.8 / G.1.9). The
+    // setters below honour that; the set_*_invalid() calls are how a shell says
+    // it genuinely does not know.
+    static constexpr uint16_t kSpeedInvalidCode = 0xFF;   // G.1.8, 8 bits
+    static constexpr uint16_t kClimbInvalidCode = 0x1FF;  // G.1.9, 9 bits
+    static constexpr uint16_t kAltInvalidCode = 0x3FFF;   // G.1.7, 14 bits
+    static constexpr int32_t kAltOffsetM = 320;           // G.1.7 encoding offset
+
     uint16_t speed_q() const;      // [0.25 m/s]
     void set_speed_q(uint16_t s);  // [0.25 m/s]
-    bool has_speed() const { return Position[6] != 0xFF; }
+    bool has_speed() const { return Position[6] != kSpeedInvalidCode; }
+    void set_speed_invalid() { Position[6] = kSpeedInvalidCode; }
 
-    int32_t alt_m() const;  // [m] HAE
+    int32_t alt_m() const;  // [m] HAE (WGS-84 ellipsoid, G.1.7 — NOT pressure)
     void set_alt_m(int32_t alt);
     bool alt_invalid() const { return (Position[8] & 0x3F) == 0x3F && Position[7] == 0xFF; }
+    void set_alt_invalid() {
+        Position[7] = 0xFF;
+        Position[8] = static_cast<uint8_t>((Position[8] & 0xC0) | 0x3F);
+    }
 
     int16_t climb_e8() const;  // [0.125 m/s]
     void set_climb_e8(int16_t c);
     bool has_climb() const;
+    void set_climb_invalid() { write_climb_code(kClimbInvalidCode); }
 
     uint16_t track_c9() const;  // 9-bit cordic (512 == 360 deg)
     void set_track_c9(uint16_t w);
+
+    void write_climb_code(uint16_t w);
 
     void scramble();
     void descramble();
