@@ -85,4 +85,6 @@ the authors of the projects we learned from while building it:
 
 ## License
 
-**GPL v3** — see [`LICENSE`](LICENSE).
+**GPL-3.0-only** - see [`LICENSE`](LICENSE).
+
+Copyright (C) 2026 François Catuhe
