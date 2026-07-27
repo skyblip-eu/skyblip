@@ -14,22 +14,31 @@ roll back automatically if the new image fails to come up.
 0x0FE000  MBR params / bootloader settings
 
 external MX25R1635F (2 MB, QSPI)
-0x000000  image-1  (slot1, OTA staging) 732 KB   183 sectors = slot0 + 1
-0x0B7000  logs                        ~1.29 MB
+0x000000  image-1  (slot1, OTA staging) 728 KB   182 sectors, same size as slot0
+0x0B6000  logs                        ~1.29 MB
 ```
 
 ## Why the secondary slot is on the external flash
 
-MCUboot's `swap-using-offset` reserves **one spare sector in the secondary slot**
-so sectors have somewhere to move during a swap
-(`mcuboot docs/design.md:283-320`). Putting the secondary slot on the external
-2 MB part means that sector — and the whole 728 KB mirror — costs no internal
-flash. Internal-only A/B would have capped each slot at ~368 KB.
+A/B needs two slots. Keeping both internal would have capped each at ~368 KB;
+putting the mirror on the external 2 MB part gives slot0 the full 728 KB.
 
-Both slots must report the same sector size for this mode. The nRF52840 page is
-4096 B, the MX25R sector is 4096 B, and
-`CONFIG_NORDIC_QSPI_NOR_FLASH_LAYOUT_PAGE_SIZE=4096` forces the driver to report
-sectors rather than its default 64 KB blocks. **Do not change that value.**
+Two geometry rules, both load-bearing:
+
+**The slots are exactly the same size.** Zephyr derives imgtool's `--slot-size`
+from *slot1*, not slot0 — *"Slot 1 size is used instead of slot 0 size"*
+(`zephyr/cmake/mcuboot.cmake:96-102`). `--pad --confirm` therefore pads the image
+to slot1's length, and that padded image is what the `.uf2` writes straight into
+slot0. Make slot1 one sector larger — which `mcuboot docs/design.md:296-299`
+otherwise recommends as the most efficient swap-using-offset layout — and the
+image trailer lands one sector past slot0, above `USER_FLASH_END`, where the
+bootloader silently drops it. Equal slots are explicitly permitted
+(`design.md:299`) and the usable image size is identical.
+
+**Both slots must report the same sector size.** The nRF52840 page is 4096 B, the
+MX25R sector is 4096 B, and `CONFIG_NORDIC_QSPI_NOR_FLASH_LAYOUT_PAGE_SIZE=4096`
+forces the driver to report sectors rather than its default 64 KB blocks.
+**Do not change that value.**
 
 ## Why the SoftDevice stays
 
@@ -170,7 +179,7 @@ any block below `0x26000` (would erase the factory SoftDevice) or at/above
 | | |
 |---|---|
 | slot0 usable | 741 376 B (182 sectors − 1 trailer sector) |
-| current image | run `scripts/size_check.py` — CI prints it every build |
-| MCUboot size | reserved 56 KB; **to be measured on the first real build** |
+| current image | **239 764 B — 32.3 %** of the budget |
+| MCUboot size | **31 272 B** of the 56 KB reserved (54 %) |
 | OTA upload time | **to be measured** over Web Bluetooth and over nRF Connect |
 | swap + revert time | **to be measured** on hardware, external secondary |

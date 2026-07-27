@@ -16,8 +16,9 @@ CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL=y
 # feather uf2 variant forgets to, and is wrong.
 CONFIG_USE_DT_CODE_PARTITION=y
 
-# The T-Echo ships the Adafruit nRF52 bootloader, so the primary install and
-# recovery artifact is a .uf2. Family ID is filled in automatically:
-# Kconfig.zephyr:904 defaults BUILD_OUTPUT_UF2_FAMILY_ID to 0xada52840 for
-# SOC_NRF52840_QIAA, which is what that bootloader accepts.
-CONFIG_BUILD_OUTPUT_UF2=y
+# CONFIG_BUILD_OUTPUT_UF2 is deliberately NOT set, even though the T-Echo's
+# install path is a .uf2. It would convert the UNSIGNED zephyr.bin, producing a
+# build/firmware/zephyr/zephyr.uf2 that looks like the artifact to flash and that
+# MCUboot will refuse to boot. scripts/mkuf2.py is the single source of the real
+# .uf2: it merges the bootloader and the signed, confirmed application and range-
+# checks the result against the factory bootloader's write window.

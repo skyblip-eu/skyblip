@@ -327,29 +327,36 @@ zephyr_udc0: &usbd {
 			#size-cells = <1>;
 
 			/*
-			 * Secondary slot, 183 sectors of 4 KB = 0xB7000.
+			 * Secondary slot, EXACTLY THE SAME SIZE as slot0 (182 sectors
+			 * of 4 KB = 0xB6000). Not one sector larger, even though
+			 * mcuboot docs/design.md:296-299 calls that the most
+			 * memory-efficient swap-using-offset layout.
 			 *
-			 * That is slot0 (182 sectors) PLUS ONE. MCUboot's
-			 * swap-using-offset algorithm reserves the first sector of the
-			 * SECONDARY slot so sectors have somewhere to move during a
-			 * swap, and docs/design.md:296-299 states the most
-			 * memory-efficient layout is "the secondary slot larger than
-			 * the primary slot by exactly one sector". Putting the spare
-			 * sector out here rather than in internal flash is the whole
-			 * reason slot0 gets its full 728 KB.
+			 * Zephyr derives imgtool's --slot-size from slot1, not slot0 -
+			 * "Slot 1 size is used instead of slot 0 size"
+			 * (zephyr/cmake/mcuboot.cmake:96-102). So --pad --confirm pads
+			 * the image to slot1's length, and that padded image is what
+			 * gets written straight into slot0 by the .uf2. Make slot1
+			 * bigger and the trailer lands one sector past the end of
+			 * slot0, above USER_FLASH_END, where the UF2 bootloader
+			 * silently drops it. scripts/mkuf2.py caught exactly that.
+			 *
+			 * design.md:299 permits equal slots. The first sector of the
+			 * secondary is still reserved for sector movement, so the
+			 * usable image size is unchanged either way.
 			 *
 			 * Both slots must have the same sector size for this mode:
 			 * nRF52840 page = 4096 B, MX25R sector = 4096 B.
 			 */
 			slot1_partition: partition@0 {
 				label = "image-1";
-				reg = <0x00000000 0x000B7000>;
+				reg = <0x00000000 0x000B6000>;
 			};
 
 			/* ~1.29 MB left for flight logging. */
-			log_partition: partition@b7000 {
+			log_partition: partition@b6000 {
 				label = "logs";
-				reg = <0x000B7000 0x00149000>;
+				reg = <0x000B6000 0x0014A000>;
 			};
 		};
 	};
