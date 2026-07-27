@@ -31,13 +31,14 @@
 #include "ui/framebuffer.h"
 #include "ui/screens/altvs.h"
 #include "ui/screens/radar.h"
+#include "ui/screens/sixpack.h"
 #include "ui/screens/status.h"
 
 namespace skyblip::go {
 
-// The e-paper pages (roadmap 2.6d). settings.page_mask (0x07) enables/disables
+// The e-paper pages (roadmap 2.6d). settings.page_mask (0x0F) enables/disables
 // them individually; the button cycles through the enabled ones.
-enum class Page : uint8_t { Radar, AltVs, Status, kCount };
+enum class Page : uint8_t { Radar, AltVs, Status, SixPack, kCount };
 
 // The port surface. The composition root fills this in with concrete adapters.
 // Required ports are references (always present); optional capabilities are
@@ -123,7 +124,11 @@ class App {
     void apply_gnss(uint32_t now_ms);
     void drain_radio(uint32_t now_ms);
     void update_alarms();
+    void update_turn_rate(uint32_t now_ms);
     void render();
+
+    // 1 m/s = 196.85 ft/min, from eighth-m/s.
+    int32_t climb_fpm() const { return (static_cast<int32_t>(own_.climb_e8) * 19685) / (8 * 100); }
 
     // The traffic table's single time base, in seconds. Observations are stamped
     // with it (rx_utc) and aged against it, so the two MUST agree: mixing GNSS
@@ -156,6 +161,9 @@ class App {
     uint32_t vs_ref_ms_{0};
     int32_t baro_ref_alt_cm_{0};
     uint32_t baro_ref_ms_{0};
+    uint32_t turn_ref_ms_{0};
+    uint16_t turn_ref_track_c9_{0};
+    int16_t turn_dps_{0};
     uint32_t rx_ok_{0};
     uint32_t rx_bad_{0};
     uint8_t max_alarm_{0};
@@ -183,6 +191,7 @@ class App {
     // Pressure is far quieter than differentiated GNSS altitude, so the same
     // confidence needs a shorter window - which is the point of having a baro.
     static constexpr uint32_t kBaroVsWindowMs = 1000;
+    static constexpr uint32_t kTurnWindowMs = 1000;
 };
 
 }  // namespace skyblip::go

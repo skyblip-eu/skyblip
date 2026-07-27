@@ -71,6 +71,28 @@ void App::apply_gnss(uint32_t now_ms) {
         own_.climb_e8 = e8;
         own_.climb_valid = true;
     }
+
+    update_turn_rate(now_ms);
+}
+
+// Rate of turn from the track trend — the only bank/turn signal a GNSS-only
+// device has, and what the six-pack's turn coordinator and attitude dial read.
+void App::update_turn_rate(uint32_t now_ms) {
+    if (turn_ref_ms_ == 0) {
+        turn_ref_ms_ = now_ms == 0 ? 1 : now_ms;
+        turn_ref_track_c9_ = own_.track_c9;
+        return;
+    }
+    const uint32_t dt = now_ms - turn_ref_ms_;
+    if (dt < kTurnWindowMs) return;
+
+    // cordic9: 512 units = 360 deg. Wrap the difference to the short way round
+    // so 359 -> 001 reads as +2 deg, not -358.
+    const int32_t diff =
+        ((static_cast<int32_t>(own_.track_c9) - turn_ref_track_c9_ + 768) % 512) - 256;
+    turn_dps_ = static_cast<int16_t>((diff * 45 * 1000) / (64 * static_cast<int32_t>(dt)));
+    turn_ref_ms_ = now_ms;
+    turn_ref_track_c9_ = own_.track_c9;
 }
 
 void App::on_baro(uint32_t pressure_pa, uint32_t now_ms) {
@@ -260,9 +282,20 @@ void App::render() {
             snap.have_data = own_.fix_valid;
             snap.imperial = settings_.units == settings::Units::Imperial;
             snap.alt_ft = to_feet(Metres(own_.alt_m)).v;
-            // climb_e8 (eighth-m/s) → feet per minute: m/s * 196.85.
-            snap.vs_fpm = (static_cast<int32_t>(own_.climb_e8) * 19685) / (8 * 100);
+            snap.vs_fpm = climb_fpm();
             ui::draw_altvs(fb_, snap);
+            break;
+        }
+        case Page::SixPack: {
+            ui::SixPackSnapshot snap;
+            snap.have_data = own_.fix_valid;
+            // 1 m/s = 1.94384 kt, from quarter-m/s.
+            snap.speed_kt = (static_cast<int32_t>(own_.speed_q) * 194384) / (4 * 100000);
+            snap.alt_ft = to_feet(Metres(own_.alt_m)).v;
+            snap.vs_fpm = climb_fpm();
+            snap.track_deg = to_degrees(Cordic9(own_.track_c9)).v;
+            snap.turn_dps = turn_dps_;
+            ui::draw_sixpack(fb_, snap);
             break;
         }
         case Page::Status:

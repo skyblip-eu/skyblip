@@ -109,6 +109,33 @@ TEST_CASE("sim: every page renders ink to the panel") {
     CHECK(h.present_count() > 0);
 }
 
+TEST_CASE("sim: a modelled turn deflects the six-pack turn coordinator") {
+    simulator::TEchoPlus h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.set_fix(true);
+    h.set_speed_kt(100);
+    h.set_track_deg(0);
+    run(h, 0, 2000);
+    for (int i = 0; i < 3; i++) h.button();  // radar -> alt/vs -> status -> 6-pack
+    run(h, 2000, 4000);
+    REQUIRE(h.page() == go::Page::SixPack);
+    const ui::Framebuffer level = h.framebuffer();
+
+    // A standard-rate turn: 3 deg/s of track change, held four seconds.
+    uint32_t t = 4000;
+    for (int i = 1; i <= 4; i++) {
+        h.set_track_deg(i * 3);
+        run(h, t, t + 1000);
+        t += 1000;
+    }
+
+    int diff = 0;  // the turn tile: centre (34, 138), radius 29
+    for (int y = 109; y <= 167; y++)
+        for (int x = 5; x <= 63; x++)
+            if (level.get_pixel(x, y) != h.framebuffer().get_pixel(x, y)) diff++;
+    CHECK(diff > 10);
+}
+
 TEST_CASE("sim: a modelled climb reaches own-ship state through the barometer") {
     simulator::TEchoPlus h;
     REQUIRE(h.setup() == Status::Ok);

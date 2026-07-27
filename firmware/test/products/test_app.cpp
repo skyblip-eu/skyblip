@@ -100,9 +100,11 @@ TEST_CASE("app: a button press switches the page and forces a full refresh") {
     app.step(150);  // page change forces an immediate FULL refresh
     CHECK(display.last_mode == hal::Refresh::Full);
 
-    // Three pages (roadmap 2.6d): radar -> alt/vs -> status -> radar.
+    // radar -> alt/vs -> status -> 6-pack -> radar.
     app.on_button();
     CHECK(app.page() == go::Page::Status);
+    app.on_button();
+    CHECK(app.page() == go::Page::SixPack);
     app.on_button();
     CHECK(app.page() == go::Page::Radar);
 }

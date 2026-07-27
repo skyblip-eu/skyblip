@@ -46,6 +46,7 @@ SRC := \
   core/flight/atmosphere.cpp \
   ui/screens/radar.cpp \
   ui/screens/altvs.cpp \
+  ui/screens/sixpack.cpp \
   ui/screens/status.cpp \
   ui/framebuffer.cpp \
   products/skyblip_go/app.cpp \

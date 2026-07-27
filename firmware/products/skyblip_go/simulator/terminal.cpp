@@ -37,7 +37,7 @@ uint32_t now_ms() {
     return (uint32_t)duration_cast<milliseconds>(steady_clock::now() - t0).count();
 }
 
-const char* kPages[] = {"radar", "alt/vs", "status"};
+const char* kPages[] = {"radar", "alt/vs", "status", "6-pack"};
 const char* kAlarm[] = {"none", "info", "IMPORTANT", "URGENT"};
 
 void render(simulator::TEchoPlus& h) {
