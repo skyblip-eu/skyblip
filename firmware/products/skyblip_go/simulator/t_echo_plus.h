@@ -146,6 +146,7 @@ class TEchoPlus {
     int present_count() const { return display_.present_count; }
     int traffic_count() const { return app_.traffic_count(); }
     uint8_t alarm_level() const { return ann_.level(); }
+    uint16_t vibro_ms() const { return ann_.vibro_ms(); }
     uint32_t rx_ok() const { return app_.rx_ok(); }
     uint32_t rx_bad() const { return app_.rx_bad(); }
     const messages::OwnState& own() const { return app_.own(); }

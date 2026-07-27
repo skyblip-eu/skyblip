@@ -170,6 +170,14 @@ class App {
     ui::Framebuffer fb_{};
     ui::RadarTarget targets_[kMaxRadarTargets]{};
 
+    // core/traffic/alarm.h grades contacts 1 info, 2 important, 3 urgent.
+    static constexpr uint8_t kVibroFromLevel = 2;
+    static constexpr uint8_t kUrgentLevel = 3;
+    // Long enough to feel through a glove and a harness strap, short enough not
+    // to blur into the next escalation.
+    static constexpr uint16_t kVibroImportantMs = 200;
+    static constexpr uint16_t kVibroUrgentMs = 600;
+
     static constexpr uint32_t kRenderPeriodMs = 1000;
     static constexpr uint32_t kVsWindowMs = 2000;
     // Pressure is far quieter than differentiated GNSS altitude, so the same

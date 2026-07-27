@@ -77,6 +77,7 @@ KEEPALIVE int sim_track_c9() { return g_h.own().track_c9; }
 KEEPALIVE int sim_climb_e8() { return g_h.own().climb_e8; }
 KEEPALIVE int sim_traffic_count() { return g_h.traffic_count(); }
 KEEPALIVE int sim_alarm_level() { return g_h.alarm_level(); }
+KEEPALIVE int sim_vibro_ms() { return g_h.vibro_ms(); }
 KEEPALIVE int sim_rx_ok() { return static_cast<int>(g_h.rx_ok()); }
 KEEPALIVE int sim_rx_bad() { return static_cast<int>(g_h.rx_bad()); }
 }

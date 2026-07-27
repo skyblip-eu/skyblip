@@ -3,6 +3,7 @@
 // framework code. If App ever leaks a framework (Zephyr) include, this stops
 // compiling — which is exactly the guard the invariant was supposed to have.
 #include "core/flight/atmosphere.h"
+#include "devices/models/annunciator.h"
 #include "devices/models/clock.h"
 #include "devices/models/display.h"
 #include "devices/models/kvstore.h"

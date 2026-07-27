@@ -82,7 +82,7 @@ WEB_BUILD := $(BUILD)/web
 WEB_OBJ := $(patsubst %.cpp,$(WEB_BUILD)/%.o,$(WEB_SRC))
 WEB_CXXFLAGS := -std=c++17 -O2 -I. -Ivendor -fno-exceptions -fno-rtti -MMD -MP
 # Single line: a `\`-continuation here injects a space that breaks the arg.
-WEB_EXPORTS := _sim_setup,_sim_step,_sim_button,_sim_backlight,_sim_power,_sim_set_range,_sim_set_fix,_sim_set_sats,_sim_set_alt,_sim_set_speed,_sim_set_track,_sim_set_climb,_sim_set_position,_sim_add_aircraft,_sim_add_threat,_sim_clear_traffic,_sim_aircraft_count,_sim_fb,_sim_fb_w,_sim_fb_h,_sim_fb_stride,_sim_backlight_on,_sim_powered,_sim_page,_sim_fix_valid,_sim_sats,_sim_lat_1e7,_sim_lon_1e7,_sim_alt_m,_sim_speed_q,_sim_track_c9,_sim_climb_e8,_sim_traffic_count,_sim_alarm_level,_sim_rx_ok,_sim_rx_bad,_main
+WEB_EXPORTS := _sim_setup,_sim_step,_sim_button,_sim_backlight,_sim_power,_sim_set_range,_sim_set_fix,_sim_set_sats,_sim_set_alt,_sim_set_speed,_sim_set_track,_sim_set_climb,_sim_set_position,_sim_add_aircraft,_sim_add_threat,_sim_clear_traffic,_sim_aircraft_count,_sim_fb,_sim_fb_w,_sim_fb_h,_sim_fb_stride,_sim_backlight_on,_sim_powered,_sim_page,_sim_fix_valid,_sim_sats,_sim_lat_1e7,_sim_lon_1e7,_sim_alt_m,_sim_speed_q,_sim_track_c9,_sim_climb_e8,_sim_traffic_count,_sim_alarm_level,_sim_vibro_ms,_sim_rx_ok,_sim_rx_bad,_main
 
 .PHONY: test all clean simulator sim browser web serve watch dev
 all: test

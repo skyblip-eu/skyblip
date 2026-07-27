@@ -126,3 +126,42 @@ TEST_CASE("sim: a modelled climb reaches own-ship state through the barometer") 
     run(h, 6000, 14000);
     CHECK(h.own().climb_e8 < 0);
 }
+
+TEST_CASE("sim: an escalating threat buzzes and, from 'important', vibrates") {
+    simulator::TEchoPlus h;
+    REQUIRE(h.setup() == Status::Ok);
+    run(h, 0, 2000);
+    REQUIRE(h.own().fix_valid);
+    REQUIRE(h.vibro_ms() == 0);
+
+    // A distant contact: info level only. Audible, but it must NOT buzz the
+    // motor - a pilot who feels every passing glider stops feeling anything.
+    h.add_aircraft(2500, 0, 0, 20, 90);
+    run(h, 2000, 5000);
+    if (h.alarm_level() == 1) CHECK(h.vibro_ms() == 0);
+
+    // Now something close and converging: important or urgent, so it must vibrate.
+    h.add_threat();
+    run(h, 5000, 9000);
+    REQUIRE(h.alarm_level() >= 2);
+    CHECK(h.vibro_ms() >= 200);
+}
+
+TEST_CASE("sim: a threat going away does not buzz the motor again") {
+    simulator::TEchoPlus h;
+    REQUIRE(h.setup() == Status::Ok);
+    run(h, 0, 2000);
+    h.add_threat();
+    run(h, 2000, 6000);
+    REQUIRE(h.alarm_level() >= 2);
+    REQUIRE(h.vibro_ms() >= 200);
+
+    // De-escalation is a level CHANGE too, and it must not be mistaken for a new
+    // threat: the annunciator records the last duration, so a fresh pulse would
+    // show up as a change here.
+    const uint16_t after_escalation = h.vibro_ms();
+    h.clear_aircraft();
+    run(h, 6000, 10000);
+    CHECK(h.alarm_level() == 0);
+    CHECK(h.vibro_ms() == after_escalation);  // unchanged: no pulse on the way down
+}

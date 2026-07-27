@@ -143,6 +143,7 @@ void App::update_alarms() {
         }
     }
     if (worst != max_alarm_) {
+        const bool escalated = worst > max_alarm_;
         max_alarm_ = worst;
         dirty_ = true;
         if (p_.annunciator && settings_.alarm_enabled) {
@@ -150,6 +151,12 @@ void App::update_alarms() {
                 p_.annunciator->alarm(worst, settings_.alarm_volume);
             else
                 p_.annunciator->silence();
+            // Haptics only on the way UP, and only from "important": this device
+            // rides in a pocket or a harness where the buzzer is muffled, which
+            // is precisely when a pilot needs to feel it. Buzzing AND vibrating
+            // on every info-level contact would train pilots to ignore both.
+            if (escalated && worst >= kVibroFromLevel)
+                p_.annunciator->vibrate(worst >= kUrgentLevel ? kVibroUrgentMs : kVibroImportantMs);
         }
     }
 }
