@@ -13,6 +13,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/hwinfo.h>
+#include <zephyr/drivers/pwm.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/kernel.h>
 
@@ -20,6 +21,7 @@
 #include "devices/drivers/l76k.h"
 #include "devices/drivers/ssd1681.h"
 #include "devices/drivers/sx1262.h"
+#include "devices/soc/zephyr/zephyr_annunciator.h"
 #include "devices/soc/zephyr/zephyr_ble.h"
 #include "devices/soc/zephyr/zephyr_clock.h"
 #include "devices/soc/zephyr/zephyr_dfu.h"
@@ -37,6 +39,8 @@ inline const struct device* const kGpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
 inline const struct device* const kRadioSpi = DEVICE_DT_GET(DT_ALIAS(radio_spi));
 inline const struct device* const kEpdSpi = DEVICE_DT_GET(DT_ALIAS(epd_spi));
 inline const struct device* const kGnssUart = DEVICE_DT_GET(DT_ALIAS(gnss_uart));
+
+inline const struct pwm_dt_spec kBuzzer = PWM_DT_SPEC_GET(DT_ALIAS(buzzer));
 
 inline const struct spi_config kSpiCfg = {
     .frequency = 8000000U,
@@ -66,6 +70,9 @@ struct TEchoPlus {
     sz::ZephyrSpi epd_spi{kEpdSpi, kSpiCfg, kGpio0, pins::kEpdSs & 31};
     drivers::Ssd1681 epd{epd_spi, gpio, pins::kEpdDc, pins::kEpdRst, pins::kEpdBusy};
 
+    // Buzzer + vibration motor: the alarm's ONLY output on this board.
+    sz::ZephyrAnnunciator annunciator{kBuzzer, gpio, pins::kVibro};
+
     sz::ZephyrKvStore kv{};
     sz::ZephyrDfu dfu{};
     sz::BleLink& link{sz::ble_link()};
@@ -89,6 +96,7 @@ struct TEchoPlus {
         if (have_epd) epd.begin();
 
         kv.begin();
+        annunciator.begin();
         have_link = link.begin() == Status::Ok;
         have_gnss = device_is_ready(kGnssUart);
         return Status::Ok;
@@ -98,6 +106,7 @@ struct TEchoPlus {
         go::Ports p{clock, link, radio};
         p.display = have_epd ? &epd : nullptr;
         p.kv = &kv;
+        p.annunciator = &annunciator;
         p.dfu = &dfu;
         p.device_addr = chip_addr();
         return p;
