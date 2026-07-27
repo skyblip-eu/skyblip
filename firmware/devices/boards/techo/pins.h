@@ -43,9 +43,15 @@ constexpr int kTouch = kPinNum(0, 11);    // capacitive touch pad
 constexpr int kBuzzer = kPinNum(0, 6);  // piezo buzzer
 constexpr int kVibro = kPinNum(0, 8);   // DRV haptic / vibration motor enable
 
-// Power gating: the SX1262 radio AND the e-paper are behind PIN_POWER_EN. It
-// MUST be driven high at boot or the radio SPI is dead and the EPD won't
-// respond. #1 bring-up gotcha. An aux 3V3 rail on P0.13 is asserted with it.
+// Power gating: the SX1262 radio, the e-paper AND (on REV_2 and later, which
+// includes the Plus) the external QSPI flash sit behind PIN_POWER_EN — SoftRF's
+// iomap/LilyGO_TEcho.h:80 lists "REV_2: FLASH, GNSS, SENSOR" against this pin.
+// It MUST be driven high at boot or the radio SPI is dead, the EPD won't respond
+// and MCUboot cannot read the secondary image slot. #1 bring-up gotcha.
+//
+// Asserted in boards/lilygo/t_echo_plus/board.c, at board level rather than in
+// the application, so the bootloader gets it too. Listed here for the pin map's
+// completeness; nothing in the application drives these.
 constexpr int kIoPwr = kPinNum(0, 12);          // PIN_POWER_EN (radio + eink + peripherals)
 constexpr int k3v3Pwr = kPinNum(0, 13);         // aux 3V3 rail (REV_2 boards; harmless to assert)
 constexpr int kEpdBacklightEn = kEpdBacklight;  // P1.11 = backlight AND panel enable

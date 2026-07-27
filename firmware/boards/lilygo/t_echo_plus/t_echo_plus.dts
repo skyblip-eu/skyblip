@@ -13,13 +13,14 @@
  * — configured by the driver (sx1262.cpp begin()), not here.
  *
  * Peripheral-instance choice avoids nRF52840 EasyDMA base conflicts:
- *   radio  -> SPIM3 (dedicated, high-speed)
- *   e-paper-> SPIM2
+ *   radio  -> SPIM3 (0x4002F000, dedicated, high-speed)
+ *   e-paper-> SPIM2 (0x40023000)
+ *   flash  -> QSPI  (0x40029000, its own peripheral — no SPIM conflict)
  *   GNSS   -> UARTE0
  *   console-> USB CDC ACM (T-Echo has no dedicated debug UART; it uses USB)
  *
- * Power note: IO_PWR (P0.12) and 3V3_PWR (P0.13) gate the radio + e-paper. They
- * are asserted in software at boot (products/skyblip/main.cpp::power_up_rails).
+ * Power gating lives in board.c, NOT in the application, because MCUboot needs
+ * the same rails up before it can read the secondary slot. See board.c.
  */
 
 / {
@@ -68,7 +69,13 @@
 		};
 	};
 
-	/* E-paper SPI (SSD1681): SCK P0.31, MOSI P0.29, MISO P1.07. Confirmed. */
+	/*
+	 * E-paper SPI (SSD1681): SCK P0.31, MOSI P0.29, MISO P1.07.
+	 *
+	 * P1.07 is a placeholder MISO — the panel is write-only. It is P1.07 and
+	 * not P0.07 on purpose: P0.07 is QSPI IO2 (see qspi_default below), and
+	 * Meshtastic's t-echo-plus variant.h:113 picks P1.07 for the same reason.
+	 */
 	spi2_default: spi2_default {
 		group1 {
 			psels = <NRF_PSEL(SPIM_SCK, 0, 31)>,
@@ -82,6 +89,38 @@
 				<NRF_PSEL(SPIM_MOSI, 0, 29)>,
 				<NRF_PSEL(SPIM_MISO, 1, 7)>;
 			low-power-enable;
+		};
+	};
+
+	/*
+	 * QSPI to the on-board MX25R1635F. Pins agree across three independent
+	 * sources: Meshtastic t-echo-plus variant.h:70-75, nrf52-ogn-tracker
+	 * variants/t_echo/variant.h:56-61, and SoftRF iomap/LilyGO_TEcho.h:88-93.
+	 *   SCK P1.14  CS P1.15  IO0 P1.12  IO1 P1.13  IO2 P0.07  IO3 P0.05
+	 */
+	qspi_default: qspi_default {
+		group1 {
+			psels = <NRF_PSEL(QSPI_SCK, 1, 14)>,
+				<NRF_PSEL(QSPI_CSN, 1, 15)>,
+				<NRF_PSEL(QSPI_IO0, 1, 12)>,
+				<NRF_PSEL(QSPI_IO1, 1, 13)>,
+				<NRF_PSEL(QSPI_IO2, 0, 7)>,
+				<NRF_PSEL(QSPI_IO3, 0, 5)>;
+		};
+	};
+	qspi_sleep: qspi_sleep {
+		group1 {
+			psels = <NRF_PSEL(QSPI_SCK, 1, 14)>,
+				<NRF_PSEL(QSPI_IO0, 1, 12)>,
+				<NRF_PSEL(QSPI_IO1, 1, 13)>,
+				<NRF_PSEL(QSPI_IO2, 0, 7)>,
+				<NRF_PSEL(QSPI_IO3, 0, 5)>;
+			low-power-enable;
+		};
+		group2 {
+			psels = <NRF_PSEL(QSPI_CSN, 1, 15)>;
+			low-power-enable;
+			bias-pull-up;
 		};
 	};
 
@@ -156,10 +195,10 @@
 	pinctrl-names = "default", "sleep";
 };
 
-/* USB CDC ACM = console/log + (later) MCUmgr DFU transport.
+/* USB CDC ACM = console/log + a wired MCUmgr DFU transport.
  *
  * The `zephyr_udc0` label is REQUIRED, not decoration: the USB device next
- * stack's CDC ACM serial helper does USBD_DEVICE_DEFINE(..., 
+ * stack's CDC ACM serial helper does USBD_DEVICE_DEFINE(...,
  * DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)), ...), so without this label the
  * console does not build. Same idiom as the upstream nRF52840 board files.
  */
@@ -170,28 +209,148 @@ zephyr_udc0: &usbd {
 	};
 };
 
-/* nRF52840 1 MB flash: MCUboot + A/B image slots + NVS settings storage. */
+/*
+ * GPREGRET is a hardware-retained byte that survives a warm reset. The factory
+ * Adafruit bootloader reads it on every boot and enters USB mass-storage DFU
+ * when it holds 0x57 (DFU_MAGIC_UF2_RESET, Adafruit_nRF52_Bootloader
+ * src/main.cpp:109). Exposing it as a Zephyr `retention` area is how the
+ * application asks to be rebooted into drag-and-drop mode without touching a
+ * register directly. Same shape ZMK uses (app/dts/common/nordic/
+ * nrf52840_uf2_boot_mode.dtsi).
+ *
+ * No `prefix` and no `checksum` on purpose: the binding defaults both off
+ * (dts/bindings/retention/zephyr,retention.yaml), so a one-byte
+ * retention_write() puts exactly 0x57 in the register — which is what the
+ * bootloader compares against.
+ */
+&gpregret1 {
+	uf2_boot_retention: retention@0 {
+		compatible = "zephyr,retention";
+		status = "okay";
+		reg = <0x0 0x1>;
+	};
+};
+
+/*
+ * Internal 1 MB flash. The factory Adafruit UF2 bootloader owns both ends and
+ * we never write either: MBR + SoftDevice below 0x26000, bootloader + MBR
+ * params + settings from 0xF4000. MCUboot is chain-loaded as the "application"
+ * the UF2 bootloader starts.
+ *
+ * The drag-and-drop write window is USER_FLASH_START..USER_FLASH_END =
+ * 0x1000..0xEA000 (Adafruit_nRF52_Bootloader src/usb/uf2/uf2cfg.h:25-26 with
+ * DFU_APP_DATA_RESERVED = 10*4096, Makefile:139). Everything a .uf2 must carry
+ * — MCUboot and slot0 — therefore lives strictly below 0xEA000, and NVS lives
+ * above it inside the 40 KB the bootloader reserves for application data.
+ *
+ * The secondary slot is NOT here: it is on the external QSPI part (&mx25r16
+ * below), which is what buys slot0 its full 728 KB.
+ */
 &flash0 {
 	partitions {
 		compatible = "fixed-partitions";
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		boot_partition: partition@0 {
+		/* MBR (4 KB) + SoftDevice S140 6.1.1 (148 KB). Factory-programmed,
+		 * never linked against, never enabled — Zephyr's own BLE controller
+		 * drives the radio. Declared only so nothing can allocate over it. */
+		softdevice_partition: partition@0 {
+			label = "softdevice";
+			read-only;
+			reg = <0x00000000 0x00026000>;
+		};
+
+		boot_partition: partition@26000 {
 			label = "mcuboot";
-			reg = <0x00000000 0x0000C000>;
+			reg = <0x00026000 0x0000E000>;
 		};
-		slot0_partition: partition@c000 {
+
+		slot0_partition: partition@34000 {
 			label = "image-0";
-			reg = <0x0000C000 0x00076000>;
+			reg = <0x00034000 0x000B6000>;
 		};
-		slot1_partition: partition@82000 {
-			label = "image-1";
-			reg = <0x00082000 0x00076000>;
-		};
-		storage_partition: partition@f8000 {
+
+		/* 0xEA000..0xEC000 is deliberately unallocated: it is above
+		 * USER_FLASH_END, so a .uf2 cannot reach it, and it keeps NVS on the
+		 * same 8 KB boundary upstream uses. */
+
+		storage_partition: partition@ec000 {
 			label = "storage";
-			reg = <0x000F8000 0x00008000>;
+			reg = <0x000EC000 0x00008000>;
+		};
+
+		/* Adafruit bootloader (40 KB) + MBR params + bootloader settings.
+		 * Factory-programmed. This is the recovery path: it is in a region
+		 * the application cannot write, so a bad MCUboot is a double-tap
+		 * and a drag-and-drop rather than an SWD session. */
+		uf2_boot_partition: partition@f4000 {
+			label = "uf2-bootloader";
+			read-only;
+			reg = <0x000F4000 0x0000C000>;
+		};
+	};
+};
+
+/*
+ * On-board Macronix MX25R1635F, 16 Mbit / 2 MiB, on the nRF52840 QSPI.
+ *
+ * Geometry and identity from Adafruit_SPIFlash flash_devices.h:216-222 (vendored
+ * in oss/SoftRF-lyusupov): manufacturer 0xC2, memory type 0x28, capacity 0x15;
+ * 2 MiB; 8 MHz in the default low-power mode; quad-enable via status register 1
+ * bit 6, which is this binding's `quad-enable-requirements` default of "S1B6".
+ *
+ * Node shape follows the upstream nrf52840dk MX25R64 node.
+ */
+&qspi {
+	status = "okay";
+	pinctrl-0 = <&qspi_default>;
+	pinctrl-1 = <&qspi_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	mx25r16: mx25r1635f@0 {
+		compatible = "nordic,qspi-nor";
+		reg = <0>;
+		writeoc = "pp4io";
+		readoc = "read4io";
+		/* Low-power mode tops out at 8 MHz; we never enter high-power mode. */
+		sck-frequency = <8000000>;
+		jedec-id = [c2 28 15];
+		size-in-bytes = <2097152>;
+		has-dpd;
+		t-enter-dpd = <10000>;
+		t-exit-dpd = <35000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			/*
+			 * Secondary slot, 183 sectors of 4 KB = 0xB7000.
+			 *
+			 * That is slot0 (182 sectors) PLUS ONE. MCUboot's
+			 * swap-using-offset algorithm reserves the first sector of the
+			 * SECONDARY slot so sectors have somewhere to move during a
+			 * swap, and docs/design.md:296-299 states the most
+			 * memory-efficient layout is "the secondary slot larger than
+			 * the primary slot by exactly one sector". Putting the spare
+			 * sector out here rather than in internal flash is the whole
+			 * reason slot0 gets its full 728 KB.
+			 *
+			 * Both slots must have the same sector size for this mode:
+			 * nRF52840 page = 4096 B, MX25R sector = 4096 B.
+			 */
+			slot1_partition: partition@0 {
+				label = "image-1";
+				reg = <0x00000000 0x000B7000>;
+			};
+
+			/* ~1.29 MB left for flight logging. */
+			log_partition: partition@b7000 {
+				label = "logs";
+				reg = <0x000B7000 0x00149000>;
+			};
 		};
 	};
 };

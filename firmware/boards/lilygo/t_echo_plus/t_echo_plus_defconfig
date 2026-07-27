@@ -7,3 +7,17 @@ CONFIG_UART_CONSOLE=y
 CONFIG_SERIAL=y
 # nRF52840 uses the internal RC/xtal LF clock for the BT stack + kernel tick.
 CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL=y
+
+# Link into the `zephyr,code-partition` chosen in the board devicetree rather
+# than at flash base 0. Without this, CONFIG_FLASH_LOAD_OFFSET defaults to 0
+# (Kconfig.zephyr:133) and both the ELF and the generated .uf2 target 0x0 —
+# which would overwrite the factory MBR + SoftDevice. The upstream promicro_
+# nrf52840 uf2 variant sets this explicitly for the same reason; the Adafruit
+# feather uf2 variant forgets to, and is wrong.
+CONFIG_USE_DT_CODE_PARTITION=y
+
+# The T-Echo ships the Adafruit nRF52 bootloader, so the primary install and
+# recovery artifact is a .uf2. Family ID is filled in automatically:
+# Kconfig.zephyr:904 defaults BUILD_OUTPUT_UF2_FAMILY_ID to 0xada52840 for
+# SOC_NRF52840_QIAA, which is what that bootloader accepts.
+CONFIG_BUILD_OUTPUT_UF2=y
