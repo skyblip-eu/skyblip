@@ -119,11 +119,22 @@ jobs:
         working-directory: firmware
         run: python3 ../scripts/size_check.py build/firmware/zephyr/zephyr.elf
 
-      # Also the guard that the image cannot land on the factory MBR/SoftDevice
-      # or above the bootloader's silent write ceiling. See scripts/mkuf2.py.
+      - name: list build artifacts
+        if: always()
+        working-directory: firmware
+        run: find build -maxdepth 3 -name '*.hex' -o -name '*.bin' -o -name '*.uf2' | sort
+
+      # Merges the two sysbuild images (vanilla sysbuild emits no combined hex -
+      # that is an NCS feature) and guards that the result cannot land on the
+      # factory MBR/SoftDevice or above the bootloader's silent write ceiling.
+      # The application image must be the CONFIRMED one: a slot0 written directly
+      # never swaps, so it never marks itself good and would be reverted.
       - name: build the drag-and-drop .uf2
         working-directory: firmware
-        run: python3 ../scripts/mkuf2.py build/merged.hex build/skyblip-go.uf2
+        run: |
+          python3 ../scripts/mkuf2.py build/skyblip-go.uf2 \
+            build/mcuboot/zephyr/zephyr.hex \
+            build/firmware/zephyr/zephyr.signed.confirmed.hex
 
       - name: upload firmware artifacts
         uses: actions/upload-artifact@v7
@@ -131,7 +142,6 @@ jobs:
           name: t_echo_plus-firmware
           path: |
             firmware/build/skyblip-go.uf2
-            firmware/build/**/zephyr.signed.bin
-            firmware/build/**/zephyr.signed.confirmed.bin
-            firmware/build/merged.hex
-          if-no-files-found: warn
+            firmware/build/firmware/zephyr/zephyr.signed.bin
+            firmware/build/firmware/zephyr/zephyr.signed.confirmed.bin
+          if-no-files-found: error

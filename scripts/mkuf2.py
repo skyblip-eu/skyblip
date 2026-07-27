@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """Build the drag-and-drop install artifact, and refuse to build a dangerous one.
 
-    mkuf2.py <merged.hex> <out.uf2>
+    mkuf2.py <out.uf2> <in1.hex> [in2.hex ...]
 
-`merged.hex` is what sysbuild produces: MCUboot at boot_partition plus the signed
-application at slot0. Converting it to UF2 gives the single file a pilot drops on
-the TECHOBOOT volume.
+The inputs are the two images sysbuild builds separately - MCUboot at
+boot_partition and the signed, confirmed application at slot0 - which this script
+merges. Vanilla Zephyr sysbuild does not emit a combined `merged.hex` (that is an
+nRF Connect SDK feature), and merging Intel HEX is a dozen lines on top of the
+parser this script already needs for its range checks, so it does it here rather
+than taking a dependency on `mergehex`.
+
+The application image must be the *confirmed* one. A slot0 written directly by a
+bootloader never goes through a swap, so it never gets a chance to mark itself
+good, and an unconfirmed image would be reverted on the second boot.
+
+The result is the single file a pilot drops on the TECHOBOOT volume.
 
 The two range assertions are the point of this script. The factory Adafruit
 bootloader will write any address inside
@@ -31,9 +40,8 @@ USER_FLASH_END = 0x000EA000
 UF2_FAMILY_NRF52840 = "0xADA52840"
 
 
-def hex_ranges(path):
-    """Contiguous [start, end) byte ranges covered by an Intel HEX file."""
-    covered = set()
+def read_hex(path, into):
+    """Merge an Intel HEX file into an {address: byte} map."""
     offset = 0
     for line in path.read_text().splitlines():
         line = line.strip()
@@ -42,17 +50,25 @@ def hex_ranges(path):
         count = int(line[1:3], 16)
         addr = int(line[3:7], 16)
         rectype = int(line[7:9], 16)
-        data = line[9:9 + 2 * count]
+        payload = bytes.fromhex(line[9:9 + 2 * count])
         if rectype == 0x04:
-            offset = int(data, 16) << 16
+            offset = int(line[9:9 + 2 * count], 16) << 16
         elif rectype == 0x02:
-            offset = int(data, 16) << 4
+            offset = int(line[9:9 + 2 * count], 16) << 4
         elif rectype == 0x00:
-            covered.update(range(offset + addr, offset + addr + count))
-    if not covered:
+            for i, byte in enumerate(payload):
+                a = offset + addr + i
+                if a in into and into[a] != byte:
+                    sys.exit(f"ERROR: images disagree at 0x{a:08X} ({path})")
+                into[a] = byte
+
+
+def ranges_of(byte_map):
+    """Contiguous [start, end) ranges covered by an {address: byte} map."""
+    if not byte_map:
         return []
     ranges = []
-    ordered = sorted(covered)
+    ordered = sorted(byte_map)
     start = prev = ordered[0]
     for a in ordered[1:]:
         if a != prev + 1:
@@ -61,6 +77,22 @@ def hex_ranges(path):
         prev = a
     ranges.append((start, prev + 1))
     return ranges
+
+
+def write_hex(byte_map, path):
+    lines = []
+    upper = None
+    for start, end in ranges_of(byte_map):
+        for chunk in range(start, end, 16):
+            data = bytes(byte_map[a] for a in range(chunk, min(chunk + 16, end)))
+            if (chunk >> 16) != upper:
+                upper = chunk >> 16
+                rec = bytes([2, 0, 0, 4, (upper >> 8) & 0xFF, upper & 0xFF])
+                lines.append(":%s%02X" % (rec.hex().upper(), (-sum(rec)) & 0xFF))
+            rec = bytes([len(data), (chunk >> 8) & 0xFF, chunk & 0xFF, 0]) + data
+            lines.append(":%s%02X" % (rec.hex().upper(), (-sum(rec)) & 0xFF))
+    lines.append(":00000001FF")
+    path.write_text("\n".join(lines) + "\n")
 
 
 def zephyr_uf2conv():
@@ -87,19 +119,24 @@ def zephyr_uf2conv():
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 3:
         print(__doc__)
         return 2
-    merged = pathlib.Path(sys.argv[1])
-    out = pathlib.Path(sys.argv[2])
-    if not merged.is_file():
-        return fail(f"no such hex: {merged}")
+    out = pathlib.Path(sys.argv[1])
+    inputs = [pathlib.Path(p) for p in sys.argv[2:]]
 
-    ranges = hex_ranges(merged)
+    byte_map = {}
+    for path in inputs:
+        if not path.is_file():
+            return fail(f"no such hex: {path}")
+        read_hex(path, byte_map)
+        print(f"merged {path}")
+
+    ranges = ranges_of(byte_map)
     if not ranges:
-        return fail(f"{merged} contains no data records")
+        return fail("inputs contain no data records")
 
-    print(f"{merged.name} covers:")
+    print("combined image covers:")
     for start, end in ranges:
         print(f"  0x{start:08X} - 0x{end - 1:08X}  ({end - start} bytes)")
 
@@ -118,6 +155,8 @@ def main():
             "would be flashed with a truncated image."
         )
 
+    merged = out.with_suffix(".merged.hex")
+    write_hex(byte_map, merged)
     subprocess.check_call([
         sys.executable, str(zephyr_uf2conv()),
         str(merged), "-c", "-f", UF2_FAMILY_NRF52840, "-o", str(out),

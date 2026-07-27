@@ -156,7 +156,9 @@ first commercial unit, the map above is final.
 ```sh
 west build -b t_echo_plus firmware --sysbuild \
   -- -DSB_EXTRA_CONF_FILE=$HOME/.skyblip/signing.conf
-python3 scripts/mkuf2.py firmware/build/merged.hex firmware/build/skyblip-go.uf2
+python3 scripts/mkuf2.py firmware/build/skyblip-go.uf2 \
+  firmware/build/mcuboot/zephyr/zephyr.hex \
+  firmware/build/firmware/zephyr/zephyr.signed.confirmed.hex
 ```
 
 `mkuf2.py` is a guard as much as a converter: it refuses to emit a `.uf2` with
