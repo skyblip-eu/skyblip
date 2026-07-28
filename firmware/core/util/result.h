@@ -1,4 +1,3 @@
-// core/util/result.h — one fixed error vocabulary (3-ARCHITECTURE §5 idiom 3).
 #ifndef SKYBLIP_CORE_UTIL_RESULT_H
 #define SKYBLIP_CORE_UTIL_RESULT_H
 

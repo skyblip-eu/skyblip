@@ -154,11 +154,11 @@ def rasterise(sil, span, thr):
         # >1.2 px of airframe -> the smallest symmetric spine wider than 1 px.
         # Even span: a PAIR straddling the axis (2 px). Odd span: 3 px.
         if span % 2 == 0:
-            hw = 1 if fus[j] >= 1.2 else 1        # 2 px minimum either way
-            g[j, span // 2 - hw:span // 2 + hw] = 1
+            half_width = 1 if fus[j] >= 1.2 else 1        # 2 px minimum either way
+            g[j, span // 2 - half_width:span // 2 + half_width] = 1
         else:
-            hw = 1 if fus[j] >= 1.2 else 0
-            g[j, span // 2 - hw:span // 2 + hw + 1] = 1
+            half_width = 1 if fus[j] >= 1.2 else 0
+            g[j, span // 2 - half_width:span // 2 + half_width + 1] = 1
     hole = np.zeros_like(g)                               # close 1 px gaps in a row:
     hole[:, 1:-1] = g[:, :-2] & g[:, 2:] & (1 - g[:, 1:-1])   # a dotted edge is
     g = g | hole                                              # a raster artifact

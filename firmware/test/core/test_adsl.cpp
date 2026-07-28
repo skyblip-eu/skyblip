@@ -1,5 +1,5 @@
 // ADS-L position packet: the safety-critical round-trip and error-correction
-// tests (roadmap 2.1, 3-ARCHITECTURE §3 "test a radio protocol with zero RF").
+// tests: a radio protocol tested with zero RF hardware.
 // The RF channel is reduced to an injectable BER; we distinguish *detected
 // failure* from *silent miscorrection* (the real anti-collision danger).
 #include <cstdlib>  // std::abs - libc++ pulls it in transitively, libstdc++ does not

@@ -5,7 +5,7 @@ using namespace skyblip::timing;
 
 static ClockState anchored() { return ClockState{true, true, 0}; }
 
-TEST_CASE("timing: state map matches the §0 slot table") {
+TEST_CASE("timing: state map matches the ADS-L slot table") {
     CHECK(Scheduler::state_at(210) == SlotState::UplinkRxO);
     CHECK(Scheduler::state_at(394) == SlotState::UplinkRxO);
     CHECK(Scheduler::state_at(396) == SlotState::SwitchOtoM);

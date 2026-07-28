@@ -1,4 +1,4 @@
-// core/fec/scramble.h — ADS-L data scrambling (§E.2). The Key-0 XXTEA variant
+// ADS-L data scrambling (ADS-L 4 SRD-860 issue 2 §E.2). The Key-0 XXTEA variant
 #ifndef SKYBLIP_CORE_FEC_SCRAMBLE_H
 #define SKYBLIP_CORE_FEC_SCRAMBLE_H
 

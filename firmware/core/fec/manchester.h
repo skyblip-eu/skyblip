@@ -1,4 +1,4 @@
-// core/fec/manchester.h — Manchester line coding (M-band only, ADS-L §C.2.1).
+// Manchester line coding (M-band only, ADS-L 4 SRD-860 issue 2 §C.2.1).
 #ifndef SKYBLIP_CORE_FEC_MANCHESTER_H
 #define SKYBLIP_CORE_FEC_MANCHESTER_H
 

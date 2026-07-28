@@ -1,4 +1,3 @@
-// ui/screens/status.h — the status page (roadmap 2.6d third page).
 // Shows own-ship sensor state: GNSS fix, sats,
 // position, altitude, speed, track, UTC, PPS lock and traffic count. This is
 // the page that makes the sensor inputs observable on the panel.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI flash-size budget gate (3-ARCHITECTURE §1, roadmap E0.3).
+"""CI flash-size budget gate.
 
 Fail if the app .elf text+data exceeds what MCUboot can actually swap into
 slot0. With the secondary slot on the external QSPI part, slot0 is

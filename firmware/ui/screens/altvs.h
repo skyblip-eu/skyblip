@@ -1,4 +1,3 @@
-// ui/screens/altvs.h — altitude + vertical-speed page (1-USE-CASES #4, v1 target).
 #ifndef SKYBLIP_UI_SCREENS_ALTVS_H
 #define SKYBLIP_UI_SCREENS_ALTVS_H
 
