@@ -102,11 +102,14 @@ class Platform {
     // becomes ready, the other never does.
     const struct device* baro76_dev_{DEVICE_DT_GET(DT_NODELABEL(bme280_76))};
     const struct device* baro77_dev_{DEVICE_DT_GET(DT_NODELABEL(bme280_77))};
-    struct pwm_dt_spec buzzer_{PWM_DT_SPEC_GET(DT_ALIAS(buzzer))};
-    struct gpio_dt_spec vibro_{GPIO_DT_SPEC_GET(DT_ALIAS(vibro), gpios)};
-    struct gpio_dt_spec button_{GPIO_DT_SPEC_GET(DT_ALIAS(button), gpios)};
-    struct gpio_dt_spec radio_cs_{GPIO_DT_SPEC_GET_BY_IDX(DT_ALIAS(radio_spi), cs_gpios, 0)};
-    struct gpio_dt_spec epd_cs_{GPIO_DT_SPEC_GET_BY_IDX(DT_ALIAS(epd_spi), cs_gpios, 0)};
+    // Assigned, not brace-initialised: the DT_SPEC macros ARE brace lists, so
+    // member{MACRO} nests them one level too deep and the first field eats the
+    // whole struct.
+    struct pwm_dt_spec buzzer_ = PWM_DT_SPEC_GET(DT_ALIAS(buzzer));
+    struct gpio_dt_spec vibro_ = GPIO_DT_SPEC_GET(DT_ALIAS(vibro), gpios);
+    struct gpio_dt_spec button_ = GPIO_DT_SPEC_GET(DT_ALIAS(button), gpios);
+    struct gpio_dt_spec radio_cs_ = GPIO_DT_SPEC_GET_BY_IDX(DT_ALIAS(radio_spi), cs_gpios, 0);
+    struct gpio_dt_spec epd_cs_ = GPIO_DT_SPEC_GET_BY_IDX(DT_ALIAS(epd_spi), cs_gpios, 0);
 
     zephyr::Clock clock_{};
     Gpio gpio_{gpio0_, gpio1_};
