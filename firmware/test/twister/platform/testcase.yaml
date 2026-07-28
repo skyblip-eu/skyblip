@@ -1,0 +1,8 @@
+tests:
+  platform.adapters:
+    tags: platform kvstore
+    platform_allow:
+      - native_sim
+      - t_echo_plus
+    integration_platforms:
+      - native_sim

@@ -51,8 +51,8 @@ jobs:
         run: pipx install clang-format==21.1.8
       - name: check formatting
         run: |
-          find firmware/core firmware/ui firmware/hal firmware/devices \
-               firmware/products firmware/test \
+          find firmware/core firmware/ui firmware/hal firmware/hardware firmware/runtime \
+               firmware/products firmware/simulator firmware/test \
             -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
   device-build:
@@ -114,7 +114,7 @@ jobs:
         working-directory: firmware
         run: |
           west build -b t_echo_plus . --sysbuild \
-            -- -DBOARD_ROOT=$(pwd) \
+            -- -DBOARD_ROOT=$(pwd)/hardware \
                -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf"
 
       # Guards against silently regressing to a key anyone can sign with. The
@@ -130,6 +130,13 @@ jobs:
             *bootloader/mcuboot*|*root-ec-p256.pem|*root-rsa-2048.pem|*root-ed25519.pem)
               echo "FAIL: signed with an MCUboot sample key"; exit 1 ;;
           esac
+
+      # What the pure-host suite cannot reach: the Zephyr-backed adapters. Run on
+      # native_sim, which needs no board and no cross toolchain.
+      - name: twister (platform adapters on native_sim)
+        working-directory: firmware
+        run: |
+          $ZEPHYR_BASE/scripts/twister -T test/twister -p native_sim --inline-logs
 
       # scripts/ is at the repo root, but the .elf is under firmware/build, so this
       # step runs from firmware/ and reaches back up for the script.
