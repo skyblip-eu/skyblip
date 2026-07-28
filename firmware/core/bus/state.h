@@ -1,6 +1,7 @@
 #ifndef SKYBLIP_CORE_BUS_STATE_H
 #define SKYBLIP_CORE_BUS_STATE_H
 
+#include "core/flight/atmosphere.h"
 #include "core/messages/messages.h"
 #include "core/settings/settings.h"
 #include "core/timing/slot.h"
@@ -20,6 +21,9 @@ struct State {
     uint32_t rx_bad{0};
     uint32_t gnss_fixes{0};
     int16_t turn_dps{0};
+    uint32_t pressure_pa{0};
+    // The altimeter subscale, as the pilot sets it: standard until told otherwise.
+    uint32_t qnh_pa{flight::kIsaSeaLevelPa};
     bool baro_active{false};
     bool started{false};
 

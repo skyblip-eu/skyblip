@@ -31,6 +31,12 @@ int32_t pressure_to_alt_cm(uint32_t pa);
 // curve. Slower, and never on the flight path.
 uint32_t alt_cm_to_pressure(int32_t alt_cm);
 
+// Altitude above the datum an altimeter subscale names: pressure altitude of
+// the air outside, less the pressure altitude of the setting. QNH in gives
+// altitude above mean sea level, 1013.25 hPa in gives pressure altitude, and a
+// field's QFE gives height above that field.
+int32_t alt_cm_on_setting(uint32_t pa, uint32_t setting_pa);
+
 // Shortest window that still averages out sensor noise, and the longest one
 // whose answer is still "now" rather than a history lesson.
 constexpr uint32_t kMinWindowMs = 500;

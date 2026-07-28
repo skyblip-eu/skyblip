@@ -63,6 +63,10 @@ uint32_t alt_cm_to_pressure(int32_t alt_cm) {
     return hi;
 }
 
+int32_t alt_cm_on_setting(uint32_t pa, uint32_t setting_pa) {
+    return pressure_to_alt_cm(pa) - pressure_to_alt_cm(setting_pa);
+}
+
 bool climb_e8_from_alt(int32_t alt_cm_now, int32_t alt_cm_then, uint32_t dt_ms, int16_t& out_e8) {
     if (dt_ms < kMinWindowMs || dt_ms > kMaxWindowMs) return false;
 

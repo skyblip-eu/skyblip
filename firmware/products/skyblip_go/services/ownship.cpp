@@ -45,6 +45,7 @@ void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
 }
 
 void OwnshipService::apply_baro(const messages::BaroSample& sample) {
+    context_.state.pressure_pa = sample.pressure_pa;
     const int32_t alt_cm = flight::pressure_to_alt_cm(sample.pressure_pa);
     int16_t e8 = 0;
     if (vs_from_alt_cm(alt_cm, sample.at_ms, kBaroVsWindowMs, baro_ref_alt_cm_, baro_ref_ms_, e8)) {
