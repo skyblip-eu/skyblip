@@ -60,13 +60,17 @@ jobs:
             bump moves every module with it (hal_nordic, mbedtls, MCUboot), so treat it as a
             migration: build, check the flash budget, and exercise the device before merging."
 
+          title="deps: upstream versions available for the vendored C++ dependencies"
+          existing=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+
+          # Without this branch a report outlives the bumps it asked for, and never retracts.
           if [ -z "$body" ]; then
             echo "everything current; nothing to report"
+            [ -n "$existing" ] && gh issue close "$existing" \
+              --comment "Both pins match upstream as of $(date -u +%Y-%m-%d). Closed by \`deps-check.yml\`; it reopens a fresh issue when upstream moves ahead again."
             exit 0
           fi
 
-          title="deps: upstream versions available for the vendored C++ dependencies"
-          existing=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "Still behind as of $(date -u +%Y-%m-%d):${body}"
           else
