@@ -57,8 +57,9 @@ class Platform {
     using Link = host::Link;
 
     static constexpr hal::Capabilities kFullyFitted =
-        hal::Capability::Display | hal::Capability::Gnss | hal::Capability::Baro | hal::Capability::Link | hal::Capability::Storage |
-        hal::Capability::Dfu | hal::Capability::Buzzer | hal::Capability::Vibro | hal::Capability::Button;
+        hal::Capability::Display | hal::Capability::Gnss | hal::Capability::Baro |
+        hal::Capability::Link | hal::Capability::Storage | hal::Capability::Dfu |
+        hal::Capability::Buzzer | hal::Capability::Vibro | hal::Capability::Button;
 
     // A host board can be fitted with less than everything, which is how the
     // degraded paths get exercised without a soldering iron.

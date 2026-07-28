@@ -113,8 +113,8 @@ void needle(Framebuffer& fb, int cx, int cy, int32_t deg, int len, bool thick = 
 // 1-bit panel that alternation is the only grey there is, and it keeps the
 // attitude dial from being the one black hole on the instrument face.
 void attitude(Framebuffer& fb, int cx, int cy, int32_t pitch_deg, int32_t bank_deg) {
-    const int32_t off = (clampi(pitch_deg, -kPitchFullScaleDeg, kPitchFullScaleDeg) * kR) /
-                        kPitchFullScaleDeg;
+    const int32_t off =
+        (clampi(pitch_deg, -kPitchFullScaleDeg, kPitchFullScaleDeg) * kR) / kPitchFullScaleDeg;
     const int16_t a = c16(clampi(bank_deg, -kBankLimitDeg, kBankLimitDeg));
     const int32_t s = isin(a), c = icos(a);
     for (int dx = -kR + 1; dx < kR; dx++) {

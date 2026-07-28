@@ -25,9 +25,7 @@ struct State {
 
     // The traffic table's single time base. Mixing GNSS epoch seconds with
     // boot-relative seconds underflows uint32 and ages every target out at once.
-    uint32_t traffic_now(uint32_t now_ms) const {
-        return own.utc_valid ? own.utc : now_ms / 1000;
-    }
+    uint32_t traffic_now(uint32_t now_ms) const { return own.utc_valid ? own.utc : now_ms / 1000; }
 };
 
 }  // namespace skyblip::bus

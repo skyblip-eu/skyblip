@@ -15,9 +15,9 @@
 #include "core/protocol/nmea_out.h"
 #include "core/traffic/alarm.h"
 #include "core/traffic/table.h"
+#include "doctest/doctest.h"
 #include "hardware/platform/host/link.h"
 #include "simulator/world/rf_channel.h"
-#include "doctest/doctest.h"
 
 using namespace skyblip;
 

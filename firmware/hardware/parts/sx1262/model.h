@@ -7,8 +7,8 @@
 #include <cstring>
 #include <vector>
 
-#include "hardware/parts/sx1262/sx1262.h"
 #include "hardware/io/io.h"
+#include "hardware/parts/sx1262/sx1262.h"
 
 namespace skyblip::models {
 

@@ -54,13 +54,12 @@ constexpr int kIoPwr = kPinNum(0, 12);          // PIN_POWER_EN (radio + eink + 
 constexpr int k3v3Pwr = kPinNum(0, 13);         // aux 3V3 rail (REV_2 boards; harmless to assert)
 constexpr int kEpdBacklightEn = kEpdBacklight;  // P1.11 = backlight AND panel enable
 
-
 // What this board's virtual wiring needs to know: which pin belongs to which
 // part. The silicon platform ignores it and reads the devicetree instead.
 constexpr io::PinRole kPinRoles[] = {
-    {io::PinFn::RadioBusy, kRadioBusy},   {io::PinFn::RadioReset, kRadioRst},
-    {io::PinFn::RadioIrq, kRadioDio1},    {io::PinFn::EpdDc, kEpdDc},
-    {io::PinFn::EpdReset, kEpdRst},       {io::PinFn::EpdBusy, kEpdBusy},
+    {io::PinFn::RadioBusy, kRadioBusy},       {io::PinFn::RadioReset, kRadioRst},
+    {io::PinFn::RadioIrq, kRadioDio1},        {io::PinFn::EpdDc, kEpdDc},
+    {io::PinFn::EpdReset, kEpdRst},           {io::PinFn::EpdBusy, kEpdBusy},
     {io::PinFn::EpdBacklight, kEpdBacklight},
 };
 

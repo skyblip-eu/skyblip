@@ -66,13 +66,14 @@ void OwnshipService::update_turn_rate(uint32_t now_ms) {
     // cordic9: 512 units = 360 deg. Wrap to the short way round so 359 -> 001
     // reads as +2 deg, not -358.
     const int32_t diff = ((static_cast<int32_t>(track_c9) - turn_ref_track_c9_ + 768) % 512) - 256;
-    context_.state.turn_dps = static_cast<int16_t>((diff * 45 * 1000) / (64 * static_cast<int32_t>(dt)));
+    context_.state.turn_dps =
+        static_cast<int16_t>((diff * 45 * 1000) / (64 * static_cast<int32_t>(dt)));
     turn_ref_ms_ = now_ms;
     turn_ref_track_c9_ = track_c9;
 }
 
 bool OwnshipService::vs_from_alt_cm(int32_t alt_cm, uint32_t now_ms, uint32_t window_ms,
-                                   int32_t& ref_alt_cm, uint32_t& ref_ms, int16_t& out_e8) const {
+                                    int32_t& ref_alt_cm, uint32_t& ref_ms, int16_t& out_e8) const {
     if (ref_ms == 0) {
         ref_ms = now_ms == 0 ? 1 : now_ms;
         ref_alt_cm = alt_cm;

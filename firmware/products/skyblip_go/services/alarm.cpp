@@ -31,7 +31,8 @@ void AlarmService::tick(uint32_t) {
     // a pocket or a harness where the buzzer is muffled, which is exactly when a
     // pilot needs to feel it.
     if (escalated && worst >= kVibroFromLevel)
-        context_.roles.annunciator.vibrate(worst >= kUrgentLevel ? kVibroUrgentMs : kVibroImportantMs);
+        context_.roles.annunciator.vibrate(worst >= kUrgentLevel ? kVibroUrgentMs
+                                                                 : kVibroImportantMs);
 }
 
 }  // namespace skyblip::go

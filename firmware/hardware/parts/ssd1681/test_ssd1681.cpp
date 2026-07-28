@@ -1,9 +1,9 @@
 // SSD1681 e-paper driver tests against models/ssd1681.h. Verifies the init
 // sequence, the framebuffer→RAM polarity (fb 1=black → panel 0=black), and the
 // full-vs-partial refresh cadence — all on the host, no panel required.
-#include "hardware/parts/ssd1681/ssd1681.h"
-#include "hardware/parts/ssd1681/model.h"
 #include "doctest/doctest.h"
+#include "hardware/parts/ssd1681/model.h"
+#include "hardware/parts/ssd1681/ssd1681.h"
 #include "ui/framebuffer.h"
 
 using namespace skyblip;

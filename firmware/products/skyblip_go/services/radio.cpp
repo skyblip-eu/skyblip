@@ -15,7 +15,8 @@ void RadioService::tick(uint32_t now_ms) {
 }
 
 int RadioService::phase_ms(uint32_t now_ms) const {
-    if (context_.state.clock.pps_locked) return static_cast<int>(context_.state.clock.ms_since_pps % 1000);
+    if (context_.state.clock.pps_locked)
+        return static_cast<int>(context_.state.clock.ms_since_pps % 1000);
     return static_cast<int>(now_ms % 1000);
 }
 

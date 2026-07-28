@@ -66,11 +66,13 @@ class Platform {
 
     // Probe only: what silicon answered, before anything is brought up.
     hal::Capabilities capabilities() const {
-        hal::Capabilities c = hal::Capability::Buzzer | hal::Capability::Vibro | hal::Capability::Storage | hal::Capability::Dfu |
-                      hal::Capability::Button | hal::Capability::Link;
+        hal::Capabilities c = hal::Capability::Buzzer | hal::Capability::Vibro |
+                              hal::Capability::Storage | hal::Capability::Dfu |
+                              hal::Capability::Button | hal::Capability::Link;
         if (device_is_ready(epd_spi_dev_)) c |= hal::Capability::Display;
         if (device_is_ready(gnss_uart_dev_)) c |= hal::Capability::Gnss;
-        if (device_is_ready(baro76_dev_) || device_is_ready(baro77_dev_)) c |= hal::Capability::Baro;
+        if (device_is_ready(baro76_dev_) || device_is_ready(baro77_dev_))
+            c |= hal::Capability::Baro;
         return c;
     }
 

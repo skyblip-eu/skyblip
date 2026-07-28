@@ -1,6 +1,6 @@
+#include "doctest/doctest.h"
 #include "hardware/parts/ssd1681/model.h"
 #include "hardware/parts/ssd1681/ssd1681.h"
-#include "doctest/doctest.h"
 #include "ui/framebuffer.h"
 #include "ui/screens/altvs.h"
 #include "ui/screens/radar.h"

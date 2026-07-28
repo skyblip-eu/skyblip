@@ -77,8 +77,8 @@ TEST_CASE("sixpack: the altimeter reads like a three-pointer, the card like a co
     draw_sixpack(fb, s);
 
     const Tile alt = kTiles[2];
-    CHECK(fb.get_pixel(alt.cx, alt.cy + 20));       // hundreds hand, straight down
-    CHECK(fb.get_pixel(alt.cx + 12, alt.cy));       // thousands hand, quarter turn
+    CHECK(fb.get_pixel(alt.cx, alt.cy + 20));        // hundreds hand, straight down
+    CHECK(fb.get_pixel(alt.cx + 12, alt.cy));        // thousands hand, quarter turn
     CHECK_FALSE(fb.get_pixel(alt.cx + 20, alt.cy));  // and it is the SHORT one
     CHECK_FALSE(fb.get_pixel(alt.cx, alt.cy - 20));
 

@@ -2,10 +2,9 @@
 #define SKYBLIP_HARDWARE_PLATFORM_ZEPHYR_ANNUNCIATOR_H
 #if defined(__ZEPHYR__)
 
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pwm.h>
 #include <zephyr/kernel.h>
-
-#include <zephyr/drivers/gpio.h>
 
 #include "hal/annunciator.h"
 

@@ -49,13 +49,19 @@ class TEchoPlus {
         return hal::Roles{
             platform_.clock(),
             hal::has(capabilities_, hal::Capability::Rf) ? static_cast<hal::Rf&>(rf_) : null_.rf,
-            hal::has(capabilities_, hal::Capability::Link) ? static_cast<hal::Link&>(platform_.link()) : null_.link,
-            hal::has(capabilities_, hal::Capability::Display) ? static_cast<hal::Display&>(epd_) : null_.display,
-            hal::has(capabilities_, hal::Capability::Storage) ? static_cast<hal::KvStore&>(platform_.kv()) : null_.kv,
+            hal::has(capabilities_, hal::Capability::Link)
+                ? static_cast<hal::Link&>(platform_.link())
+                : null_.link,
+            hal::has(capabilities_, hal::Capability::Display) ? static_cast<hal::Display&>(epd_)
+                                                              : null_.display,
+            hal::has(capabilities_, hal::Capability::Storage)
+                ? static_cast<hal::KvStore&>(platform_.kv())
+                : null_.kv,
             hal::has(capabilities_, hal::Capability::Buzzer)
                 ? static_cast<hal::Annunciator&>(platform_.annunciator())
                 : null_.annunciator,
-            hal::has(capabilities_, hal::Capability::Dfu) ? static_cast<hal::Dfu&>(platform_.dfu()) : null_.dfu,
+            hal::has(capabilities_, hal::Capability::Dfu) ? static_cast<hal::Dfu&>(platform_.dfu())
+                                                          : null_.dfu,
             capabilities_,
             platform_.device_addr(),
         };
@@ -69,9 +75,11 @@ class TEchoPlus {
         messages::RxFrame frame;
         while (platform_.link().pop_rx(frame)) bus_.link_rx.push(frame);
 
-        if (hal::has(capabilities_, hal::Capability::Gnss) && gnss_.poll()) bus_.gnss.push(gnss_.fix());
+        if (hal::has(capabilities_, hal::Capability::Gnss) && gnss_.poll())
+            bus_.gnss.push(gnss_.fix());
 
-        if (hal::has(capabilities_, hal::Capability::Baro) && now_ms - last_baro_ms_ >= runtime::kBaroPeriodMs) {
+        if (hal::has(capabilities_, hal::Capability::Baro) &&
+            now_ms - last_baro_ms_ >= runtime::kBaroPeriodMs) {
             last_baro_ms_ = now_ms;
             uint32_t pa = 0;
             if (platform_.read_pressure_pa(pa)) bus_.baro.push(messages::BaroSample{pa, now_ms});

@@ -93,8 +93,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
     void rasterise() {
         if (ram.size() < ui::Framebuffer::kBytes) return;
         uint8_t* out = panel_.data();
-        for (size_t i = 0; i < ui::Framebuffer::kBytes; i++)
-            out[i] = static_cast<uint8_t>(~ram[i]);
+        for (size_t i = 0; i < ui::Framebuffer::kBytes; i++) out[i] = static_cast<uint8_t>(~ram[i]);
     }
 
     ui::Framebuffer panel_{};

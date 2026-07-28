@@ -45,10 +45,8 @@ class Pps {
 
     static Pps* self_;
 
-    struct gpio_dt_spec pin_ {
-        GPIO_DT_SPEC_GET(DT_ALIAS(gnss_pps), gpios)
-    };
-    struct gpio_callback cb_ {};
+    struct gpio_dt_spec pin_{GPIO_DT_SPEC_GET(DT_ALIAS(gnss_pps), gpios)};
+    struct gpio_callback cb_{};
     volatile uint64_t edge_us_{0};
     volatile uint32_t edges_{0};
 };

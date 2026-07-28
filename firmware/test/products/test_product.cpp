@@ -16,7 +16,8 @@ struct Rig {
     platform::host::Platform platform;
     Go product{platform};
 
-    explicit Rig(hal::Capabilities fitted = platform::host::Platform::kFullyFitted) : platform(fitted) {}
+    explicit Rig(hal::Capabilities fitted = platform::host::Platform::kFullyFitted)
+        : platform(fitted) {}
 
     Status setup() { return product.setup(); }
 
@@ -63,7 +64,7 @@ struct Rig {
 // hand, so the board must not also be pumping its own.
 constexpr hal::Capabilities kBaroByHand =
     static_cast<hal::Capabilities>(static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
-                           ~static_cast<uint32_t>(hal::Capability::Baro));
+                                   ~static_cast<uint32_t>(hal::Capability::Baro));
 
 }  // namespace
 
@@ -77,16 +78,16 @@ TEST_CASE("product: setup brings the radio to Rx and reports its capabilities") 
 }
 
 TEST_CASE("product: a missing optional capability is degraded, a required one refuses") {
-    constexpr hal::Capabilities kNoBaro =
-        static_cast<hal::Capabilities>(static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
-                               ~static_cast<uint32_t>(hal::Capability::Baro));
+    constexpr hal::Capabilities kNoBaro = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
+        ~static_cast<uint32_t>(hal::Capability::Baro));
     Rig degraded(kNoBaro);
     CHECK(degraded.setup() == Status::Ok);
     CHECK(degraded.product.degraded() == hal::Capability::Baro);
 
-    constexpr hal::Capabilities kNoGnss =
-        static_cast<hal::Capabilities>(static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
-                               ~static_cast<uint32_t>(hal::Capability::Gnss));
+    constexpr hal::Capabilities kNoGnss = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
+        ~static_cast<uint32_t>(hal::Capability::Gnss));
     Rig refused(kNoGnss);
     CHECK(refused.setup() == Status::Down);
     CHECK_FALSE(refused.state().started);

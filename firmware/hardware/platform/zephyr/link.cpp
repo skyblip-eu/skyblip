@@ -1,5 +1,7 @@
 #if defined(__ZEPHYR__)
 
+#include "hardware/platform/zephyr/link.h"
+
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
@@ -7,7 +9,6 @@
 #include <zephyr/kernel.h>
 
 #include "core/util/fifo.h"
-#include "hardware/platform/zephyr/link.h"
 
 namespace skyblip::platform::zephyr {
 

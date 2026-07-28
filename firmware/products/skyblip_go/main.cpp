@@ -26,8 +26,7 @@ int main(void) {
     platform::zephyr::set_dfu_gate(dfu_gate);
 
     if (g_product.setup() != Status::Ok) {
-        LOG_ERR("required capabilities missing: %u",
-                static_cast<unsigned>(g_product.degraded()));
+        LOG_ERR("required capabilities missing: %u", static_cast<unsigned>(g_product.degraded()));
         return -1;
     }
     LOG_INF("skyBlip up: capabilities=%u", static_cast<unsigned>(g_product.capabilities()));

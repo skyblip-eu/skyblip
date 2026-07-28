@@ -73,8 +73,8 @@ TEST_CASE("simulator: a virtual aircraft arrives as a real ADS-L frame and enter
     h.world().add_aircraft(2000, 0, 0);  // 2 km north
     run(h, 2000, 4000);
 
-    CHECK(h.product().state().rx_ok > 0);           // frames actually decoded (CRC ok)
-    CHECK(h.product().state().rx_bad == 0);         // and none corrupt
+    CHECK(h.product().state().rx_ok > 0);             // frames actually decoded (CRC ok)
+    CHECK(h.product().state().rx_bad == 0);           // and none corrupt
     CHECK(h.product().state().traffic.count() >= 1);  // fused into the table
 }
 

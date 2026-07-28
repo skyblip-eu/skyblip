@@ -123,7 +123,7 @@ void ScreenService::render() {
     }
 
     context_.roles.display.present(fb_, {0, 0, ui::Framebuffer::kW, ui::Framebuffer::kH},
-                             full ? hal::Refresh::Full : hal::Refresh::Partial);
+                                   full ? hal::Refresh::Full : hal::Refresh::Partial);
 }
 
 }  // namespace skyblip::go

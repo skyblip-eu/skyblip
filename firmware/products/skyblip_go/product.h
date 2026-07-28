@@ -28,9 +28,10 @@ constexpr Feature kFeatures = static_cast<Feature>(
 
 // What this product cannot fly without, and what it can lose and keep flying.
 constexpr hal::Capabilities kRequired = hal::Capability::Rf | hal::Capability::Gnss;
-constexpr hal::Capabilities kOptional = hal::Capability::Display | hal::Capability::Baro | hal::Capability::Buzzer |
-                                hal::Capability::Vibro | hal::Capability::Link | hal::Capability::Storage |
-                                hal::Capability::Dfu | hal::Capability::Button;
+constexpr hal::Capabilities kOptional = hal::Capability::Display | hal::Capability::Baro |
+                                        hal::Capability::Buzzer | hal::Capability::Vibro |
+                                        hal::Capability::Link | hal::Capability::Storage |
+                                        hal::Capability::Dfu | hal::Capability::Button;
 
 // skyBlip Go: one board, one service list. The shell around it only decides how
 // often step() is called and where the pixels go.
@@ -44,7 +45,8 @@ class Product {
     Status setup() {
         const Status s = board_.begin();
         if (s != Status::Ok) return s;
-        if (hal::missing(board_.capabilities(), kRequired) != hal::Capability::None) return Status::Down;
+        if (hal::missing(board_.capabilities(), kRequired) != hal::Capability::None)
+            return Status::Down;
         const Status loop = loop_.setup();
         state_.started = loop == Status::Ok;
         return loop;

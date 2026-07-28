@@ -5,9 +5,9 @@
 #include <string>
 
 #include "core/comms/config.h"
-#include "hardware/platform/host/link.h"
 #include "doctest/doctest.h"
 #include "hal/dfu.h"
+#include "hardware/platform/host/link.h"
 
 using namespace skyblip;
 using namespace skyblip::comms;

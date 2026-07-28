@@ -2,9 +2,9 @@
 // NMEA parser, so what these pin down is the seam a shell depends on: a fix is
 // reported exactly once, and a silent receiver never reports one at all (the DFU
 // health gate treats that as "cannot talk to its own peripherals").
+#include "doctest/doctest.h"
 #include "hardware/parts/l76k/l76k.h"
 #include "hardware/parts/l76k/model.h"
-#include "doctest/doctest.h"
 
 using namespace skyblip;
 

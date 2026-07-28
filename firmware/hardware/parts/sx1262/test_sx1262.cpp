@@ -1,8 +1,8 @@
 // SX1262 driver recovery tests against models/sx1262.h with fault injection
 // The class of intermittent bug that is hell to reproduce on hardware.
-#include "hardware/parts/sx1262/sx1262.h"
-#include "hardware/parts/sx1262/model.h"
 #include "doctest/doctest.h"
+#include "hardware/parts/sx1262/model.h"
+#include "hardware/parts/sx1262/sx1262.h"
 
 using namespace skyblip;
 using namespace skyblip::parts;

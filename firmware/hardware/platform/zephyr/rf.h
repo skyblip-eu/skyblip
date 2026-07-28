@@ -102,9 +102,7 @@ class Rf : public hal::Rf {
                 case parts::RadioEventType::RxDone:
                     emit(messages::RfEventType::RxDone, buf, ev.len, ev.rssi_dbm);
                     break;
-                case parts::RadioEventType::CrcError:
-                    emit(messages::RfEventType::CrcError);
-                    break;
+                case parts::RadioEventType::CrcError: emit(messages::RfEventType::CrcError); break;
                 case parts::RadioEventType::TxDone:
                     completed = true;
                     emit(messages::RfEventType::TxDone);
@@ -131,8 +129,8 @@ class Rf : public hal::Rf {
     hal::Clock& clock_;
     bus::Queue<messages::RfEvent, 8>& out_;
     hal::RfPlan plan_{};
-    struct k_sem armed_ {};
-    struct k_thread thread_ {};
+    struct k_sem armed_{};
+    struct k_thread thread_{};
     k_tid_t tid_{nullptr};
     K_KERNEL_STACK_MEMBER(stack_, kStackSize);
     volatile bool abort_{false};
