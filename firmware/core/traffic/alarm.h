@@ -1,4 +1,3 @@
-// core/traffic/alarm.h — collision alarm assessment (roadmap 2.2, T2).
 #ifndef SKYBLIP_CORE_TRAFFIC_ALARM_H
 #define SKYBLIP_CORE_TRAFFIC_ALARM_H
 

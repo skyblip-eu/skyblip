@@ -1,0 +1,8 @@
+tests:
+  platform.adapters:
+    tags: platform kvstore
+    # native_sim only: these prove the adapter code, not the board. Running them
+    # on a real unit is `-p t_echo_plus --board-root <repo>/firmware/hardware`,
+    # which needs the board attached and so is not a CI job.
+    platform_allow:
+      - native_sim

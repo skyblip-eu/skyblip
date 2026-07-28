@@ -1,4 +1,3 @@
-// core/traffic/table.h — the fusion / lookout table (roadmap 2.2).
 #ifndef SKYBLIP_CORE_TRAFFIC_TABLE_H
 #define SKYBLIP_CORE_TRAFFIC_TABLE_H
 

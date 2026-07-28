@@ -1,4 +1,3 @@
-// core/comms/config.h — the companion-link config state machine (§6, §8 rule 1).
 #ifndef SKYBLIP_CORE_COMMS_CONFIG_H
 #define SKYBLIP_CORE_COMMS_CONFIG_H
 

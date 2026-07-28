@@ -1,0 +1,15 @@
+{
+  "name": "fix lost then regained",
+  "mode": "dev",
+  "duration_ms": 30000,
+  "aircraft": [
+    {"north_m": 2000, "east_m": 500, "up_m": 50, "speed_mps": 30, "track_deg": 250}
+  ],
+  "events": [
+    {"at_ms": 5000, "expect_traffic_min": 1},
+    {"at_ms": 8000, "fix": 0},
+    {"at_ms": 16000, "fix": 1},
+    {"at_ms": 20000, "pps": 0},
+    {"at_ms": 26000, "pps": 1}
+  ]
+}

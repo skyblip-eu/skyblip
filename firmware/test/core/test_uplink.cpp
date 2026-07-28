@@ -1,4 +1,4 @@
-// ARTIFACT #1 (3-ARCHITECTURE §9): the ADS-L uplink air<->ground round-trip,
+// The ADS-L uplink air<->ground round-trip,
 // pure host, no hardware. Proves air+ground share one core/. Asserts RS(255,223)
 // corrects all patterns up to 16 symbol errors and, beyond 16, that silent
 // miscorrection is counted SEPARATELY from detected failure.
@@ -28,7 +28,7 @@ messages::AircraftObs make_target(uint32_t addr) {
     messages::AircraftObs t{};
     t.addr = addr & 0xFFFFFF;
     t.addr_table = 6;
-    t.acft_cat = 4;
+    t.aircraft_cat = 4;
     t.flight_state = 2;
     t.speed_q = 180;
     t.has_speed = true;
@@ -149,7 +149,7 @@ TEST_CASE("uplink: air<->ground round-trip is lossless at BER 0 (anti-drift lock
         CHECK(rx[i].lat_1e7 == tx[i].lat_1e7);
         CHECK(rx[i].lon_1e7 == tx[i].lon_1e7);
         CHECK(rx[i].alt_m == tx[i].alt_m);
-        CHECK(int(rx[i].acft_cat) == int(tx[i].acft_cat));
+        CHECK(int(rx[i].aircraft_cat) == int(tx[i].aircraft_cat));
     }
 }
 

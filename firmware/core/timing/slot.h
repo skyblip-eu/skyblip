@@ -1,4 +1,4 @@
-// core/timing/slot.h — the single-radio duty slot map (3-ARCHITECTURE §0), the
+// The single-radio duty slot map of ADS-L 4 SRD-860 issue 2 §C.5 / §D.3.
 #ifndef SKYBLIP_CORE_TIMING_SLOT_H
 #define SKYBLIP_CORE_TIMING_SLOT_H
 

@@ -56,7 +56,7 @@ TEST_CASE("nmea: PFLAA carries id, relative pos, checksum") {
     t.valid_pos = true;
     t.addr = 0xC5D804;
     t.addr_table = 6;  // FLARM -> IDType 2
-    t.acft_cat = 4;
+    t.aircraft_cat = 4;
     t.has_speed = true;
     t.speed_q = 120;
     t.has_climb = true;

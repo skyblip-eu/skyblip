@@ -96,7 +96,7 @@ int ReedSolomon255::decode(uint8_t cw[kN]) const {
     }
     if (nerr == 0 || nerr > kMaxErrors) return -1;
 
-    int err_pos[kMaxErrors];
+    int eround_robin_pos[kMaxErrors];
     int found = 0;
     for (int i = 0; i < kN; i++) {
         uint8_t sum = 1;
@@ -108,7 +108,7 @@ int ReedSolomon255::decode(uint8_t cw[kN]) const {
         }
         if (sum == 0) {
             if (found >= kMaxErrors) return -1;
-            err_pos[found++] = i;
+            eround_robin_pos[found++] = i;
         }
     }
     if (found != nerr) return -1;
@@ -120,7 +120,7 @@ int ReedSolomon255::decode(uint8_t cw[kN]) const {
         (void)s;
     }
     for (int k = 0; k < found; k++) {
-        int pos = err_pos[k];
+        int pos = eround_robin_pos[k];
         uint8_t xinv = exp_[(255 - pos) % 255];
         uint8_t omega_v = 0;
         uint8_t xp = 1;

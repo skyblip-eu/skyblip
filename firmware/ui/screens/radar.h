@@ -1,4 +1,3 @@
-// ui/screens/radar.h — the collision radar screen (roadmap 2.2/2.6d).
 #ifndef SKYBLIP_UI_SCREENS_RADAR_H
 #define SKYBLIP_UI_SCREENS_RADAR_H
 

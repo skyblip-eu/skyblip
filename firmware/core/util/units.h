@@ -1,4 +1,3 @@
-// core/util/units.h — strong physical-unit types (3-ARCHITECTURE §4 "strong unit types").
 #ifndef SKYBLIP_CORE_UTIL_UNITS_H
 #define SKYBLIP_CORE_UTIL_UNITS_H
 
