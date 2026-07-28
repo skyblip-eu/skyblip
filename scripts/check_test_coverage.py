@@ -15,7 +15,7 @@ FW = os.path.join(ROOT, "firmware")
 REQUIRED_MODULES = [
     "core/util", "core/fec", "core/protocol", "core/gnss", "core/timing",
     "core/traffic", "core/settings", "core/comms", "core/flight", "core/bus",
-    "ui/screens", "ui/widgets", "ui/input", "runtime", "simulator/world",
+    "ui/screens", "ui/widgets", "ui/input", "runtime", "simulator",
 ]
 
 TEST_DIRS = ("test", "test/core", "test/ui", "test/products")

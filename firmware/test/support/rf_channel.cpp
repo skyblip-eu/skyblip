@@ -1,4 +1,4 @@
-#include "simulator/world/rf_channel.h"
+#include "test/support/rf_channel.h"
 
 namespace skyblip::models {
 

@@ -1,7 +1,8 @@
-// simulator/world/rf_channel.h — the RF channel reduced to an injectable scalar:
-// a bit error rate, a burst length, or a symbol-error count applied to a frame.
-#ifndef SKYBLIP_HARDWARE_MODEL_RF_CHANNEL_H
-#define SKYBLIP_HARDWARE_MODEL_RF_CHANNEL_H
+// The RF channel reduced to an injectable scalar: a bit error rate, a burst
+// length, or a symbol-error count applied to a frame. Test fixture, not firmware:
+// it lets a protocol test measure detected-vs-silent decode failure with no PHY.
+#ifndef SKYBLIP_TEST_SUPPORT_RF_CHANNEL_H
+#define SKYBLIP_TEST_SUPPORT_RF_CHANNEL_H
 
 #include <cstddef>
 #include <cstdint>

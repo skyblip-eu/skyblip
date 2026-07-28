@@ -17,7 +17,7 @@
 #include "core/traffic/table.h"
 #include "doctest/doctest.h"
 #include "hardware/platform/host/link.h"
-#include "simulator/world/rf_channel.h"
+#include "test/support/rf_channel.h"
 
 using namespace skyblip;
 
