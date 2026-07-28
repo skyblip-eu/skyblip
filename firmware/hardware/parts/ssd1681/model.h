@@ -41,7 +41,9 @@ class Ssd1681 : public io::Spi, public io::Gpio {
                 if (b == kDeepSleep) powered = false;
                 if (b == kMasterActivation) {
                     present_count++;
-                    rasterise();
+                    // In deep sleep the panel's charge pump is off: it latches
+                    // nothing, and keeps the last image it did latch.
+                    if (powered) rasterise();
                 }
                 pending_ = b;
             } else {

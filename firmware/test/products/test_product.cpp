@@ -5,6 +5,7 @@
 #include "doctest/doctest.h"
 #include "hardware/platform/host/platform.h"
 #include "products/skyblip_go/product.h"
+#include "ui/widgets/wordmark.h"
 
 using namespace skyblip;
 
@@ -128,13 +129,11 @@ TEST_CASE("product: a button press switches page and forces a full refresh") {
 
     uint32_t t = 100;
     rig.press(t);
-    CHECK(rig.product.screen().page() == go::Page::AltVs);
+    CHECK(rig.product.screen().page() == go::Page::SixPack);
     CHECK(rig.platform.chips().epd.last_full);
 
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
-    rig.press(t);
-    CHECK(rig.product.screen().page() == go::Page::SixPack);
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Radar);
 }
@@ -242,4 +241,42 @@ TEST_CASE("product: settings changed over the link are persisted") {
     settings::Settings stored{};
     REQUIRE(settings::from_blob(blob, n, stored) == Status::Ok);
     CHECK(stored.alarm_volume == 2);
+}
+
+TEST_CASE("product: powering the panel down leaves the wordmark on it") {
+    // An e-paper holds its last image with the rails down, so what is written
+    // immediately before power_off is what the device wears while it is off.
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.run(0, 1000);
+
+    ui::Framebuffer expected;
+    expected.clear(true);
+    ui::draw_wordmark(expected, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
+
+    rig.product.screen().set_power(false);
+    CHECK_FALSE(rig.platform.chips().epd.powered);
+    CHECK(rig.platform.chips().epd.last_full);
+    CHECK(rig.platform.chips().epd.framebuffer().count_black() == expected.count_black());
+    CHECK(expected.count_black() > 200);
+
+    // ... and it stays there: a service that keeps rendering must not reach a
+    // panel whose rails are down, or the mark would be wiped a second later.
+    rig.run(1000, 4000);
+    CHECK(rig.platform.chips().epd.framebuffer().count_black() == expected.count_black());
+
+    // The mark is above the word: the dot and its arcs put ink in the top half
+    // of the glyph block, which the letters alone would leave blank.
+    int arc_ink = 0;
+    for (int y = 66; y < 78; y++)
+        for (int x = 100; x < 160; x++) arc_ink += expected.get_pixel(x, y) ? 1 : 0;
+    CHECK(arc_ink > 20);
+}
+
+TEST_CASE("product: the backlight starts off") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.run(0, 1000);
+    CHECK_FALSE(rig.product.screen().backlight());
+    CHECK_FALSE(rig.platform.chips().epd.backlight);
 }

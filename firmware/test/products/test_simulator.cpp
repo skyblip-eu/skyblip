@@ -132,7 +132,7 @@ TEST_CASE("simulator: a modelled turn deflects the six-pack turn coordinator") {
     h.world().set_track_deg(0);
     run(h, 0, 2000);
     uint32_t page_t = 2000;
-    for (int i = 0; i < 3; i++) page_t = press(h, page_t);  // radar -> ... -> 6-pack
+    page_t = press(h, page_t);  // radar -> 6-pack
     run(h, page_t, page_t + 2000);
     REQUIRE(h.product().screen().page() == go::Page::SixPack);
     const ui::Framebuffer level = h.panel();
