@@ -55,15 +55,22 @@ jobs:
                firmware/products firmware/simulator firmware/test \
             -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
-  device-build:
-    # x86_64 ON PURPOSE, unlike the other two jobs. This is a CROSS build:
+  product-image:
+    # One entry per SKU, and the board is deliberately NOT listed: the product
+    # owns that pair in its own CMakeLists, and naming it here would make CI a
+    # second place to assert the one thing this layout made single.
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [skyblip_go]
+    name: product image (${{ matrix.product }})
+    # x86_64 ON PURPOSE, unlike the host jobs. This is a CROSS build:
     # arm-zephyr-eabi-gcc emits the same bytes for the nRF52840 whichever
     # architecture the host is, so an arm64 runner buys nothing here. It costs
     # something though - on ubuntu-26.04-arm the Zephyr SDK fails to register
     # its CMake package and FindZephyr-sdk.cmake:57 dies on an empty variable
     # (`( zephyr STREQUAL )`). Keep the firmware image built by the combination
     # that is known to work.
-    name: zephyr firmware build (t_echo_plus)
     runs-on: ubuntu-24.04
     steps:
       # No `path:` - the repo root IS the app root, so firmware/ is at the top
@@ -110,13 +117,19 @@ jobs:
             > "$RUNNER_TEMP/signing.conf"
           cat "$RUNNER_TEMP/signing.conf"
 
+      # The app dir IS the product, and the board comes out of the product's own
+      # CMakeLists - sysbuild needs one named before the app is configured, and
+      # the product refuses any other. Reading it here keeps CI from becoming a
+      # second place where the pair is asserted.
       - name: west build (sysbuild → MCUboot + app)
         working-directory: firmware
         run: |
-          # The APP DIR is the product: skyblip_go owns its board, its prj.conf
-          # and its sysbuild fragments. -b is still named because sysbuild needs
-          # a board before the app is configured; a wrong one is refused there.
-          west build -b t_echo_plus products/skyblip_go --sysbuild \
+          product=${{ matrix.product }}
+          board=$(sed -n 's/^skyblip_product_board(\(.*\))$/\1/p' \
+                  products/$product/CMakeLists.txt)
+          test -n "$board" || { echo "FAIL: $product declares no board"; exit 1; }
+          echo "building $product for $board"
+          west build -b "$board" products/$product --sysbuild \
             -- -DBOARD_ROOT=$(pwd)/hardware \
                -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf"
 
@@ -134,21 +147,11 @@ jobs:
               echo "FAIL: signed with an MCUboot sample key"; exit 1 ;;
           esac
 
-      # What the pure-host suite cannot reach: the Zephyr-backed adapters. Run on
-      # native_sim, which needs no board and no cross toolchain.
-      - name: twister (platform adapters on native_sim)
-        working-directory: firmware
-        run: |
-          # ZEPHYR_BASE is not exported into this step's env, so ask west where
-          # the workspace is instead of guessing a path.
-          python3 "$(west topdir)/zephyr/scripts/twister" \
-            -T test/twister -p native_sim --inline-logs
-
       # scripts/ is at the repo root, but the .elf is under firmware/build, so this
       # step runs from firmware/ and reaches back up for the script.
       - name: flash-size budget
         working-directory: firmware
-        run: python3 ../scripts/size_check.py build/skyblip_go/zephyr/zephyr.elf
+        run: python3 ../scripts/size_check.py build/${{ matrix.product }}/zephyr/zephyr.elf
 
       - name: list build artifacts
         if: always()
@@ -163,16 +166,42 @@ jobs:
       - name: build the drag-and-drop .uf2
         working-directory: firmware
         run: |
-          python3 ../scripts/mkuf2.py build/skyblip-go.uf2 \
+          product=${{ matrix.product }}
+          python3 ../scripts/mkuf2.py "build/${product//_/-}.uf2" \
             build/mcuboot/zephyr/zephyr.hex \
-            build/skyblip_go/zephyr/zephyr.signed.confirmed.hex
+            "build/$product/zephyr/zephyr.signed.confirmed.hex"
 
       - name: upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: t_echo_plus-firmware
+          name: ${{ matrix.product }}-firmware
           path: |
-            firmware/build/skyblip-go.uf2
-            firmware/build/skyblip_go/zephyr/zephyr.signed.bin
-            firmware/build/skyblip_go/zephyr/zephyr.signed.confirmed.bin
+            firmware/build/*.uf2
+            firmware/build/${{ matrix.product }}/zephyr/zephyr.signed.bin
+            firmware/build/${{ matrix.product }}/zephyr/zephyr.signed.confirmed.bin
           if-no-files-found: error
+
+  platform-adapters:
+    # What the pure-host suite cannot link: the Zephyr-backed adapters (NVS, SMP,
+    # GATT plumbing). native_sim needs no board and no cross toolchain, and this
+    # is about the platform rather than any one product - hence its own job
+    # instead of a step that would repeat for every SKU in the matrix.
+    name: platform adapters (native_sim)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: set up Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@be8136a8bba01580485d98b7ad2d32477c36a49a  # v1 @ 2026-07-24
+        with:
+          app-path: firmware
+          manifest-file-name: west.yml
+          toolchains: arm-zephyr-eabi
+
+      - name: twister
+        working-directory: firmware
+        run: |
+          # ZEPHYR_BASE is not exported into this step's env, so ask west where
+          # the workspace is instead of guessing a path.
+          python3 "$(west topdir)/zephyr/scripts/twister" \
+            -T test/twister -p native_sim --inline-logs
