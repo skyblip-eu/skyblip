@@ -1,4 +1,3 @@
-// core/messages/messages.h — "what the system says to itself" (3-ARCHITECTURE
 #ifndef SKYBLIP_CORE_MESSAGES_MESSAGES_H
 #define SKYBLIP_CORE_MESSAGES_MESSAGES_H
 
@@ -12,7 +11,7 @@ enum class Source : uint8_t { AdslDirect, AdslUplink, Alptas, Own };
 struct AircraftObs {
     uint32_t addr;
     uint8_t addr_table;
-    uint8_t acft_cat;
+    uint8_t aircraft_cat;
     uint8_t flight_state;
     uint8_t emergency;
     int32_t lat_1e7;
@@ -46,7 +45,7 @@ struct OwnState {
     uint16_t track_c9;
     uint32_t utc;
     uint8_t sats;
-    uint8_t acft_cat;
+    uint8_t aircraft_cat;
     uint8_t flight_state;
 };
 
@@ -69,6 +68,25 @@ struct RxFrame {
 
 struct DfuRequest {
     uint16_t session_id;
+};
+
+enum class RfEventType : uint8_t { RxDone, CrcError, TxDone, Missed };
+
+struct RfEvent {
+    RfEventType type;
+    uint8_t len;
+    int8_t rssi_dbm;
+    uint64_t at_us;
+    std::array<uint8_t, 64> data;
+};
+
+struct BaroSample {
+    uint32_t pressure_pa;
+    uint32_t at_ms;
+};
+
+struct ButtonEvent {
+    uint8_t id;
 };
 
 }

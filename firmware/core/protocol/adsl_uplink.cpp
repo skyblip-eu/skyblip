@@ -40,7 +40,7 @@ int16_t get_i16(const uint8_t* b) {
 void pack_record(uint8_t* r, const messages::AircraftObs& t) {
     put_u24(r, t.addr & 0x00FFFFFF);
     r[3] = static_cast<uint8_t>((t.addr_table & 0x3F) | ((t.flight_state & 0x03) << 6));
-    r[4] = t.acft_cat;
+    r[4] = t.aircraft_cat;
     r[5] = static_cast<uint8_t>(t.speed_q > 255 ? 255 : t.speed_q);
     put_i32(r + 6, t.lat_1e7);
     put_i32(r + 10, t.lon_1e7);
@@ -52,7 +52,7 @@ void unpack_record(const uint8_t* r, messages::AircraftObs& t) {
     t.addr = get_u24(r);
     t.addr_table = r[3] & 0x3F;
     t.flight_state = (r[3] >> 6) & 0x03;
-    t.acft_cat = r[4];
+    t.aircraft_cat = r[4];
     t.speed_q = r[5];
     t.has_speed = r[5] != 0;
     t.lat_1e7 = get_i32(r + 6);

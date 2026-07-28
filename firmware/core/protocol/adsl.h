@@ -172,7 +172,7 @@ static_assert(sizeof(AdslPacket) == 28, "AdslPacket wire size must be 28 bytes")
 void to_obs(const AdslPacket& p, uint32_t rx_utc, uint16_t rx_ms, int8_t rssi_dbm,
             messages::Source source, messages::AircraftObs& out);
 void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
-              uint8_t acft_cat, bool stealth);
+              uint8_t aircraft_cat, bool stealth);
 
 }
 

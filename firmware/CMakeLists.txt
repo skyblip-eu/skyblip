@@ -1,13 +1,8 @@
-# CMakeLists.txt — Zephyr application build for skyBlip Go.
-#
-# This coexists with the Makefile (host unit tests) and platformio.ini (legacy
-# Arduino). Zephyr/west only read this file; the other tools ignore it.
-#
-#   west build -b t_echo_plus firmware --sysbuild
-#
-# core/ + ui/ are pure C++ (no Zephyr); the devices/soc/zephyr adapters are the
-# only vendor-coupled sources. devices/models/* are NEVER built here.
 cmake_minimum_required(VERSION 3.20.0)
+
+# The board lives with the rest of the hardware layer, so Zephyr is pointed at it
+# rather than at a second boards/ tree beside it.
+list(APPEND BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/hardware)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(skyblip_go LANGUAGES C CXX)
@@ -17,19 +12,17 @@ target_include_directories(app PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
 
-# Pure portable code (compiled unchanged for host, Arduino, and Zephyr).
-file(GLOB_RECURSE SKB_PORTABLE
+# Globbed per layer, exactly like the host build: a source that exists is built.
+# simulator/ and the part models are host-only and never enter the image.
+file(GLOB_RECURSE SKB_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ui/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/runtime/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/hardware/parts/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/hardware/platform/zephyr/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/products/skyblip_go/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/products/skyblip_go/services/*.cpp
 )
+list(FILTER SKB_SOURCES EXCLUDE REGEX "/test_[^/]*\\.cpp$")
 
-target_sources(app PRIVATE
-  ${SKB_PORTABLE}
-  devices/drivers/sx1262.cpp
-  devices/drivers/ssd1681.cpp
-  devices/drivers/l76k.cpp
-  devices/soc/zephyr/ble.cpp
-  devices/soc/zephyr/mcumgr_hooks.cpp
-  products/skyblip_go/app.cpp
-  products/skyblip_go/device/main.cpp
-)
+target_sources(app PRIVATE ${SKB_SOURCES})

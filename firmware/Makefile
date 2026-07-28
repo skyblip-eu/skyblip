@@ -1,16 +1,15 @@
-# Host unit-test + simulator build. Depends on nothing but a C++ compiler, so it
-# runs anywhere g++/clang++ is present.
+# Host unit-test + simulator build. Depends on nothing but a C++ compiler.
 #
 #   make test        build + run all host doctest suites
 #   make simulator   terminal simulator          (alias: make sim)
 #   make browser     browser (WASM) simulator    (alias: make web)
+#   make dev         serve the browser simulator at sim.skyblip.localhost:5114
 #   make serve       serve the browser simulator with live reload
 #   make watch       incremental rebuild on save (WATCH=browser|simulator|test)
-#   make             alias for test
 #   make clean
 #
-# core/ and ui/ must compile with NO framework headers (acceptance invariant).
-# The device image is built by Zephyr/west, not here (see docs/MIGRATION-ZEPHYR.md).
+# core/ and ui/ must compile with NO framework headers. The device image is built
+# by Zephyr/west, not here.
 
 CXX      ?= c++
 # -Wconversion is intentionally OFF: fixed-point bit-math (varint/adsl) truncates
@@ -25,56 +24,33 @@ LDFLAGS  :=
 
 BUILD := build
 
-# Production sources under test (pure core/ + ui/ + host fakes).
-SRC := \
-  core/util/intmath.cpp \
-  core/util/format.cpp \
-  core/util/json_min.cpp \
-  core/fec/crc.cpp \
-  core/fec/manchester.cpp \
-  core/fec/scramble.cpp \
-  core/fec/reed_solomon.cpp \
-  core/protocol/adsl.cpp \
-  core/protocol/nmea_out.cpp \
-  core/protocol/adsl_uplink.cpp \
-  core/gnss/nmea.cpp \
-  core/timing/slot.cpp \
-  core/traffic/table.cpp \
-  core/traffic/alarm.cpp \
-  core/settings/settings.cpp \
-  core/comms/config.cpp \
-  core/flight/atmosphere.cpp \
-  ui/screens/radar.cpp \
-  ui/screens/altvs.cpp \
-  ui/screens/sixpack.cpp \
-  ui/screens/status.cpp \
-  ui/framebuffer.cpp \
-  products/skyblip_go/app.cpp \
-  devices/drivers/sx1262.cpp \
-  devices/drivers/ssd1681.cpp \
-  devices/drivers/l76k.cpp \
-  devices/models/rf_channel.cpp \
-  devices/models/display.cpp
+# Every layer is globbed: a file that exists is a file that is compiled and
+# tested. Zephyr-only sources are inert on the host (guarded by __ZEPHYR__) and
+# the silicon platform + product entry point are excluded outright.
+SRC := $(filter-out hardware/platform/zephyr/%,$(wildcard core/*/*.cpp ui/*.cpp ui/*/*.cpp \
+       hardware/parts/*/*.cpp runtime/*.cpp products/*/*.cpp products/*/services/*.cpp \
+       simulator/world/*.cpp))
+SRC := $(filter-out products/skyblip_go/main.cpp %/test_%.cpp,$(SRC))
+SRC := $(filter-out $(wildcard hardware/parts/*/test_*.cpp),$(SRC))
 
 # Test sources (mirrored tree).
-TEST_SRC := test/test_main.cpp $(wildcard test/core/*.cpp) $(wildcard test/ui/*.cpp) \
-            $(wildcard test/products/*.cpp) $(wildcard test/support/*.cpp)
+TEST_SRC := $(wildcard test/*.cpp test/*/*.cpp hardware/parts/*/test_*.cpp)
 
 OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC) $(TEST_SRC))
 
 BIN := $(BUILD)/skyblip_tests
 
-# Device simulator: the VIRTUAL T-Echo Plus running the real firmware.
-# Two frontends over the same virtual board:
-#   make simulator  terminal -> ./build/skyblip_simulator   (ASCII e-paper, keys)
-#   make browser    browser  -> ./build/browser/*.wasm       (needs Emscripten)
-SIM_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC) products/skyblip_go/simulator/terminal.cpp)
-SIM_BIN := $(BUILD)/skyblip_simulator
+# The simulator: the same product, on the host platform, inside simulator/world.
+SIMULATOR_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC) simulator/frontends/terminal.cpp)
+SIMULATOR_BIN := $(BUILD)/skyblip_simulator
 
 EMCC ?= emcc
-WEB_SRC := $(SRC) products/skyblip_go/simulator/browser.cpp
+# 5114 = SImuLAtor, the same leet trick as the website's 8119 = BLIP.
+SIMULATOR_PORT ?= 5114
+SIMULATOR_HOST ?= sim.skyblip.localhost
+WEB_SRC := $(SRC) simulator/frontends/browser.cpp
 WEB_DIST := $(BUILD)/browser
-WEB_PAGE := products/skyblip_go/simulator/browser/index.html
+WEB_PAGE := simulator/frontends/browser/index.html
 WEB_OUT := $(WEB_DIST)/skyblip_simulator.js
 # Incremental browser build: compile to objects under build/web/ and link, so
 # editing one file rebuilds one file (a single emcc pass over all sources costs
@@ -83,7 +59,7 @@ WEB_BUILD := $(BUILD)/web
 WEB_OBJ := $(patsubst %.cpp,$(WEB_BUILD)/%.o,$(WEB_SRC))
 WEB_CXXFLAGS := -std=c++17 -O2 -I. -Ivendor -fno-exceptions -fno-rtti -MMD -MP
 # Single line: a `\`-continuation here injects a space that breaks the arg.
-WEB_EXPORTS := _sim_setup,_sim_step,_sim_button,_sim_backlight,_sim_power,_sim_set_range,_sim_set_fix,_sim_set_sats,_sim_set_alt,_sim_set_speed,_sim_set_track,_sim_set_climb,_sim_set_position,_sim_add_aircraft,_sim_add_threat,_sim_clear_traffic,_sim_aircraft_count,_sim_fb,_sim_fb_w,_sim_fb_h,_sim_fb_stride,_sim_backlight_on,_sim_powered,_sim_page,_sim_fix_valid,_sim_sats,_sim_lat_1e7,_sim_lon_1e7,_sim_alt_m,_sim_speed_q,_sim_track_c9,_sim_climb_e8,_sim_traffic_count,_sim_alarm_level,_sim_vibro_ms,_sim_rx_ok,_sim_rx_bad,_main
+WEB_EXPORTS := _simulator_setup,_simulator_step,_simulator_button,_simulator_backlight,_simulator_power,_simulator_set_range,_simulator_set_fix,_simulator_set_pps,_simulator_load_scenario,_simulator_mode,_simulator_capabilities,_simulator_failures,_simulator_set_sats,_simulator_set_alt,_simulator_set_speed,_simulator_set_track,_simulator_set_climb,_simulator_set_position,_simulator_add_aircraft,_simulator_add_threat,_simulator_clear_traffic,_simulator_aircraft_count,_simulator_fb,_simulator_fb_w,_simulator_fb_h,_simulator_fb_stride,_simulator_backlight_on,_simulator_powered,_simulator_page,_simulator_fix_valid,_simulator_sats,_simulator_lat_1e7,_simulator_lon_1e7,_simulator_alt_m,_simulator_speed_q,_simulator_track_c9,_simulator_climb_e8,_simulator_traffic_count,_simulator_alarm_level,_simulator_vibro_ms,_simulator_rx_ok,_simulator_rx_bad,_main
 
 .PHONY: test all clean simulator sim browser web serve watch dev
 all: test
@@ -94,13 +70,13 @@ test: $(BIN)
 $(BIN): $(OBJ)
 	$(CXX) $(CXXFLAGS) $(OBJ) -o $@ $(LDFLAGS)
 
-simulator: $(SIM_BIN)
-	@echo "run: ./$(SIM_BIN)"
+simulator: $(SIMULATOR_BIN)
+	@echo "run: ./$(SIMULATOR_BIN)"
 
 sim: simulator
 
-$(SIM_BIN): $(SIM_OBJ)
-	$(CXX) $(CXXFLAGS) $(SIM_OBJ) -o $@ $(LDFLAGS)
+$(SIMULATOR_BIN): $(SIMULATOR_OBJ)
+	$(CXX) $(CXXFLAGS) $(SIMULATOR_OBJ) -o $@ $(LDFLAGS)
 
 # Browser build. Requires Emscripten (https://emscripten.org).
 #   make browser build (incremental)
@@ -145,7 +121,7 @@ $(BUILD)/%.o: %.cpp
 # `make serve` in one terminal AND `make watch WATCH=browser` in another.
 # `make watch` alone only reruns host tests — the page will not change.
 WATCH ?= test
-WATCH_SRC := core ui hal devices products test
+WATCH_SRC := core ui hal hardware runtime products simulator test
 
 watch:
 	@echo "watching (target: $(WATCH)) — Ctrl-C to stop"
@@ -165,15 +141,15 @@ watch:
 	  done; \
 	fi
 
-# Static server for the browser sim that reloads the page when the .wasm/.js
+# Static server for the browser simulator that reloads the page when the .wasm/.js
 # changes. Falls back to python3 (manual refresh) if node isn't available.
 serve: browser
 	@if command -v npx >/dev/null 2>&1; then \
-	  echo "serving http://localhost:8000 (auto-reload)"; \
-	  npx --yes live-server $(WEB_DIST) --port=8000 --no-browser; \
+	  echo "serving http://$(SIMULATOR_HOST):$(SIMULATOR_PORT) (auto-reload)"; \
+	  npx --yes live-server $(WEB_DIST) --port=$(SIMULATOR_PORT) --no-browser; \
 	else \
-	  echo "serving http://localhost:8000 (manual refresh; install node for auto-reload)"; \
-	  python3 -m http.server -d $(WEB_DIST) 8000; \
+	  echo "serving http://$(SIMULATOR_HOST):$(SIMULATOR_PORT) (manual refresh; install node for auto-reload)"; \
+	  python3 -m http.server -d $(WEB_DIST) $(SIMULATOR_PORT); \
 	fi
 
 # One command for the browser loop: watcher in the background, server in the

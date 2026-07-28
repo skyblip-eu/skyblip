@@ -1,4 +1,3 @@
-// hal/display.h — capability port: present a 1-bit framebuffer region to the
 #ifndef SKYBLIP_HAL_DISPLAY_H
 #define SKYBLIP_HAL_DISPLAY_H
 
@@ -21,7 +20,7 @@ class Display {
     virtual ~Display() = default;
     virtual void present(const ui::Framebuffer& fb, Rect region, Refresh mode) = 0;
     virtual void power_off() = 0;
-    // Optional backlight/panel-enable (T-Echo Plus P1.11). Default: no-op.
+    virtual void power_on() {}
     virtual void set_backlight(bool /*on*/) {}
 };
 

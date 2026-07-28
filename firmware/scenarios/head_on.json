@@ -1,0 +1,17 @@
+{
+  "name": "head-on converging glider",
+  "mode": "training",
+  "lat_1e7": 485000000,
+  "lon_1e7": 85000000,
+  "alt_m": 1000,
+  "speed_kt": 60,
+  "track_deg": 0,
+  "duration_ms": 20000,
+  "aircraft": [
+    {"north_m": 1200, "east_m": 0, "up_m": 0, "speed_mps": 40, "track_deg": 180}
+  ],
+  "events": [
+    {"at_ms": 4000, "expect_traffic_min": 1},
+    {"at_ms": 12000, "expect_alarm_min": 1}
+  ]
+}

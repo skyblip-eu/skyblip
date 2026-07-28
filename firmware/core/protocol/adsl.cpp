@@ -245,7 +245,7 @@ void to_obs(const AdslPacket& p, uint32_t rx_utc, uint16_t rx_ms, int8_t rssi_db
     out = messages::AircraftObs{};
     out.addr = p.address();
     out.addr_table = p.addr_table();
-    out.acft_cat = p.AcftCat;
+    out.aircraft_cat = p.AcftCat;
     out.flight_state = p.FlightState;
     out.emergency = p.Emergency;
     out.lat_1e7 = p.lat_1e7();
@@ -264,13 +264,13 @@ void to_obs(const AdslPacket& p, uint32_t rx_utc, uint16_t rx_ms, int8_t rssi_db
 }
 
 void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
-              uint8_t acft_cat, bool stealth) {
+              uint8_t aircraft_cat, bool stealth) {
     p.init(0x02);
     p.set_address(addr);
     p.set_addr_table(addr_table);
     p.TimeStamp = static_cast<uint8_t>((own.utc % 15) * 4);
     p.FlightState = own.flight_state;
-    p.AcftCat = acft_cat;
+    p.AcftCat = aircraft_cat;
     p.Emergency = 1;
     p.set_lat_1e7(own.lat_1e7);
     p.set_lon_1e7(own.lon_1e7);

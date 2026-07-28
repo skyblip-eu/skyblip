@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://skyblip.eu/schemas/scenario.v1.schema.json",
+  "title": "skyBlip simulator scenario (v1)",
+  "description": "One scenario drives the browser simulator, the terminal simulator and the host regression suite. Consumed by firmware/sim/world; authored by skyship-editor.",
+  "type": "object",
+  "properties": {
+    "name": {"type": "string"},
+    "mode": {"enum": ["dev", "demo", "training"]},
+    "lat_1e7": {"type": "integer"},
+    "lon_1e7": {"type": "integer"},
+    "alt_m": {"type": "integer"},
+    "speed_kt": {"type": "integer", "minimum": 0},
+    "track_deg": {"type": "integer", "minimum": 0, "maximum": 359},
+    "duration_ms": {"type": "integer", "minimum": 0},
+    "aircraft": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "north_m": {"type": "integer"},
+          "east_m": {"type": "integer"},
+          "up_m": {"type": "integer"},
+          "speed_mps": {"type": "integer", "minimum": 0},
+          "track_deg": {"type": "integer", "minimum": 0, "maximum": 359}
+        },
+        "additionalProperties": false
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at_ms": {"type": "integer", "minimum": 0},
+          "fix": {"type": "integer", "enum": [0, 1]},
+          "pps": {"type": "integer", "enum": [0, 1]},
+          "baro": {"type": "integer", "enum": [0, 1]},
+          "button": {"type": "integer"},
+          "altitude_m": {"type": "integer"},
+          "track_deg": {"type": "integer"},
+          "aircraft": {"type": "integer"},
+          "expect_alarm_min": {"type": "integer", "minimum": 0, "maximum": 3},
+          "expect_traffic_min": {"type": "integer", "minimum": 0}
+        },
+        "required": ["at_ms"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

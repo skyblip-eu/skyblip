@@ -1,4 +1,5 @@
-#include "devices/models/display.h"
+#include "hardware/parts/ssd1681/model.h"
+#include "hardware/parts/ssd1681/ssd1681.h"
 #include "doctest/doctest.h"
 #include "ui/framebuffer.h"
 #include "ui/screens/altvs.h"
@@ -154,16 +155,23 @@ TEST_CASE("altvs: draws altitude and vs bar") {
     CHECK(fb.count_black() > 50);
 }
 
-TEST_CASE("display model: records present and can save a PGM") {
+TEST_CASE("panel model: the driver's own output is what the model shows") {
     Framebuffer fb;
     AltVsSnapshot s;
     s.have_data = true;
     s.alt_ft = 3000;
     s.vs_fpm = -200;
     draw_altvs(fb, s);
-    skyblip::models::Display disp;
-    disp.present(fb, {0, 0, 200, 200}, skyblip::hal::Refresh::Full);
-    CHECK(disp.present_count == 1);
-    CHECK(disp.last_mode == skyblip::hal::Refresh::Full);
-    CHECK(disp.save_pgm("build/altvs.pgm"));
+
+    skyblip::models::Ssd1681 panel;
+    skyblip::parts::Ssd1681 driver(panel, panel, panel.dc, panel.rst, panel.busy);
+    driver.begin();
+    driver.present(fb, {0, 0, 200, 200}, skyblip::hal::Refresh::Full);
+
+    CHECK(panel.present_count == 1);
+    CHECK(panel.last_full);
+    // Round trip through the driver's inversion: what the panel holds must be
+    // pixel-for-pixel what the UI drew.
+    CHECK(panel.framebuffer().count_black() == fb.count_black());
+    CHECK(panel.save_pgm("build/altvs.pgm"));
 }

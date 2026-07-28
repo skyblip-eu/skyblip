@@ -79,7 +79,7 @@ int format_pflaa(char* out, size_t cap, const messages::OwnState& own,
         out[n++] = '0';
     }
     out[n++] = ',';
-    out[n++] = hex_digit(adsl_cat_to_alptas(t.acft_cat));
+    out[n++] = hex_digit(adsl_cat_to_alptas(t.aircraft_cat));
     return nmea_finish(out, n);
 }
 

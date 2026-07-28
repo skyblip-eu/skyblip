@@ -1,0 +1,143 @@
+#ifndef SKYBLIP_HARDWARE_PLATFORM_ZEPHYR_RF_H
+#define SKYBLIP_HARDWARE_PLATFORM_ZEPHYR_RF_H
+#if defined(__ZEPHYR__)
+
+#include <zephyr/kernel.h>
+
+#include "core/bus/bus.h"
+#include "hal/clock.h"
+#include "hal/rf.h"
+#include "hardware/parts/sx1262/sx1262.h"
+#include "runtime/tasks.h"
+
+namespace skyblip::platform::zephyr {
+
+// The radio executor on silicon: its own thread, above every other application
+// thread, waking on an armed absolute deadline. Nothing on this thread writes
+// flash or touches the BLE stack — a deferred internal-flash write blocks for
+// milliseconds, which is more than the whole guard budget.
+class Rf : public hal::Rf {
+   public:
+    static constexpr int kStackSize = 2048;
+    static constexpr int kSpinUs = 200;
+
+    Rf(parts::Sx1262& radio, hal::Clock& clock, bus::Queue<messages::RfEvent, 8>& out)
+        : radio_(radio), clock_(clock), out_(out) {
+        k_sem_init(&armed_, 0, 1);
+    }
+
+    Status begin() override {
+        Status s = radio_.begin();
+        if (s != Status::Ok) return s;
+        s = radio_.configure_mband(parts::MbandConfig{});
+        if (s != Status::Ok) return s;
+        tid_ = k_thread_create(&thread_, stack_, K_THREAD_STACK_SIZEOF(stack_), entry, this,
+                               nullptr, nullptr,
+                               K_PRIO_COOP(static_cast<int>(runtime::TaskPrio::Rf)), 0, K_NO_WAIT);
+        k_thread_name_set(tid_, "rf_exec");
+        return Status::Ok;
+    }
+
+    Status arm(const hal::RfPlan& plan) override {
+        if (plan.end_us <= plan.start_us) return Status::OutOfRange;
+        if (plan.mode == hal::RfMode::TxMband && plan.tx == nullptr) return Status::OutOfRange;
+        // A dwell that cannot start before its own end is refused here rather
+        // than truncated on air.
+        if (clock_.micros() >= plan.end_us) {
+            emit(messages::RfEventType::Missed);
+            return Status::WouldBlock;
+        }
+        plan_ = plan;
+        k_sem_give(&armed_);
+        return Status::Ok;
+    }
+
+    void abort() override { abort_ = true; }
+
+    void service(uint32_t) {}
+
+   private:
+    static void entry(void* self, void*, void*) { static_cast<Rf*>(self)->run(); }
+
+    void run() {
+        for (;;) {
+            k_sem_take(&armed_, K_FOREVER);
+            abort_ = false;
+            const hal::RfPlan plan = plan_;
+            sleep_until(plan.start_us);
+            if (abort_) continue;
+            start(plan);
+            dwell(plan);
+        }
+    }
+
+    void sleep_until(uint64_t deadline_us) {
+        const uint64_t now = clock_.micros();
+        if (deadline_us <= now) return;
+        const uint64_t left = deadline_us - now;
+        if (left > 2000) k_usleep(static_cast<int32_t>(left - 1000));
+        while (clock_.micros() < deadline_us) k_busy_wait(10);
+    }
+
+    void start(const hal::RfPlan& plan) {
+        if (plan.mode == hal::RfMode::TxMband) {
+            radio_.transmit(plan.tx, plan.tx_len);
+            return;
+        }
+        if (plan.freq_hz != 0) {
+            parts::MbandConfig cfg{};
+            cfg.freq_hz = plan.freq_hz;
+            radio_.configure_mband(cfg);
+        }
+        radio_.start_receive();
+    }
+
+    void dwell(const hal::RfPlan& plan) {
+        bool completed = false;
+        while (!abort_ && clock_.micros() < plan.end_us) {
+            uint8_t buf[64];
+            const parts::RadioEvent ev = radio_.poll(buf, sizeof(buf));
+            switch (ev.type) {
+                case parts::RadioEventType::None: k_usleep(kSpinUs); continue;
+                case parts::RadioEventType::RxDone:
+                    emit(messages::RfEventType::RxDone, buf, ev.len, ev.rssi_dbm);
+                    break;
+                case parts::RadioEventType::CrcError:
+                    emit(messages::RfEventType::CrcError);
+                    break;
+                case parts::RadioEventType::TxDone:
+                    completed = true;
+                    emit(messages::RfEventType::TxDone);
+                    radio_.start_receive();
+                    break;
+                default: emit(messages::RfEventType::Missed); return;
+            }
+        }
+        if (!completed && plan.mode == hal::RfMode::TxMband) emit(messages::RfEventType::Missed);
+    }
+
+    void emit(messages::RfEventType type, const uint8_t* data = nullptr, uint8_t len = 0,
+              int8_t rssi = 0) {
+        messages::RfEvent e{};
+        e.type = type;
+        e.len = len;
+        e.rssi_dbm = rssi;
+        e.at_us = clock_.micros();
+        for (uint8_t i = 0; i < len && i < e.data.size(); i++) e.data[i] = data[i];
+        out_.push(e);
+    }
+
+    parts::Sx1262& radio_;
+    hal::Clock& clock_;
+    bus::Queue<messages::RfEvent, 8>& out_;
+    hal::RfPlan plan_{};
+    struct k_sem armed_ {};
+    struct k_thread thread_ {};
+    k_tid_t tid_{nullptr};
+    K_KERNEL_STACK_MEMBER(stack_, kStackSize);
+    volatile bool abort_{false};
+};
+
+}  // namespace skyblip::platform::zephyr
+#endif  // __ZEPHYR__
+#endif
