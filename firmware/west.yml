@@ -2,7 +2,7 @@
 #
 #   west init -l firmware      # (points west at this manifest)
 #   west update                # fetches Zephyr + all default modules
-#   west build -b t_echo_plus firmware --sysbuild
+#   west build -b t_echo_plus firmware/products/skyblip_go --sysbuild
 #
 # `import: true` pulls Zephyr's own manifest → hal_nordic, hal_espressif (for the
 # future skyPost/ESP32-S3 target), mcuboot, cmsis, etc. Pinned to a release for

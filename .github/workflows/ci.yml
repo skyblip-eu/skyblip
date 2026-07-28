@@ -113,7 +113,10 @@ jobs:
       - name: west build (sysbuild → MCUboot + app)
         working-directory: firmware
         run: |
-          west build -b t_echo_plus . --sysbuild \
+          # The APP DIR is the product: skyblip_go owns its board, its prj.conf
+          # and its sysbuild fragments. -b is still named because sysbuild needs
+          # a board before the app is configured; a wrong one is refused there.
+          west build -b t_echo_plus products/skyblip_go --sysbuild \
             -- -DBOARD_ROOT=$(pwd)/hardware \
                -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf"
 
@@ -145,7 +148,7 @@ jobs:
       # step runs from firmware/ and reaches back up for the script.
       - name: flash-size budget
         working-directory: firmware
-        run: python3 ../scripts/size_check.py build/firmware/zephyr/zephyr.elf
+        run: python3 ../scripts/size_check.py build/skyblip_go/zephyr/zephyr.elf
 
       - name: list build artifacts
         if: always()
@@ -162,7 +165,7 @@ jobs:
         run: |
           python3 ../scripts/mkuf2.py build/skyblip-go.uf2 \
             build/mcuboot/zephyr/zephyr.hex \
-            build/firmware/zephyr/zephyr.signed.confirmed.hex
+            build/skyblip_go/zephyr/zephyr.signed.confirmed.hex
 
       - name: upload firmware artifacts
         uses: actions/upload-artifact@v7
@@ -170,6 +173,6 @@ jobs:
           name: t_echo_plus-firmware
           path: |
             firmware/build/skyblip-go.uf2
-            firmware/build/firmware/zephyr/zephyr.signed.bin
-            firmware/build/firmware/zephyr/zephyr.signed.confirmed.bin
+            firmware/build/skyblip_go/zephyr/zephyr.signed.bin
+            firmware/build/skyblip_go/zephyr/zephyr.signed.confirmed.bin
           if-no-files-found: error
