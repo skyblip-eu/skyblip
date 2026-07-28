@@ -136,7 +136,10 @@ jobs:
       - name: twister (platform adapters on native_sim)
         working-directory: firmware
         run: |
-          $ZEPHYR_BASE/scripts/twister -T test/twister -p native_sim --inline-logs
+          # ZEPHYR_BASE is not exported into this step's env, so ask west where
+          # the workspace is instead of guessing a path.
+          python3 "$(west topdir)/zephyr/scripts/twister" \
+            -T test/twister -p native_sim --inline-logs
 
       # scripts/ is at the repo root, but the .elf is under firmware/build, so this
       # step runs from firmware/ and reaches back up for the script.
