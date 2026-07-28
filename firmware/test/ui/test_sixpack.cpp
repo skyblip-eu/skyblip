@@ -69,6 +69,35 @@ TEST_CASE("sixpack: needles move with the data they show") {
     CHECK(differs[4]);  // heading
 }
 
+TEST_CASE("sixpack: the altimeter reads like a three-pointer, the card like a compass") {
+    SixPackSnapshot s;
+    s.have_data = true;
+    s.alt_ft = 2500;  // long hand at 500 ft (down), short hand at 2.5/10 (right)
+    Framebuffer fb;
+    draw_sixpack(fb, s);
+
+    const Tile alt = kTiles[2];
+    CHECK(fb.get_pixel(alt.cx, alt.cy + 20));       // hundreds hand, straight down
+    CHECK(fb.get_pixel(alt.cx + 12, alt.cy));       // thousands hand, quarter turn
+    CHECK_FALSE(fb.get_pixel(alt.cx + 20, alt.cy));  // and it is the SHORT one
+    CHECK_FALSE(fb.get_pixel(alt.cx, alt.cy - 20));
+
+    // The compass card turns with the track: north swings to the right when the
+    // aircraft flies west.
+    SixPackSnapshot west = s;
+    west.track_deg = 270;
+    Framebuffer fw;
+    draw_sixpack(fw, west);
+    const Tile hdg = kTiles[4];
+    int right = 0, left = 0;
+    for (int y = hdg.cy - 8; y <= hdg.cy + 8; y++)
+        for (int d = 12; d <= 24; d++) {
+            if (fw.get_pixel(hdg.cx + d, y)) right++;
+            if (fw.get_pixel(hdg.cx - d, y)) left++;
+        }
+    CHECK(right > left);
+}
+
 TEST_CASE("sixpack: the attitude dial banks with the turn and pitches with climb") {
     SixPackSnapshot level;
     level.have_data = true;

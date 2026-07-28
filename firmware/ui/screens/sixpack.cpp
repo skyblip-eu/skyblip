@@ -2,6 +2,7 @@
 
 #include "core/util/format.h"
 #include "core/util/intmath.h"
+#include "ui/widgets/skyship.h"
 
 namespace skyblip::ui {
 
@@ -14,10 +15,16 @@ constexpr int kTitleDy = -(kR + 10);
 constexpr int kValueDy = kR + 4;
 constexpr int kTickLen = 4;
 constexpr int kTicks = 12;
+constexpr int kAltTicks = 10;  // one mark per 100 ft, so the hands line up with them
+// Card letters stay upright whatever the card does: at 5x7 a turned glyph is a
+// staircase of its own stroke width, and unreadable beats authentic.
+constexpr int kCardR = kR - 7;
+constexpr int kIndexTabLen = 5;
 constexpr int kNeedle = kR - 6;
 constexpr int kShortNeedle = kR - 15;
 constexpr int kHubR = 2;
 constexpr int kCharW = 6;
+constexpr int kGlyphH = 7;
 
 // isin/icos are Q14 (16384 = 1.0) over a 65536-unit circle.
 constexpr int32_t kOne = 16384;
@@ -39,7 +46,20 @@ constexpr int kWingHalf = kR - 8;
 
 int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-int16_t c16(int32_t deg) { return static_cast<int16_t>((deg * kTurn) / 360); }
+// Rounded, sign-symmetric projection of a radius onto a cordic axis: plain
+// integer division truncates toward zero and pulls both ends of a mark inward.
+int radial_half(int32_t r_half, int32_t q14) {
+    const int32_t v = r_half * q14;
+    return static_cast<int>((v + (v < 0 ? -kOne : kOne)) / (2 * kOne));
+}
+
+int radial(int32_t r, int32_t q14) { return radial_half(2 * r, q14); }
+
+int16_t c16(int32_t deg) {
+    int32_t d = ((deg % 360) + 360) % 360;
+    if (d >= 180) d -= 360;  // keep the cordic value inside int16_t
+    return static_cast<int16_t>((d * kTurn) / 360);
+}
 
 void text_center(Framebuffer& fb, int cx, int y, const char* s, int scale = 1) {
     int n = 0;
@@ -59,28 +79,39 @@ void value_center(Framebuffer& fb, int cx, int y, bool have, int32_t v, bool no_
     text_center(fb, cx, y, buf);
 }
 
-void dial(Framebuffer& fb, int cx, int cy, const char* title) {
-    fb.circle(cx, cy, kR, true);
-    for (int i = 0; i < kTicks; i++) {
-        const int16_t a = c16(i * (360 / kTicks));
-        const int32_t s = isin(a), c = icos(a);
-        fb.line(cx + static_cast<int>((kR * s) / kOne), cy - static_cast<int>((kR * c) / kOne),
-                cx + static_cast<int>(((kR - kTickLen) * s) / kOne),
-                cy - static_cast<int>(((kR - kTickLen) * c) / kOne), true);
+// Marks are stepped along the true radius in half-pixels rather than drawn as a
+// line between two rounded end points: over 4 px, rounding both ends tilts the
+// mark by degrees, which is what made the scales look bent.
+void tick(Framebuffer& fb, int cx, int cy, int16_t a, int len = kTickLen) {
+    const int32_t s = isin(a), c = icos(a);
+    for (int half = 2 * (kR - len); half <= 2 * kR; half++) {
+        fb.set_pixel(cx + radial_half(half, s), cy - radial_half(half, c), true);
     }
+}
+
+void dial(Framebuffer& fb, int cx, int cy, const char* title, int ticks = kTicks) {
+    fb.circle(cx, cy, kR, true);
+    for (int i = 0; i < ticks; i++) tick(fb, cx, cy, c16(i * (360 / ticks)));
     text_center(fb, cx, cy + kTitleDy, title);
 }
 
-void needle(Framebuffer& fb, int cx, int cy, int32_t deg, int len) {
+void needle(Framebuffer& fb, int cx, int cy, int32_t deg, int len, bool thick = false) {
     const int16_t a = c16(deg);
     const int32_t s = isin(a), c = icos(a);
-    fb.line(cx, cy, cx + static_cast<int>((len * s) / kOne), cy - static_cast<int>((len * c) / kOne),
-            true);
+    const int tx = cx + radial(len, s);
+    const int ty = cy - radial(len, c);
+    fb.line(cx, cy, tx, ty, true);
+    if (thick) {  // the altimeter's thousands hand: short and broad, hundreds long and fine
+        fb.line(cx + 1, cy, tx + 1, ty, true);
+        fb.line(cx, cy + 1, tx, ty + 1, true);
+    }
     fb.circle(cx, cy, kHubR, true, true);
 }
 
-// The ground is solid black below a horizon that pitches with the flight-path
-// angle and rolls opposite to the bank, clipped to the dial.
+// The ground is a 50% checkerboard below a horizon that pitches with the
+// flight-path angle and rolls opposite to the bank, clipped to the dial. On a
+// 1-bit panel that alternation is the only grey there is, and it keeps the
+// attitude dial from being the one black hole on the instrument face.
 void attitude(Framebuffer& fb, int cx, int cy, int32_t pitch_deg, int32_t bank_deg) {
     const int32_t off = (clampi(pitch_deg, -kPitchFullScaleDeg, kPitchFullScaleDeg) * kR) /
                         kPitchFullScaleDeg;
@@ -89,28 +120,44 @@ void attitude(Framebuffer& fb, int cx, int cy, int32_t pitch_deg, int32_t bank_d
     for (int dx = -kR + 1; dx < kR; dx++) {
         const int h = static_cast<int>(isqrt<uint32_t>(static_cast<uint32_t>(kR * kR - dx * dx)));
         const int32_t hy = clampi(off - (dx * s) / c, -h, h);
-        fb.vline(cx + dx, cy + static_cast<int>(hy), h - static_cast<int>(hy) + 1, true);
+        const int x = cx + dx;
+        for (int y = cy + static_cast<int>(hy); y <= cy + h; y++) {
+            if (((x + y) & 1) == 0) fb.set_pixel(x, y, true);
+        }
     }
-    for (int i = 0; i < 6; i++) {  // aircraft reference, legible over sky or ground
-        fb.set_pixel(cx - 11 + i, cy, !fb.get_pixel(cx - 11 + i, cy));
-        fb.set_pixel(cx + 6 + i, cy, !fb.get_pixel(cx + 6 + i, cy));
+    for (int i = 0; i < 6; i++) {  // aircraft reference, solid over sky or ground
+        fb.set_pixel(cx - 11 + i, cy, true);
+        fb.set_pixel(cx + 6 + i, cy, true);
     }
 }
 
 void turn_coordinator(Framebuffer& fb, int cx, int cy, int32_t bank_deg) {
     const int16_t a = c16(clampi(bank_deg, -kBankLimitDeg, kBankLimitDeg));
     const int32_t s = isin(a), c = icos(a);
-    const int wx = static_cast<int>((kWingHalf * c) / kOne);
-    const int wy = static_cast<int>((kWingHalf * s) / kOne);
+    const int wx = radial(kWingHalf, c);
+    const int wy = radial(kWingHalf, s);
     fb.line(cx - wx, cy - wy, cx + wx, cy + wy, true);
     fb.circle(cx, cy, kHubR, true, true);
-    for (int sign = -1; sign <= 1; sign += 2) {
-        const int16_t m = c16(sign * kStandardRateMarkDeg + 90);
-        const int32_t ms = isin(m), mc = icos(m);
-        fb.line(cx + static_cast<int>((kR * ms) / kOne), cy - static_cast<int>((kR * mc) / kOne),
-                cx + static_cast<int>(((kR - kTickLen) * ms) / kOne),
-                cy - static_cast<int>(((kR - kTickLen) * mc) / kOne), true);
+    for (int sign = -1; sign <= 1; sign += 2)
+        tick(fb, cx, cy, c16(sign * kStandardRateMarkDeg + 90));
+}
+
+// The card rotates so the flown track sits under the fixed index at the top,
+// which is what makes N/E/S/W read as directions rather than as labels.
+void heading_card(Framebuffer& fb, int cx, int cy, int32_t track_deg) {
+    static const char kCardinal[4] = {'N', 'E', 'S', 'W'};
+    for (int i = 0; i < kTicks; i++) {
+        const int32_t bearing = i * (360 / kTicks);
+        const int16_t a = c16(bearing - track_deg);
+        if (bearing % 90 != 0) {
+            tick(fb, cx, cy, a);
+            continue;
+        }
+        fb.draw_char(cx - kCharW / 2 + radial(kCardR, isin(a)),
+                     cy - kGlyphH / 2 - radial(kCardR, icos(a)), kCardinal[bearing / 90], true);
     }
+    fb.rect(cx - 1, cy - kR, 3, kIndexTabLen, true, true);  // the lubber index, on the case
+    draw_skyship(fb, cx, cy);
 }
 
 // 1 kt = 101.3 ft/min, so tan(flight-path angle) = vs_fpm / (101.3 * kt).
@@ -145,11 +192,11 @@ void draw_sixpack(Framebuffer& fb, const SixPackSnapshot& s) {
     if (s.have_data) attitude(fb, kCx[1], kCy[0], pitch, bank);
     value_center(fb, kCx[1], kCy[0] + kValueDy, s.have_data, pitch, false);
 
-    dial(fb, kCx[2], kCy[0], "ALT FT");
+    dial(fb, kCx[2], kCy[0], "ALT FT", kAltTicks);
     if (s.have_data) {
         const int32_t alt = s.alt_ft < 0 ? 0 : s.alt_ft;
         needle(fb, kCx[2], kCy[0], ((alt % kAltThousandsPerTurn) * 360) / kAltThousandsPerTurn,
-               kShortNeedle);
+               kShortNeedle, /*thick=*/true);
         needle(fb, kCx[2], kCy[0], ((alt % kAltHundredsPerTurn) * 360) / kAltHundredsPerTurn,
                kNeedle);
     }
@@ -159,10 +206,15 @@ void draw_sixpack(Framebuffer& fb, const SixPackSnapshot& s) {
     if (s.have_data) turn_coordinator(fb, kCx[0], kCy[1], bank);
     value_center(fb, kCx[0], kCy[1] + kValueDy, s.have_data, s.turn_dps, false);
 
-    dial(fb, kCx[1], kCy[1], "HDG");
-    text_center(fb, kCx[1], kCy[1] - kR + 2, "N");
-    if (s.have_data) needle(fb, kCx[1], kCy[1], s.track_deg % 360, kNeedle);
-    value_center(fb, kCx[1], kCy[1] + kValueDy, s.have_data, s.track_deg % 360, true, 3);
+    char hdg[12];
+    int n = fmt_string(hdg, "HDG ");
+    if (s.have_data)
+        n += fmt_uint(hdg + n, s.track_deg % 360, 3);
+    else
+        n += fmt_string(hdg + n, "---");
+    hdg[n] = 0;
+    dial(fb, kCx[1], kCy[1], hdg, s.have_data ? 0 : kTicks);
+    if (s.have_data) heading_card(fb, kCx[1], kCy[1], s.track_deg % 360);
 
     dial(fb, kCx[2], kCy[1], "VS FPM");
     if (s.have_data)
