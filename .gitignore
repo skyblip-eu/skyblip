@@ -13,3 +13,6 @@ firmware/build/
 .vscode/
 compile_commands.json
 __pycache__/
+
+# simulator dev server output
+simulator/build/
