@@ -13,10 +13,49 @@
   .layout { display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; justify-content:center; }
   .device { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px;
             display:flex; flex-direction:column; align-items:center; gap:12px; box-shadow:0 8px 30px #0008; }
-  #epd { image-rendering:pixelated; width:400px; height:400px; background:#c9cbc4;
-         border:6px solid #2a2d31; border-radius:6px; }
-  #epd.off { filter:brightness(.25) grayscale(1); }
-  #epd.bl  { box-shadow:0 0 22px 4px #9fe3ff88; }
+  /* The white case: the panel is 400 px, an exact 2x of the 200 px framebuffer,
+     because at any other factor a panel pixel straddles screen pixels and the
+     whole screen looks resampled. */
+  .case { position:relative; padding:48px 48px 56px; border-radius:32px;
+          background:linear-gradient(168deg,#fbfbf9,#dedfda);
+          box-shadow:inset 0 2px 0 #fff, inset 0 -2px 6px #0000001a, 0 14px 30px #000a; }
+  #epd { image-rendering:pixelated; display:block; width:400px; height:400px;
+         background:#c9cbc4; box-shadow:0 0 0 6px #f2f2ef, 0 0 0 7px #0000001f; }
+  #epd.bl  { filter:brightness(1.22) contrast(.92); box-shadow:0 0 0 6px #f2f2ef,
+             0 0 0 7px #0000001f, 0 0 26px 6px #e8f6ffaa; }
+  /* An e-paper is bistable: powered down it looks like paper, so the only tell
+     is what the firmware wrote last - the wordmark. It comes last because it
+     also drops the backlight glow, as pulling the rail does. */
+  #epd.off { filter:none; box-shadow:0 0 0 6px #f2f2ef, 0 0 0 7px #0000001f; }
+  .key { position:absolute; padding:0; cursor:pointer; }
+  /* P0.11 is a capacitive pad on the TOP edge, at the left: no travel, so it
+     reads as a ringed pad rather than a key. */
+  /* Same 26 px clearance to the panel as the side keys keep, so the three read
+     as one family. */
+  .key.touch { top:-5px; left:67px; width:86px; height:20px; border-radius:10px;
+               background:linear-gradient(180deg,#f4f5f2,#dcded9); border:1px solid #00000026;
+               box-shadow:inset 0 -2px 4px #0000001f; }
+  .key.touch:active { background:#c3e4f4; }
+  /* Both push keys are on the left edge, reset up top, the program key at the
+     bottom: a few px of them stand proud of the case, and they travel inwards
+     when pressed. */
+  .key.side { left:-5px; width:20px; height:56px; border-radius:6px 3px 3px 6px;
+              border:1px solid #00000033; box-shadow:inset -2px 0 4px #0000001f; }
+  .key.reset { top:96px; background:linear-gradient(90deg,#d9694f,#b94a33); }
+  .key.prog  { bottom:110px; background:linear-gradient(90deg,#b9bcc0,#8d9296); }
+  .key.side:active { transform:translateX(2px); box-shadow:inset 2px 0 4px #00000033; }
+  /* The two LEDs, side by side, middle of the right edge. Only the left one is
+     ours; the right one is wired to the charger. */
+  .leds { position:absolute; right:10px; top:50%; transform:translateY(-50%);
+          display:flex; gap:6px; }
+  .led { width:8px; height:8px; border-radius:50%; background:#c6c8c3;
+         box-shadow:inset 0 1px 2px #00000040; }
+  .led.on.red    { background:#ff4f2f; box-shadow:0 0 8px 2px #ff4f2f88; }
+  .led.on.amber  { background:#ffab3d; box-shadow:0 0 8px 2px #ffab3d88; }
+  .keymap { display:grid; grid-template-columns:auto auto auto; gap:2px 8px; font-size:11px;
+            color:var(--dim); }
+  .keymap b { color:var(--txt); font-weight:600; }
+  .keymap code { color:var(--accent); }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px;
            padding:14px 16px; min-width:300px; }
   .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim);
@@ -47,16 +86,32 @@
   <div class="layout">
     <!-- ---------------- the device ---------------- -->
     <div class="device">
-      <canvas id="epd" width="200" height="200"></canvas>
+      <div class="case">
+        <canvas id="epd" width="200" height="200"></canvas>
+        <button class="key touch" title="capacitive pad on the top edge, P0.11 — repaint the panel"
+                onclick="SIM.touch()"></button>
+        <button class="key side reset" title="RESET (button 1), P0.18 = nRESET — reboot"
+                onclick="SIM.reset()"></button>
+        <button class="key side prog" title="button 2, P1.10 — next page"
+                onclick="SIM.button()"></button>
+        <div class="leds">
+          <span class="led red" id="led_alarm" title="the LED we drive — lit on a traffic alarm"></span>
+          <span class="led amber" title="charge state — the charger drives this one, not the MCU"></span>
+        </div>
+      </div>
+      <div class="keymap">
+        <div><b>top pad</b></div><div><code>P0.11</code></div><div>repaint</div>
+        <div><b>left top</b></div><div><code>P0.18</code></div><div>reset (nRESET)</div>
+        <div><b>left bottom</b></div><div><code>P1.10</code></div><div>next page</div>
+      </div>
       <div class="row">
-        <button onclick="SIM.button()">Page ⤴</button>
         <button onclick="SIM.backlight()">Backlight</button>
         <button onclick="SIM.power()">Power</button>
       </div>
       <div class="hint" id="pagehint">page: –</div>
     </div>
 
-    <div style="display:flex; flex-direction:column; gap:14px;">
+    <div style="display:flex; flex-direction:column; gap:14px; max-width:420px;">
       <!-- ---------------- GNSS / sensors ---------------- -->
       <div class="panel">
         <h2>GNSS &amp; sensors</h2>
@@ -78,8 +133,15 @@
         <div class="ctl"><label>Climb</label>
           <input type="range" id="clb" min="-50" max="50" value="0" oninput="SIM.climb(this.value)">
           <output id="clb_o">0.0 m/s</output></div>
+        <div class="ctl"><label>Airmass</label>
+          <input type="range" id="air" min="9600" max="10500" step="5" value="10132" oninput="SIM.airmass(this.value)">
+          <output id="air_o">1013.2 hPa</output></div>
+        <div class="ctl"><label>QNH set</label>
+          <input type="range" id="qnh" min="9600" max="10500" step="5" value="10132" oninput="SIM.qnh(this.value)">
+          <output id="qnh_o">1013.2 hPa</output></div>
         <div class="hint">Sliders feed a simulated L76K that emits real NMEA; the
-          production parser decodes it.</div>
+          production parser decodes it. Airmass is the weather the BME280 sits in;
+          QNH is the subscale the device is set to.</div>
       </div>
 
       <!-- ---------------- scenario / mode ---------------- -->
@@ -121,6 +183,7 @@
           <div>Speed</div><div id="t_spd">–</div>
           <div>Track</div><div id="t_trk">–</div>
           <div>Vert speed</div><div id="t_vs">–</div>
+          <div>Static pressure</div><div id="t_baro">–</div>
           <div>Traffic</div><div id="t_tfc">–</div>
           <div>RX ok / bad</div><div id="t_rx">–</div>
           <div>Alarm</div><div><span id="t_alarm" class="alarm a0">none</span></div>
@@ -142,6 +205,7 @@ Module.onRuntimeInitialized = () => {
     failures: C('simulator_failures', 'number', []),
     step: C('simulator_step', null, ['number']),
     button: C('simulator_button', null, []),
+    touch: C('simulator_touch', null, []),
     backlight: C('simulator_backlight', null, ['number']),
     power: C('simulator_power', null, ['number']),
     setRange: C('simulator_set_range', null, ['number']),
@@ -151,6 +215,9 @@ Module.onRuntimeInitialized = () => {
     setSpeed: C('simulator_set_speed', null, ['number']),
     setTrack: C('simulator_set_track', null, ['number']),
     setClimb: C('simulator_set_climb', null, ['number']),
+    setQnh: C('simulator_set_qnh', null, ['number']),
+    setAirmass: C('simulator_set_airmass', null, ['number']),
+    pressurePa: C('simulator_pressure_pa', 'number', []),
     addAircraft: C('simulator_add_aircraft', null, ['number','number','number','number','number']),
     addThreat: C('simulator_add_threat', null, []),
     clearTraffic: C('simulator_clear_traffic', null, []),
@@ -175,7 +242,7 @@ Module.onRuntimeInitialized = () => {
     rxBad: C('simulator_rx_bad', 'number', []),
   };
 
-  let bl = true, pwr = true, fix = true;
+  let bl = false, pwr = true, fix = true;
   f.setup();
 
   const $ = id => document.getElementById(id);
@@ -184,6 +251,9 @@ Module.onRuntimeInitialized = () => {
 
   // --- controls ---
   SIM.button = () => f.button();
+  SIM.touch = () => f.touch();
+  // A reset is a reboot: the world and the firmware both start over.
+  SIM.reset = () => location.reload();
   SIM.backlight = () => { bl = !bl; f.backlight(bl ? 1 : 0); };
   SIM.power = () => { pwr = !pwr; f.power(pwr ? 1 : 0); };
   SIM.toggleFix = () => { fix = !fix; f.setFix(fix ? 1 : 0);
@@ -193,6 +263,10 @@ Module.onRuntimeInitialized = () => {
   SIM.speed = v => { f.setSpeed(+v); $('spd_o').textContent = v + ' kt'; };
   SIM.track = v => { f.setTrack(+v); $('trk_o').textContent = String(v).padStart(3,'0') + '°'; };
   SIM.climb = v => { f.setClimb(+v); $('clb_o').textContent = (v/10).toFixed(1) + ' m/s'; };
+  // Sliders are in tenths of a hectopascal; the firmware speaks pascals.
+  const HPA_E1_TO_PA = 10;
+  SIM.airmass = v => { f.setAirmass(v * HPA_E1_TO_PA); $('air_o').textContent = (v/10).toFixed(1) + ' hPa'; };
+  SIM.qnh = v => { f.setQnh(v * HPA_E1_TO_PA); $('qnh_o').textContent = (v/10).toFixed(1) + ' hPa'; };
   SIM.range = v => { f.setRange(+v); $('rng_o').textContent = (v/1000) + ' km'; };
   SIM.addRandom = () => {
     const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 4000;
@@ -223,7 +297,7 @@ Module.onRuntimeInitialized = () => {
   SIM.applyMode();
   SIM.clearTraffic = () => f.clearTraffic();
 
-  const PAGES = ['radar', 'alt/vs', 'status', '6-pack'];
+  const PAGES = ['radar', '6-pack', 'status'];
   const ALARM = ['none', 'info', 'important', 'URGENT'];
 
   function draw() {
@@ -242,6 +316,9 @@ Module.onRuntimeInitialized = () => {
     }
     ctx.putImageData(img, 0, 0);
     canvas.className = (f.powered() ? '' : 'off ') + (f.blOn() ? 'bl' : '');
+    // Only the left LED is the firmware's; the right one follows the charger,
+    // and the world has no battery to charge.
+    $('led_alarm').className = 'led red' + (f.alarm() ? ' on' : '');
     $('pagehint').textContent = 'page: ' + PAGES[f.page()] +
         '  ·  backlight ' + (f.blOn() ? 'on' : 'off') +
         '  ·  power ' + (f.powered() ? 'on' : 'off');
@@ -254,6 +331,7 @@ Module.onRuntimeInitialized = () => {
     $('t_spd').textContent  = (f.speedQ()/4).toFixed(1) + ' m/s';
     $('t_trk').textContent  = Math.round(f.trackC9()*360/512).toString().padStart(3,'0') + '°';
     $('t_vs').textContent   = (f.climbE8()/8).toFixed(1) + ' m/s';
+    $('t_baro').textContent = (f.pressurePa()/100).toFixed(1) + ' hPa';
     $('t_tfc').textContent  = f.traffic() + ' target(s)';
     $('t_rx').textContent   = f.rxOk() + ' / ' + f.rxBad();
     if (document.body.dataset.mode === 'training')

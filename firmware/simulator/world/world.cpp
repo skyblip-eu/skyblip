@@ -23,9 +23,12 @@ void World::step(uint32_t now_ms, const bus::State& state) {
     // One altitude, two sensors: the GNSS model integrates climb into its own
     // altitude and the barometer reads THAT, exactly as both would see the same
     // air. Setting them apart would show a climb rate no real pair can produce.
+    // The airmass shifts the pressure the sensor sees, as weather does, without
+    // moving the aircraft.
     if (now_ms - last_baro_ms_ >= kBaroPeriodMs) {
         last_baro_ms_ = now_ms;
-        baro().set_altitude_m(gnss().alt_m);
+        baro().set_pressure_pa(flight::alt_cm_to_pressure(
+            gnss().alt_m * 100 + flight::pressure_to_alt_cm(airmass_qnh_pa_)));
     }
 
     service_button(now_ms);

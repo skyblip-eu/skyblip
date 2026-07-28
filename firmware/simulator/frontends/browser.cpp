@@ -26,6 +26,9 @@ KEEPALIVE int simulator_load_scenario(const char* json, int len) {
 KEEPALIVE int simulator_mode() { return static_cast<int>(g_simulator.mode()); }
 
 KEEPALIVE void simulator_button() { g_simulator.world().press_button(); }
+// The capacitive pad on P0.11 is not an input the firmware polls: on this case
+// it asks for a repaint, which is a full refresh of the panel.
+KEEPALIVE void simulator_touch() { g_simulator.product().screen().mark_dirty(); }
 KEEPALIVE void simulator_backlight(int on) {
     g_simulator.product().screen().set_backlight(on != 0);
 }
@@ -39,6 +42,14 @@ KEEPALIVE void simulator_set_alt(int m) { g_simulator.world().set_altitude_m(m);
 KEEPALIVE void simulator_set_speed(int kt) { g_simulator.world().set_speed_kt(kt); }
 KEEPALIVE void simulator_set_track(int deg) { g_simulator.world().set_track_deg(deg); }
 KEEPALIVE void simulator_set_climb(int e1) { g_simulator.world().set_climb_e1(e1); }
+// Both in pascals: the subscale the device is set to, and the air outside.
+KEEPALIVE void simulator_set_qnh(int pa) {
+    g_simulator.product().state().qnh_pa = static_cast<uint32_t>(pa);
+    g_simulator.product().screen().mark_dirty();
+}
+KEEPALIVE void simulator_set_airmass(int pa) {
+    g_simulator.world().set_airmass_qnh_pa(static_cast<uint32_t>(pa));
+}
 KEEPALIVE void simulator_set_position(int lat_1e7, int lon_1e7) {
     g_simulator.world().gnss().lat_1e7 = lat_1e7;
     g_simulator.world().gnss().lon_1e7 = lon_1e7;
@@ -69,6 +80,9 @@ KEEPALIVE int simulator_sats() { return g_simulator.product().state().own.sats; 
 KEEPALIVE int simulator_lat_1e7() { return g_simulator.product().state().own.lat_1e7; }
 KEEPALIVE int simulator_lon_1e7() { return g_simulator.product().state().own.lon_1e7; }
 KEEPALIVE int simulator_alt_m() { return g_simulator.product().state().own.alt_m; }
+KEEPALIVE int simulator_pressure_pa() {
+    return static_cast<int>(g_simulator.product().state().pressure_pa);
+}
 KEEPALIVE int simulator_speed_q() { return g_simulator.product().state().own.speed_q; }
 KEEPALIVE int simulator_track_c9() { return g_simulator.product().state().own.track_c9; }
 KEEPALIVE int simulator_climb_e8() { return g_simulator.product().state().own.climb_e8; }

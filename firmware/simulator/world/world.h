@@ -2,6 +2,7 @@
 #define SKYBLIP_SIMULATOR_WORLD_WORLD_H
 
 #include "core/bus/state.h"
+#include "core/flight/atmosphere.h"
 #include "hardware/platform/host/platform.h"
 #include "simulator/world/scenario.h"
 
@@ -46,6 +47,9 @@ class World {
     void set_speed_kt(int32_t kt) { gnss().speed_kt = kt; }
     void set_track_deg(int32_t deg) { gnss().track_deg = ((deg % 360) + 360) % 360; }
     void set_climb_e1(int32_t e1) { gnss().climb_mps_e1 = e1; }
+    // The weather, not a setting: the sea-level pressure of the air the aircraft
+    // is flying through. The barometer reads what that implies at its altitude.
+    void set_airmass_qnh_pa(uint32_t pa) { airmass_qnh_pa_ = pa; }
     void set_pps_locked(bool on) { platform_.pps().set_locked(on); }
     void press_button() { press_pending_ = true; }
 
@@ -74,6 +78,7 @@ class World {
     uint32_t start_ms_{0};
     uint32_t last_aircraft_ms_{0};
     uint32_t last_baro_ms_{0};
+    uint32_t airmass_qnh_pa_{flight::kIsaSeaLevelPa};
     uint32_t press_until_ms_{0};
     int round_robin_{0};
     int failures_{0};
