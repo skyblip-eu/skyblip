@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- skyShip editor - skyBlip's ownship symbol, for firmware/ui/screens/radar.cpp.
+<!-- skyShip editor - skyBlip's ownship symbol, for firmware/ui/widgets/skyship.cpp.
      Open directly (file://) - no server, no build, no dependencies.
      Draw -> copy the C++ block, or save the art and run:
          python3 apply.py skyship.txt
@@ -32,7 +32,7 @@
   input[type=file] { color:var(--grey); }
 </style>
 
-<h1>skyShip editor <span>&mdash; the ownship symbol &middot; firmware/ui/screens/radar.cpp : kOwnshipRows[]</span></h1>
+<h1>skyShip editor <span>&mdash; the ownship symbol &middot; firmware/ui/widgets/skyship.cpp : kOwnshipRows[]</span></h1>
 
 <div class="row">
   <div class="panel">
@@ -68,7 +68,7 @@
   </div>
 
   <div class="panel">
-    <h2>C++ &mdash; paste into radar.cpp</h2>
+    <h2>C++ &mdash; paste into skyship.cpp</h2>
     <div class="bar">
       <button id="copy">copy</button>
       <button id="copyart">copy art only</button>
@@ -133,7 +133,7 @@ function drawGrid() {
     // Fitting by width alone would make it 24*172/232 = 17.8 rows tall and the
     // canvas would clip the nose and tail. So scale by whichever axis binds: the
     // leftover margin IS the signal — it shows how much span the 24 px sprite
-    // borrows from proportion to stay legible at 1 bit (see radar.cpp).
+    // borrows from proportion to stay legible at 1 bit (see skyship.cpp).
     const s = Math.min(W() * CELL / under.naturalWidth, H() * CELL / under.naturalHeight);
     const gw = under.naturalWidth * s, gh = under.naturalHeight * s;
     gx.globalAlpha = 0.28;

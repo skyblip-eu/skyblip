@@ -5,7 +5,7 @@ namespace skyblip::ui {
 namespace {
 // skyShip - skyBlip's ownship symbol (RTCA DO-257A's term for the "this is you"
 // mark): a low-wing single in plan, nose-up, hinted by hand for a 1-bit raster
-// in skyship-editor/ and kept there as skyship.txt.
+// in skyship/ and kept there as skyship.txt.
 //
 //   - 24 x 16 px. EVEN width, so the sprite straddles the screen's centre point
 //     (200x200 has no middle pixel - the centre is where 99 and 100 meet).
@@ -23,9 +23,9 @@ namespace {
 // fallback and the sprite is read from storage - which is why Ownship below is a
 // value carrying its own size and hot spot, not three loose constants.
 //
-// Edit:    open skyship-editor/index.html          (draw, then copy the art)
-// Apply:   python3 skyship-editor/apply.py --origin 5 skyship-editor/skyship.txt
-// Retrace: python3 skyship-editor/trace.py 30 --plan <plan-view>.png
+// Edit:    open skyship/index.html                 (draw, then copy the art)
+// Apply:   python3 skyship/apply.py --origin 5 skyship/skyship.txt
+// Retrace: python3 skyship/trace.py 30 --plan <plan-view>.png
 //
 // One bit per pixel, LSB = leftmost column; the art beside each word is the
 // table. kGlyphOriginRow is the HOT SPOT: the row that lands on the plot origin,

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Write a skyShip sprite into ui/screens/radar.cpp, in place.
+"""Write a skyShip sprite into ui/widgets/skyship.cpp, in place.
 
 Closes the loop from the editor (index.html) or the tracer (trace.py) back into
 the firmware without hand-editing hex. Writes the COMPILED DEFAULT symbol;
 user-loaded sprites will live in QSPI flash, not here.
 
-  python3 skyship-editor/apply.py skyship.txt        # rows of '#' and '.'
-  open skyship-editor/index.html -> copy art -> pbpaste | python3 skyship-editor/apply.py
-  python3 skyship-editor/trace.py 30 --plan p.png | python3 skyship-editor/apply.py
+  python3 skyship/apply.py skyship/skyship.txt       # rows of '#' and '.'
+  open skyship/index.html -> copy art -> pbpaste | python3 skyship/apply.py
+  python3 skyship/trace.py 30 --plan p.png | python3 skyship/apply.py
 
 Accepts either the ASCII art or a C++ kOwnship table (so it round-trips its own
 output). Refuses to write a glyph that would look broken on a 1-bit collision
@@ -19,8 +19,8 @@ import os
 import re
 import sys
 
-RADAR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     "firmware", "ui", "screens", "radar.cpp")
+WIDGET = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      "firmware", "ui", "widgets", "skyship.cpp")
 
 
 def parse(text):
@@ -174,7 +174,7 @@ def main():
     if problems and not (a.force or a.show):
         sys.exit("refusing to write; fix the above or pass --force")
 
-    src = open(RADAR).read()
+    src = open(WIDGET).read()
     # keep any hand-written note after the art on each row, if the shape still fits
     notes = re.findall(r"0x[0-9a-fA-F]{8},\s*//\s*[#.]+(.*)", src)
     if len(notes) != h:
@@ -202,12 +202,12 @@ def main():
                      r"constexpr uint32_t kOwnshipRows\[\] = \{.*?\n\};",
                      table.replace("\\", "\\\\"), src, flags=re.S)
     if not n:
-        sys.exit(f"could not find the kOwnshipRows table in {RADAR}")
+        sys.exit(f"could not find the kOwnshipRows table in {WIDGET}")
     if new == src:
-        print(f"{RADAR}: unchanged")
+        print(f"{WIDGET}: unchanged")
         return
-    open(RADAR, "w").write(new)
-    print(f"{RADAR}: {w} x {h} px, {sum(map(sum, g))} px ink")
+    open(WIDGET, "w").write(new)
+    print(f"{WIDGET}: {w} x {h} px, {sum(map(sum, g))} px ink")
     if any(notes):
         print("kept the per-row notes; check they still describe the right rows")
     print("next: make test && make web   (the comment block above the table is yours)")
