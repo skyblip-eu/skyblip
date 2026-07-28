@@ -138,10 +138,8 @@ jobs:
         run: |
           # ZEPHYR_BASE is not exported into this step's env, so ask west where
           # the workspace is instead of guessing a path.
-          # --board-root: t_echo_plus is OUR board, so twister has to be told
-          # where it lives before it will accept the name in platform_allow.
           python3 "$(west topdir)/zephyr/scripts/twister" \
-            -T test/twister --board-root hardware -p native_sim --inline-logs
+            -T test/twister -p native_sim --inline-logs
 
       # scripts/ is at the repo root, but the .elf is under firmware/build, so this
       # step runs from firmware/ and reaches back up for the script.
