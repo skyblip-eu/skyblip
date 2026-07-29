@@ -11,7 +11,10 @@ void TrafficService::tick(uint32_t now_ms) {
             case messages::RfEventType::RxDone: on_frame(event, now_ms); break;
             case messages::RfEventType::CrcError:
             case messages::RfEventType::Missed: context_.state.rx_bad++; break;
-            case messages::RfEventType::TxDone: break;
+            // A busy band is not a fault: it is the state the media access
+            // rules exist for, and the transmit policy has to see it.
+            case messages::RfEventType::TxBusy: context_.state.tx_busy++; break;
+            case messages::RfEventType::TxDone: context_.state.tx_ok++; break;
         }
     }
     context_.state.traffic.age_out(context_.state.traffic_now(now_ms));

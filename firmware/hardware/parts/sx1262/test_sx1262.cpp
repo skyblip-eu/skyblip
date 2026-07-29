@@ -91,3 +91,62 @@ TEST_CASE("radio: health watchdog reinitialises after no-RX timeout (no-RX-in-N 
     r.poll(buf, sizeof(buf));
     CHECK_FALSE(r.service(29000, 30000));
 }
+
+TEST_CASE("radio: the tuned channel is what the PLL word resolves back to") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    // Both ADS-L M-band channels, 200 kHz apart (SRD-860 issue 2 C.2).
+    MbandConfig cfg{};
+    cfg.freq_hz = 868200000;
+    r.configure_mband(cfg);
+    CHECK(chip.freq_hz > 868199000);
+    CHECK(chip.freq_hz < 868201000);
+    cfg.freq_hz = 868400000;
+    r.configure_mband(cfg);
+    CHECK(chip.freq_hz > 868399000);
+    CHECK(chip.freq_hz < 868401000);
+}
+
+TEST_CASE("radio: carrier sense reads the level on the tuned channel") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    r.configure_mband(MbandConfig{});
+    r.start_receive();
+    chip.rssi_dbm = -110;
+    CHECK(r.rssi_inst() == -110);
+    chip.rssi_dbm = -48;
+    CHECK(r.rssi_inst() == -48);
+}
+
+TEST_CASE("radio: a delivered packet carries the level it arrived with") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    r.configure_mband(MbandConfig{});
+    r.start_receive();
+    uint8_t pkt[4] = {1, 2, 3, 4};
+    chip.queue_rx(pkt, 4, /*crc_error=*/false, /*rssi=*/-73);
+    uint8_t buf[8];
+    const RadioEvent ev = r.poll(buf, sizeof(buf));
+    CHECK(ev.type == RadioEventType::RxDone);
+    CHECK(ev.rssi_dbm == -73);
+}
+
+TEST_CASE("radio: what was written to the buffer is what goes on air") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    r.configure_mband(MbandConfig{});
+    const uint8_t frame[5] = {0x72, 0x4B, 0x18, 0xAA, 0x55};
+    r.transmit(frame, sizeof(frame));
+    CHECK_FALSE(chip.receiving);
+    uint8_t out[8] = {0};
+    uint8_t len = 0;
+    REQUIRE(chip.take_tx(out, len));
+    CHECK(len == sizeof(frame));
+    CHECK(out[0] == 0x72);
+    CHECK(out[4] == 0x55);
+    CHECK_FALSE(chip.take_tx(out, len));
+}
