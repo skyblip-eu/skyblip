@@ -38,7 +38,12 @@ class L76k : public io::Uart {
     }
     size_t available() override { return pending_.size(); }
 
-    // Advance own-ship along its track and emit a 1 Hz NMEA burst.
+    // ADS-L G.1.16 forbids transmitting navigation data older than 500 ms, and
+    // the direct slot runs to 1000 ms after the second: a receiver solving once
+    // per second cannot feed a conforming transmitter.
+    static constexpr uint32_t kFixPeriodMs = 200;
+
+    // Advance own-ship along its track and emit an NMEA burst per solution.
     void tick(uint32_t now_ms) {
         // First tick only anchors the cadence. Anchoring on `last_ms_ == 0`
         // instead would re-anchor on every call made at t=0, which is a legal
@@ -49,7 +54,7 @@ class L76k : public io::Uart {
             return;
         }
         uint32_t dt = now_ms - last_ms_;
-        if (dt < 1000) return;
+        if (dt < kFixPeriodMs) return;
         last_ms_ = now_ms;
 
         // Integrate position along the current track at the current speed.
@@ -61,14 +66,26 @@ class L76k : public io::Uart {
         lat_1e7 += static_cast<int32_t>(north_m * 1e7 / 111320.0);
         const double coslat = std::cos(lat_1e7 / 1e7 * 3.14159265358979 / 180.0);
         if (coslat > 0.01) lat_lon_advance(east_m, coslat);
-        alt_m += static_cast<int32_t>(climb_mps_e1 * secs / 10.0);
-        utc_sod = (utc_sod + static_cast<uint32_t>(secs + 0.5)) % 86400u;
+        // Metres per solution, not per second: at 5 Hz a 3 m/s climb is 0.6 m a
+        // step, and truncating that to an integer would report level flight.
+        climbed_m_ += climb_mps_e1 * secs / 10.0;
+        const int32_t whole_m = static_cast<int32_t>(climbed_m_);
+        alt_m += whole_m;
+        climbed_m_ -= whole_m;
+        // NMEA carries whole seconds here, so the sub-second solutions of one
+        // second all stamp the same UTC: their freshness is their arrival time.
+        sod_ms_ += dt;
+        utc_sod = (utc_sod + sod_ms_ / 1000u) % 86400u;
+        sod_ms_ %= 1000u;
 
         emit_rmc();
         emit_gga();
     }
 
    private:
+    uint32_t sod_ms_{0};
+    double climbed_m_{0};
+
     void lat_lon_advance(double east_m, double coslat) {
         lon_1e7 += static_cast<int32_t>(east_m * 1e7 / (111320.0 * coslat));
     }

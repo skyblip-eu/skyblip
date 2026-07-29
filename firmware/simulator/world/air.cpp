@@ -1,0 +1,152 @@
+#include "simulator/world/air.h"
+
+#include <cstdio>
+#include <cstring>
+
+namespace skyblip::simulator {
+
+namespace {
+const char* kEventName[] = {"TX  ", "RX  ", "DEAF", "COLL"};
+
+// The radio reports the frequency its PLL word resolves to, a few hertz off the
+// channel it was asked for.
+const char* channel_name(uint32_t freq_hz) {
+    if (Air::tuned_to(freq_hz, timing::kObandHz)) return "869.525";
+    if (Air::tuned_to(freq_hz, timing::kMband1Hz)) return "868.400";
+    return "868.200";
+}
+}  // namespace
+
+void Air::emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* bytes, uint8_t len,
+               int8_t rssi_dbm) {
+    for (Burst& b : burst_) {
+        if (b.used) continue;
+        b = Burst{};
+        b.used = true;
+        b.at_us = at_us;
+        b.freq_hz = freq_hz;
+        b.rssi_dbm = rssi_dbm;
+        b.len = len > sizeof(b.bytes) ? static_cast<uint8_t>(sizeof(b.bytes)) : len;
+        std::memcpy(b.bytes, bytes, b.len);
+        return;
+    }
+}
+
+void Air::step(uint64_t now_us, models::Sx1262& radio) {
+    take_own_transmission(now_us, radio);
+    if (tx_in_flight_ && now_us >= tx_done_at_us_) {
+        tx_in_flight_ = false;
+        radio.signal_tx_done();
+    }
+
+    for (Burst& b : burst_) {
+        if (!b.used || b.started || now_us < b.at_us) continue;
+        b.started = true;
+        // A receiver has to be tuned to the channel when the preamble arrives,
+        // not when the frame ends.
+        b.heard = !b.mine && radio.receiving && tuned_to(radio.freq_hz, b.freq_hz) &&
+                  b.rssi_dbm > kSensitivityDbm;
+        for (Burst& other : burst_) {
+            if (&other == &b || !other.used || !other.started) continue;
+            if (!tuned_to(other.freq_hz, b.freq_hz)) continue;
+            if (b.at_us < other.at_us + kAirTimeUs) {
+                b.collided = true;
+                other.collided = true;
+            }
+        }
+    }
+
+    for (Burst& b : burst_) {
+        if (!b.used || !b.started || now_us < b.at_us + kAirTimeUs) continue;
+        if (b.mine) {
+            log(b, AirEvent::Tx);
+        } else if (!b.heard) {
+            deaf_++;
+            log(b, AirEvent::Deaf);
+        } else if (b.collided) {
+            collisions_++;
+            log(b, AirEvent::Collision);
+            radio.queue_rx(b.bytes, b.len, /*crc_error=*/true, b.rssi_dbm);
+        } else {
+            heard_++;
+            log(b, AirEvent::Rx);
+            radio.queue_rx(b.bytes, b.len, /*crc_error=*/false, b.rssi_dbm);
+        }
+        b.used = false;
+    }
+
+    set_carrier(now_us, radio);
+}
+
+// Own-ship's burst is air like any other: it occupies the channel, it collides,
+// and the radio only reports TxDone once it has actually been sent.
+void Air::take_own_transmission(uint64_t now_us, models::Sx1262& radio) {
+    uint8_t bytes[protocol::AdslPacket::kTxBytes] = {0};
+    uint8_t len = 0;
+    if (!radio.take_tx(bytes, len)) return;
+    if (len > sizeof(bytes)) len = sizeof(bytes);
+    emit(now_us, radio.freq_hz, bytes, len, 0);
+    for (Burst& b : burst_)
+        if (b.used && !b.started && b.at_us == now_us && b.freq_hz == radio.freq_hz) b.mine = true;
+    tx_in_flight_ = true;
+    tx_done_at_us_ = now_us + kAirTimeUs;
+}
+
+void Air::set_carrier(uint64_t now_us, models::Sx1262& radio) {
+    int8_t level = kNoiseFloorDbm;
+    for (const Burst& b : burst_) {
+        if (!b.used || b.mine) continue;
+        if (now_us < b.at_us || now_us >= b.at_us + kAirTimeUs) continue;
+        if (!tuned_to(radio.freq_hz, b.freq_hz)) continue;
+        if (b.rssi_dbm > level) level = b.rssi_dbm;
+    }
+    radio.rssi_dbm = level;
+}
+
+void Air::log(const Burst& b, AirEvent event) {
+    AirRecord& r = log_[count_ % kLogSize];
+    r.at_us = b.at_us;
+    r.freq_hz = b.freq_hz;
+    // The phase belongs to the burst's own instant. Taking it at log time, which
+    // is when the burst ENDS, dates a burst at 995 ms into the next second.
+    r.phase_ms = static_cast<uint16_t>(b.at_us / 1000 % 1000);
+    r.event = event;
+    r.rssi_dbm = b.rssi_dbm;
+    r.len = b.len;
+    std::memcpy(r.bytes, b.bytes, b.len);
+    count_++;
+}
+
+const AirRecord& Air::record(int i) const {
+    const int first = count_ <= kLogSize ? 0 : count_ % kLogSize;
+    return log_[(first + (i < 0 ? 0 : i)) % kLogSize];
+}
+
+void Air::clear() {
+    for (Burst& b : burst_) b.used = false;
+    count_ = 0;
+    heard_ = deaf_ = collisions_ = 0;
+    tx_in_flight_ = false;
+}
+
+// One line per burst, decoded the way a receiver would: descramble, check the
+// CRC, then read the address and position out of the frame that was actually
+// on air.
+int Air::format(int i, char* out, int cap) const {
+    if (i < 0 || i >= record_count()) {
+        if (cap > 0) out[0] = 0;
+        return 0;
+    }
+    const AirRecord& r = record(i);
+    protocol::AdslPacket p{};
+    std::memcpy(&p, r.bytes, sizeof(p) < r.len ? sizeof(p) : r.len);
+    const bool crc_ok = p.check_crc() == 0;
+    p.descramble();
+    return std::snprintf(out, static_cast<size_t>(cap),
+                         "%4u ms %s %s %3d dBm %02u B %06X %+.5f,%+.5f %5d m %s", r.phase_ms,
+                         channel_name(r.freq_hz), kEventName[static_cast<int>(r.event)], r.rssi_dbm,
+                         r.len, p.address(), p.lat_1e7() / 1e7, p.lon_1e7() / 1e7, p.alt_m(),
+                         crc_ok ? "crc ok" : "CRC BAD");
+}
+
+}  // namespace skyblip::simulator

@@ -1,38 +1,56 @@
 #ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_RADIO_H
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_RADIO_H
 
+#include "core/protocol/adsl.h"
 #include "core/timing/slot.h"
+#include "core/timing/transmit.h"
 #include "runtime/service.h"
 
 namespace skyblip::go {
 
-// Slot POLICY only: which band to listen on, from when to when. The dwell is
-// executed against absolute deadlines by hal::Rf, whose implementation owns the
-// hardware timing.
+// Slot POLICY only: which band to listen on, from when to when, and at which
+// instant of the direct slot own-ship goes on air. The dwell is executed
+// against absolute deadlines by hal::Rf, whose implementation owns the hardware
+// timing and the carrier sense.
 class RadioService : public runtime::Service {
    public:
     using runtime::Service::Service;
-
-    // ADS-L 4 SRD-860 issue 2: M-band direct 868.2 MHz, O-band HDR uplink
-    // 869.525 MHz.
-    static constexpr uint32_t kMbandFreqHz = 868200000;
-    static constexpr uint32_t kObandFreqHz = 869525000;
 
     Status setup() override;
     void tick(uint32_t now_ms) override;
 
     hal::RfMode armed_mode() const { return armed_; }
     uint32_t arm_count() const { return arm_count_; }
+    const timing::Transmitter& transmitter() const { return transmitter_; }
 
    private:
+    static constexpr uint8_t kFlightStateAirborne = 2;
+
     int phase_ms(uint32_t now_ms) const;
     uint64_t pps_epoch_us(uint32_t now_ms) const;
+    // Slot 1 spans the UTC second, so inside its tail the dwell, the burst it
+    // carries and the second they are accounted to all belong to the second the
+    // slot started in.
+    uint64_t dwell_epoch_us(uint32_t now_ms) const;
+    uint32_t slot_utc(uint32_t now_ms) const;
     static hal::RfMode mode_for(const timing::SlotPlan& plan);
-    void arm(hal::RfMode mode, uint32_t now_ms);
+    timing::Transmitter::Attempt attempt(const timing::SlotPlan& plan, uint32_t now_ms) const;
+    bool transmit_due(const timing::SlotPlan& plan, uint32_t now_ms) const;
+    void arm_dwell(const timing::SlotPlan& plan, uint32_t now_ms);
+    void collect_outcome(uint32_t now_ms);
 
     timing::Scheduler scheduler_{};
+    timing::Transmitter transmitter_{};
+    protocol::AdslPacket outgoing_{};
     hal::RfMode armed_{hal::RfMode::Idle};
+    uint32_t armed_freq_{0};
     uint32_t arm_count_{0};
+    uint64_t tx_end_us_{0};
+    uint32_t tx_utc_{0};
+    uint32_t seen_tx_ok_{0};
+    uint32_t seen_tx_busy_{0};
+    bool tx_armed_{false};
+    bool tx_forced_{false};
 };
 
 }  // namespace skyblip::go

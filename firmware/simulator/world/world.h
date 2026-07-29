@@ -3,7 +3,9 @@
 
 #include "core/bus/state.h"
 #include "core/flight/atmosphere.h"
+#include "core/timing/slot.h"
 #include "hardware/platform/host/platform.h"
+#include "simulator/world/air.h"
 #include "simulator/world/scenario.h"
 
 namespace skyblip::simulator {
@@ -15,6 +17,12 @@ struct VirtualAircraft {
     double speed_mps{30};
     double track_deg{270};
     int32_t climb_e8{0};
+    // Where in the second this aircraft transmits, and on which M-band channel.
+    // Below zero it picks its own instant per second the way a conforming
+    // transmitter does; pinned, it is the knob that proves our dwell map.
+    int phase_ms{-1};
+    int slot{-1};
+    uint32_t transmissions{0};
 };
 
 // The sky, the air and the ground the firmware flies through. It drives the part
@@ -32,11 +40,12 @@ class World {
     void load(const Scenario& scenario);
 
     int add_aircraft(double north_m, double east_m, double up_m, double speed_mps = 30,
-                     double track_deg = 270);
+                     double track_deg = 270, int phase_ms = -1, int slot = -1);
     int add_threat() { return add_aircraft(600, 200, 30, 40, 200); }
     void clear_aircraft();
     int aircraft_count() const;
 
+    Air& air() { return air_; }
     models::L76k& gnss() { return platform_.chips().gnss; }
     models::Bme280& baro() { return platform_.baro().chip; }
     platform::host::Platform& platform() { return platform_; }
@@ -62,7 +71,9 @@ class World {
    private:
     void service_button(uint32_t now_ms);
     void service_aircraft(uint32_t now_ms, const messages::OwnState& own);
-    void transmit(const VirtualAircraft& aircraft, const messages::OwnState& own);
+    void schedule_second(uint64_t epoch_us, const messages::OwnState& own);
+    void transmit(VirtualAircraft& aircraft, uint64_t epoch_us, const messages::OwnState& own);
+    static int8_t rssi_at(double range_m);
     void apply_events(uint32_t now_ms, const bus::State& state);
     void fail(const char* what);
 
@@ -72,6 +83,7 @@ class World {
     static constexpr uint32_t kBaroPeriodMs = 250;
 
     platform::host::Platform& platform_;
+    Air air_{};
     VirtualAircraft aircraft_[kMaxAircraft]{};
     Scenario scenario_{};
     size_t next_event_{0};
@@ -80,7 +92,8 @@ class World {
     uint32_t last_baro_ms_{0};
     uint32_t airmass_qnh_pa_{flight::kIsaSeaLevelPa};
     uint32_t press_until_ms_{0};
-    int round_robin_{0};
+    uint32_t scheduled_sec_{0};
+    bool scheduled_{false};
     int failures_{0};
     bool armed_{false};
     bool press_pending_{false};

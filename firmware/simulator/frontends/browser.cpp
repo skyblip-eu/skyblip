@@ -59,6 +59,13 @@ KEEPALIVE void simulator_add_aircraft(int north_m, int east_m, int up_m, int spe
                                       int track_deg) {
     g_simulator.world().add_aircraft(north_m, east_m, up_m, speed_mps, track_deg);
 }
+// phase_ms/slot below zero let the aircraft pick its own instant, as a
+// conforming transmitter does; pinned, they put a burst where the dwell map
+// says we should or should not hear it.
+KEEPALIVE void simulator_add_aircraft_at(int north_m, int east_m, int up_m, int speed_mps,
+                                         int track_deg, int phase_ms, int slot) {
+    g_simulator.world().add_aircraft(north_m, east_m, up_m, speed_mps, track_deg, phase_ms, slot);
+}
 KEEPALIVE void simulator_add_threat() { g_simulator.world().add_threat(); }
 KEEPALIVE void simulator_clear_traffic() { g_simulator.world().clear_aircraft(); }
 KEEPALIVE int simulator_aircraft_count() { return g_simulator.world().aircraft_count(); }
@@ -91,6 +98,36 @@ KEEPALIVE int simulator_alarm_level() { return g_simulator.product().state().ala
 KEEPALIVE int simulator_vibro_ms() { return g_simulator.vibro_ms(); }
 KEEPALIVE int simulator_rx_ok() { return static_cast<int>(g_simulator.product().state().rx_ok); }
 KEEPALIVE int simulator_rx_bad() { return static_cast<int>(g_simulator.product().state().rx_bad); }
+KEEPALIVE int simulator_tx_ok() { return static_cast<int>(g_simulator.product().state().tx_ok); }
+KEEPALIVE int simulator_tx_busy() {
+    return static_cast<int>(g_simulator.product().state().tx_busy);
+}
+KEEPALIVE int simulator_slot_state() {
+    return static_cast<int>(g_simulator.product().state().plan.state);
+}
+KEEPALIVE int simulator_dwell_freq() {
+    return static_cast<int>(g_simulator.product().state().plan.freq_hz / 1000);
+}
+
+// The tape: every burst that was on the air, heard or not.
+KEEPALIVE int simulator_air_count() { return g_simulator.world().air().record_count(); }
+KEEPALIVE int simulator_air_phase_ms(int i) { return g_simulator.world().air().record(i).phase_ms; }
+KEEPALIVE int simulator_air_event(int i) {
+    return static_cast<int>(g_simulator.world().air().record(i).event);
+}
+KEEPALIVE int simulator_air_freq_khz(int i) {
+    return static_cast<int>(g_simulator.world().air().record(i).freq_hz / 1000);
+}
+KEEPALIVE int simulator_air_rssi(int i) { return g_simulator.world().air().record(i).rssi_dbm; }
+KEEPALIVE const char* simulator_air_line(int i) {
+    static char line[160];
+    g_simulator.world().air().format(i, line, sizeof(line));
+    return line;
+}
+KEEPALIVE int simulator_air_deaf() { return static_cast<int>(g_simulator.world().air().deaf()); }
+KEEPALIVE int simulator_air_collisions() {
+    return static_cast<int>(g_simulator.world().air().collisions());
+}
 KEEPALIVE int simulator_failures() { return g_simulator.world().failures(); }
 }
 

@@ -99,6 +99,8 @@ bool parse_scenario(const char* json, int len, Scenario& out) {
         a.up_m = static_cast<double>(int_or(r, "up_m", 0));
         a.speed_mps = static_cast<double>(int_or(r, "speed_mps", 30));
         a.track_deg = static_cast<double>(int_or(r, "track_deg", 270));
+        a.phase_ms = static_cast<int>(int_or(r, "phase_ms", -1));
+        a.slot = static_cast<int>(int_or(r, "slot", -1));
         out.aircraft.push_back(a);
     }
 

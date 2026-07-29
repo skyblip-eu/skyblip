@@ -22,7 +22,9 @@
           "east_m": {"type": "integer"},
           "up_m": {"type": "integer"},
           "speed_mps": {"type": "integer", "minimum": 0},
-          "track_deg": {"type": "integer", "minimum": 0, "maximum": 359}
+          "track_deg": {"type": "integer", "minimum": 0, "maximum": 359},
+          "phase_ms": {"type": "integer", "minimum": -1, "maximum": 999},
+          "slot": {"type": "integer", "minimum": -1, "maximum": 1}
         },
         "additionalProperties": false
       }

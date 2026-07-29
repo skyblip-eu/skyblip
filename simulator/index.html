@@ -78,6 +78,21 @@
   .a2 { background:#5a4520; color:#ffd591; }
   .a3 { background:#6b2626; color:#ff9b9b; }
   .hint { font-size:11px; color:var(--dim); }
+  /* The second, drawn to scale. The upper-channel dwell runs 800..1200, so the
+     head of the strip is its tail, receive-only: 868.4 until 200, uplink RX on
+     O-band 205..395, 868.2 from 400, 868.4 again from 800. We transmit only
+     inside 450..1000. */
+  #band { display:block; width:100%; height:96px; background:#0a0c0e; border-radius:6px; }
+  .tape { font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre;
+          overflow-x:auto; height:170px; overflow-y:auto; color:#b9c4cf;
+          background:#0a0c0e; border-radius:6px; padding:8px; margin-top:8px; }
+  .tape .rx { color:#8fe08f; } .tape .tx { color:#7fd1ff; }
+  .tape .deaf { color:#ff9b9b; } .tape .coll { color:#ffd591; }
+  .legend { display:flex; gap:12px; font-size:11px; color:var(--dim); margin-top:6px;
+            flex-wrap:wrap; }
+  .legend b { font-weight:600; }
+  .legend .rx { color:#8fe08f; } .legend .tx { color:#7fd1ff; }
+  .legend .deaf { color:#ff9b9b; } .legend .coll { color:#ffd591; }
 </style>
 </head>
 <body>
@@ -172,6 +187,32 @@
           packet and decoded by the firmware's receive path.</div>
       </div>
 
+      <!-- ---------------- the 868 band ---------------- -->
+      <div class="panel">
+        <h2>868 MHz band — one second</h2>
+        <canvas id="band" width="1000" height="96"></canvas>
+        <div class="legend">
+          <span><b class="tx">TX</b> own burst</span>
+          <span><b class="rx">RX</b> heard</span>
+          <span><b class="deaf">DEAF</b> on air, we were not listening</span>
+          <span><b class="coll">COLL</b> overlapped</span>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button onclick="SIM.addAt(300)">+ traffic at 300 ms (uplink window)</button>
+          <button onclick="SIM.addAt(420)">+ at 420 ms (FLARM-era)</button>
+          <button onclick="SIM.addAt(600)">+ at 600 ms (868.2)</button>
+          <button onclick="SIM.addAt(900)">+ at 900 ms (868.4)</button>
+          <button onclick="SIM.addAt(100)">+ at 100 ms (slot 1 tail, RX only)</button>
+        </div>
+        <div class="tape" id="tape">—</div>
+        <div class="hint">Every burst on the air, heard or not, with the frame
+          decoded the way a receiver decodes it. A burst outside the dwell the
+          firmware armed reads DEAF: that is a slot-map bug, visible. The upper
+          channel's dwell runs 800..1200, so the strip's head is its tail and we
+          still listen there; between the dashed lines, 450..1000, is where our
+          own bursts go.</div>
+      </div>
+
       <!-- ---------------- telemetry ---------------- -->
       <div class="panel">
         <h2>Decoded by the firmware</h2>
@@ -186,6 +227,8 @@
           <div>Static pressure</div><div id="t_baro">–</div>
           <div>Traffic</div><div id="t_tfc">–</div>
           <div>RX ok / bad</div><div id="t_rx">–</div>
+          <div>TX ok / busy</div><div id="t_tx">–</div>
+          <div>Dwell</div><div id="t_dwell">–</div>
           <div>Alarm</div><div><span id="t_alarm" class="alarm a0">none</span></div>
         </div>
       </div>
@@ -240,6 +283,17 @@ Module.onRuntimeInitialized = () => {
     alarm: C('simulator_alarm_level', 'number', []),
     rxOk: C('simulator_rx_ok', 'number', []),
     rxBad: C('simulator_rx_bad', 'number', []),
+    txOk: C('simulator_tx_ok', 'number', []),
+    txBusy: C('simulator_tx_busy', 'number', []),
+    slotState: C('simulator_slot_state', 'number', []),
+    dwellFreq: C('simulator_dwell_freq', 'number', []),
+    addAircraftAt: C('simulator_add_aircraft_at', null,
+                     ['number','number','number','number','number','number','number']),
+    airCount: C('simulator_air_count', 'number', []),
+    airPhase: C('simulator_air_phase_ms', 'number', ['number']),
+    airEvent: C('simulator_air_event', 'number', ['number']),
+    airFreqKhz: C('simulator_air_freq_khz', 'number', ['number']),
+    airLine: C('simulator_air_line', 'string', ['number']),
   };
 
   let bl = false, pwr = true, fix = true;
@@ -275,6 +329,13 @@ Module.onRuntimeInitialized = () => {
                   20 + Math.round(Math.random()*40), Math.round(Math.random()*359));
   };
   SIM.addThreat = () => f.addThreat();
+  // A neighbour pinned to one instant of the second: the only way to prove the
+  // dwell map is to put a burst where we should, and should not, hear it.
+  SIM.addAt = phase => {
+    const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 3000;
+    f.addAircraftAt(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d), 0, 30,
+                    Math.round(Math.random()*359), phase, -1);
+  };
   // A mode is a scenario plus chrome: the firmware runs the same either way.
   const MODES = ['dev', 'demo', 'training'];
   SIM.applyMode = () => {
@@ -300,8 +361,63 @@ Module.onRuntimeInitialized = () => {
   const PAGES = ['radar', '6-pack', 'status'];
   const ALARM = ['none', 'info', 'important', 'URGENT'];
 
+  const bandCanvas = $('band'), band = bandCanvas.getContext('2d');
+  const EVENT = ['tx', 'rx', 'deaf', 'coll'];
+  const EVENT_COLOR = {tx:'#7fd1ff', rx:'#8fe08f', deaf:'#ff9b9b', coll:'#ffd591'};
+  const DWELL = ['uplink RX · 869.525', 'retune O→M', 'slot 0 · 868.200',
+                 'hop', 'slot 1 · 868.400', 'retune M→O'];
+
+  // Slot 1 wraps: 0..200 is the tail of the slot that opened at 800. The dashed
+  // line at 450 is where our own bursts may start.
+  function drawBand() {
+    const W = bandCanvas.width, H = bandCanvas.height, ms = x => x * W / 1000;
+    band.clearRect(0, 0, W, H);
+    band.fillStyle = '#1b2733'; band.fillRect(0, 0, ms(200), 30);
+    band.fillStyle = '#141a20'; band.fillRect(ms(205), 0, ms(190), 30);
+    band.fillStyle = '#16202a'; band.fillRect(ms(400), 0, ms(400), 30);
+    band.fillStyle = '#1b2733'; band.fillRect(ms(800), 0, ms(200), 30);
+    band.fillStyle = '#7d8894'; band.font = '12px system-ui';
+    band.fillText('slot 1 cont. — RX only', 6, 19);
+    band.fillText('uplink 205-395 — O-band', ms(208), 19);
+    band.fillText('slot 0 — 868.200', ms(408), 19);
+    band.fillText('slot 1 — 868.400 →', ms(808), 19);
+    band.strokeStyle = '#46525e';
+    for (const t of [200, 205, 395, 400, 800]) {
+      band.beginPath(); band.moveTo(ms(t), 0); band.lineTo(ms(t), 96); band.stroke();
+    }
+    // The direct slot, where our own bursts live: narrower than what we hear.
+    band.strokeStyle = '#7fd1ff66'; band.setLineDash([3, 3]);
+    band.beginPath(); band.moveTo(ms(450), 0); band.lineTo(ms(450), 96);
+    band.moveTo(ms(1000) - 1, 0); band.lineTo(ms(1000) - 1, 96); band.stroke();
+    band.setLineDash([]);
+    // One lane per channel, so a burst on the wrong channel is visibly on the
+    // wrong line rather than merely absent.
+    const LANE = {869525: 44, 868200: 64, 868400: 84};
+    band.fillStyle = '#5b6672'; band.font = '10px ui-monospace,monospace';
+    band.fillText('869.525', 8, 42); band.fillText('868.200', 8, 62); band.fillText('868.400', 8, 82);
+    const n = f.airCount();
+    for (let i = 0; i < n; i++) {
+      const khz = f.airFreqKhz(i);
+      const y = LANE[khz > 869000 ? 869525 : (khz > 868300 ? 868400 : 868200)];
+      band.fillStyle = EVENT_COLOR[EVENT[f.airEvent(i)]];
+      band.fillRect(ms(f.airPhase(i)) - 1, y - 10, 3, 11);
+    }
+  }
+
+  function drawTape() {
+    const n = f.airCount(), out = [];
+    for (let i = Math.max(0, n - 12); i < n; i++)
+      out.push('<span class="' + EVENT[f.airEvent(i)] + '">' + f.airLine(i) + '</span>');
+    $('tape').innerHTML = out.join('\n') || '—';
+  }
+
+  // Slot edges are 5 ms wide: stepping a whole animation frame at once would
+  // step over them, so the loop catches up in 5 ms slices.
+  const STEP_MS = 5;
+  let simMs = 0;
   function draw() {
-    f.step(performance.now() | 0);
+    const target = performance.now() | 0;
+    while (simMs + STEP_MS <= target) { simMs += STEP_MS; f.step(simMs); }
 
     // paint the e-paper
     const base = f.fb(), heap = Module.HEAPU8;
@@ -334,6 +450,10 @@ Module.onRuntimeInitialized = () => {
     $('t_baro').textContent = (f.pressurePa()/100).toFixed(1) + ' hPa';
     $('t_tfc').textContent  = f.traffic() + ' target(s)';
     $('t_rx').textContent   = f.rxOk() + ' / ' + f.rxBad();
+    $('t_tx').textContent   = f.txOk() + ' / ' + f.txBusy();
+    $('t_dwell').textContent = DWELL[f.slotState()] || '–';
+    drawBand();
+    drawTape();
     if (document.body.dataset.mode === 'training')
       $('modehint').textContent = 'mode: training — expectations failed: ' + f.failures();
     const lvl = f.alarm();

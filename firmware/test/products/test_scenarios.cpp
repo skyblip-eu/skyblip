@@ -64,7 +64,8 @@ TEST_CASE("scenario: a training scenario's expectations hold when replayed") {
 }
 
 TEST_CASE("scenario: the committed files replay with their expectations met") {
-    for (const char* path : {"scenarios/head_on.json", "scenarios/gnss_loss.json"}) {
+    for (const char* path :
+         {"scenarios/head_on.json", "scenarios/gnss_loss.json", "scenarios/slot_timing.json"}) {
         simulator::Simulator s;
         REQUIRE(s.setup() == Status::Ok);
         REQUIRE_MESSAGE(s.load_file(path), path);
@@ -72,6 +73,18 @@ TEST_CASE("scenario: the committed files replay with their expectations met") {
         CHECK_MESSAGE(s.world().failures() == 0, path);
         CHECK_MESSAGE(s.product().state().traffic.count() >= 1, path);
     }
+}
+
+// The pinned-phase fixture is the slot map's regression test: two neighbours
+// inside the direct dwells are heard, the one in the uplink window is not.
+TEST_CASE("scenario: pinned transmit phases land where the dwell map says") {
+    simulator::Simulator s;
+    REQUIRE(s.setup() == Status::Ok);
+    REQUIRE(s.load_file("scenarios/slot_timing.json"));
+    replay(s);
+    CHECK(s.product().state().traffic.count() == 2);
+    CHECK(s.world().air().deaf() > 0);
+    CHECK(s.world().air().heard() > 0);
 }
 
 TEST_CASE("scenario: a failed expectation is reported, not swallowed") {

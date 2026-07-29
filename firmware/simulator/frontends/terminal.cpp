@@ -34,6 +34,7 @@ uint32_t now_ms() {
 
 const char* kPages[] = {"radar", "6-pack", "status"};
 const char* kAlarm[] = {"none", "info", "IMPORTANT", "URGENT"};
+constexpr int kTapeLines = 6;
 const char* kModes[] = {"dev", "demo", "training"};
 
 void render(simulator::Simulator& s) {
@@ -67,8 +68,17 @@ void render(simulator::Simulator& s) {
                 o.lat_1e7 / 1e7, o.lon_1e7 / 1e7);
     std::printf("  alt:%5dm  spd:%5.1fm/s  trk:%03u  vs:%+.1fm/s\n", o.alt_m, o.speed_q / 4.0,
                 static_cast<unsigned>(o.track_c9 * 360 / 512), o.climb_e8 / 8.0);
-    std::printf("  traffic:%d  rx ok/bad:%u/%u  ALARM:%s\n", st.traffic.count(), st.rx_ok,
-                st.rx_bad, kAlarm[st.alarm_level > 3 ? 3 : st.alarm_level]);
+    std::printf("  traffic:%d  rx ok/bad:%u/%u  tx ok/busy:%u/%u  ALARM:%s\n", st.traffic.count(),
+                st.rx_ok, st.rx_bad, st.tx_ok, st.tx_busy,
+                kAlarm[st.alarm_level > 3 ? 3 : st.alarm_level]);
+    std::printf(" 868 band, last bursts (phase in the second, channel, heard or not):\n");
+    const simulator::Air& air = s.world().air();
+    char line[160];
+    for (int i = air.record_count() - kTapeLines; i < air.record_count(); i++) {
+        if (i < 0) continue;
+        air.format(i, line, sizeof(line));
+        std::printf("   %s\n", line);
+    }
     std::printf(" device: [p]age [b]acklight [o]n/off   sensors: [f]ix [n]o-pps\n");
     std::printf(" alt a/z  speed s/x  track d/c   traffic: [g]+1 [h]threat [k]clear  [q]uit\n");
     std::fflush(stdout);
@@ -90,6 +100,7 @@ int main(int argc, char** argv) {
         }
     }
 
+    uint32_t last_step_ms = now_ms();
     bool fix = true, pps = true;
     int32_t alt = 1000, spd = 45, trk = 90;
 
@@ -123,7 +134,13 @@ int main(int argc, char** argv) {
                 default: break;
             }
         }
-        s.step(now_ms());
+        // Slot edges are 5 ms wide, so the loop catches up in 5 ms steps
+        // rather than jumping a whole frame and stepping over one.
+        const uint32_t target_ms = now_ms();
+        while (last_step_ms + simulator::Simulator::kStepMs <= target_ms) {
+            last_step_ms += simulator::Simulator::kStepMs;
+            s.step(last_step_ms);
+        }
         render(s);
         usleep(50 * 1000);
     }
