@@ -89,3 +89,29 @@ TEST_CASE("atmosphere: a real climb through the table reads back as its rate") {
                                       flight::pressure_to_alt_cm(p0), 2000, e8));
     CHECK(e8 == doctest::Approx(40).epsilon(0.05));
 }
+
+TEST_CASE("atmosphere: a subscale setting is what the reading is measured from") {
+    // Airmass at 1000 hPa, aircraft where the sensor reads 900 hPa. The two
+    // readings a cockpit shows differ by the setting alone.
+    const uint32_t outside = 90000, qnh = 100000;
+
+    // Dial the airmass in and the altimeter reads altitude above the sea-level
+    // datum of THAT air: zero when the sensor reads the setting itself.
+    CHECK(flight::alt_cm_on_setting(qnh, qnh) == 0);
+
+    // On standard, the same air reads pressure altitude: higher than the QNH
+    // altitude, because 1013.25 is more pressure than the 1000 outside.
+    const int32_t on_qnh = flight::alt_cm_on_setting(outside, qnh);
+    const int32_t on_std = flight::alt_cm_on_setting(outside, flight::kIsaSeaLevelPa);
+    CHECK(on_std > on_qnh);
+
+    // 1 hPa is about 27 ft near sea level: 13.25 hPa of setting is ~360 ft,
+    // ~110 m, and the two readings differ by that offset (25 cm is the table's
+    // interpolation bound, and sea level itself is not exactly zero on it).
+    CHECK(std::abs((on_std - on_qnh) - flight::pressure_to_alt_cm(qnh)) < 25);
+    CHECK(on_std - on_qnh > 10000);
+    CHECK(on_std - on_qnh < 12000);
+
+    // Standard setting means pressure altitude, so it is the bare curve.
+    CHECK(std::abs(on_std - flight::pressure_to_alt_cm(outside)) < 25);
+}

@@ -3,14 +3,13 @@
 
 #include "runtime/service.h"
 #include "ui/framebuffer.h"
-#include "ui/screens/altvs.h"
 #include "ui/screens/radar.h"
 #include "ui/screens/sixpack.h"
 #include "ui/screens/status.h"
 
 namespace skyblip::go {
 
-enum class Page : uint8_t { Radar, AltVs, Status, SixPack, kCount };
+enum class Page : uint8_t { Radar, SixPack, Status, kCount };
 
 class ScreenService : public runtime::Service {
    public:
@@ -51,6 +50,7 @@ class ScreenService : public runtime::Service {
     uint8_t last_alarm_{0};
     bool dirty_{true};
     bool backlight_{false};
+    bool powered_{true};
 };
 
 }  // namespace skyblip::go

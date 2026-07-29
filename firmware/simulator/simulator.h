@@ -13,11 +13,7 @@ class Simulator {
    public:
     using Product = go::Product<platform::host::Platform>;
 
-    Status setup() {
-        const Status s = product_.setup();
-        product_.screen().set_backlight(true);
-        return s;
-    }
+    Status setup() { return product_.setup(); }
 
     void step(uint32_t now_ms) {
         platform_.clock().set_millis(now_ms);

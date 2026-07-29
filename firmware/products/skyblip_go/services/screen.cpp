@@ -1,7 +1,9 @@
 #include "products/skyblip_go/services/screen.h"
 
+#include "core/flight/atmosphere.h"
 #include "core/protocol/nmea_out.h"
 #include "core/util/units.h"
+#include "ui/widgets/wordmark.h"
 
 namespace skyblip::go {
 
@@ -15,6 +17,7 @@ void ScreenService::tick(uint32_t now_ms) {
     }
 
     if (!hal::has(context_.roles.capabilities, hal::Capability::Display)) return;
+    if (!powered_) return;
     if (!dirty_ && now_ms - last_render_ms_ < kRenderPeriodMs) return;
     last_render_ms_ = now_ms;
     render();
@@ -38,11 +41,20 @@ void ScreenService::set_backlight(bool on) {
 }
 
 void ScreenService::set_power(bool on) {
-    if (on)
-        context_.roles.display.power_on();
-    else
-        context_.roles.display.power_off();
     dirty_ = true;
+    powered_ = on;
+    if (on) {
+        context_.roles.display.power_on();
+        return;
+    }
+    // An e-paper keeps whatever was written last once the rails drop, so the
+    // wordmark has to be pushed BEFORE the panel loses power: it is what the
+    // device wears while it is off.
+    fb_.clear(/*white=*/true);
+    ui::draw_wordmark(fb_, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
+    context_.roles.display.present(fb_, {0, 0, ui::Framebuffer::kW, ui::Framebuffer::kH},
+                                   hal::Refresh::Full);
+    context_.roles.display.power_off();
 }
 
 void ScreenService::render() {
@@ -79,15 +91,6 @@ void ScreenService::render() {
             ui::draw_radar(fb_, snap);
             break;
         }
-        case Page::AltVs: {
-            ui::AltVsSnapshot snap;
-            snap.have_data = own.fix_valid;
-            snap.imperial = settings.units == settings::Units::Imperial;
-            snap.alt_ft = to_feet(Metres(own.alt_m)).v;
-            snap.vs_fpm = climb_fpm();
-            ui::draw_altvs(fb_, snap);
-            break;
-        }
         case Page::SixPack: {
             ui::SixPackSnapshot snap;
             snap.have_data = own.fix_valid;
@@ -116,7 +119,15 @@ void ScreenService::render() {
             snap.climb_e8 = own.climb_e8;
             snap.utc = own.utc;
             snap.n_targets = context_.state.traffic.count();
-            snap.imperial = settings.units == settings::Units::Imperial;
+            snap.baro_valid = context_.state.baro_active;
+            snap.pressure_pa = context_.state.pressure_pa;
+            snap.qnh_pa = context_.state.qnh_pa;
+            if (context_.state.baro_active) {
+                snap.alt_qnh_m =
+                    flight::alt_cm_on_setting(context_.state.pressure_pa, context_.state.qnh_pa) /
+                    100;
+                snap.alt_std_m = flight::pressure_to_alt_cm(context_.state.pressure_pa) / 100;
+            }
             ui::draw_status(fb_, snap);
             break;
         }

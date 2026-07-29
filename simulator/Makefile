@@ -38,12 +38,12 @@ serve:
 watch:
 	@echo "watching — Ctrl-C to stop"
 	@if command -v watchexec >/dev/null 2>&1; then \
-	  watchexec -w . -w $(FIRMWARE) -e cpp,h,html --debounce 400ms -- \
+	  watchexec -w . -w $(FIRMWARE) -e cpp,h,html --ignore '**/build/**' --debounce 400ms -- \
 	    $(MAKE) --no-print-directory build; \
 	else \
 	  last=""; \
 	  while true; do \
-	    cur=$$(find . $(FIRMWARE)/core $(FIRMWARE)/ui $(FIRMWARE)/hal $(FIRMWARE)/hardware \
+	    cur=$$(find index.html $(FIRMWARE)/core $(FIRMWARE)/ui $(FIRMWARE)/hal $(FIRMWARE)/hardware \
 	           $(FIRMWARE)/runtime $(FIRMWARE)/products $(FIRMWARE)/simulator \
 	           \( -name '*.cpp' -o -name '*.h' -o -name '*.html' \) \
 	           -exec ls -l {} + 2>/dev/null | cksum); \

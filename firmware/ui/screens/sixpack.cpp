@@ -206,14 +206,16 @@ void draw_sixpack(Framebuffer& fb, const SixPackSnapshot& s) {
     if (s.have_data) turn_coordinator(fb, kCx[0], kCy[1], bank);
     value_center(fb, kCx[0], kCy[1] + kValueDy, s.have_data, s.turn_dps, false);
 
-    char hdg[12];
-    int n = fmt_string(hdg, "HDG ");
+    // The card shows GNSS TRACK, not heading: there is no magnetometer, and
+    // labelling it HDG would claim a sensor the board does not have.
+    char track[12];
+    int n = fmt_string(track, "TRK ");
     if (s.have_data)
-        n += fmt_uint(hdg + n, s.track_deg % 360, 3);
+        n += fmt_uint(track + n, s.track_deg % 360, 3);
     else
-        n += fmt_string(hdg + n, "---");
-    hdg[n] = 0;
-    dial(fb, kCx[1], kCy[1], hdg, s.have_data ? 0 : kTicks);
+        n += fmt_string(track + n, "---");
+    track[n] = 0;
+    dial(fb, kCx[1], kCy[1], track, s.have_data ? 0 : kTicks);
     if (s.have_data) heading_card(fb, kCx[1], kCy[1], s.track_deg % 360);
 
     dial(fb, kCx[2], kCy[1], "VS FPM");

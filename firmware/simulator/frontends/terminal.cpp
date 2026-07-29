@@ -32,7 +32,7 @@ uint32_t now_ms() {
     return static_cast<uint32_t>(duration_cast<milliseconds>(steady_clock::now() - t0).count());
 }
 
-const char* kPages[] = {"radar", "alt/vs", "status", "6-pack"};
+const char* kPages[] = {"radar", "6-pack", "status"};
 const char* kAlarm[] = {"none", "info", "IMPORTANT", "URGENT"};
 const char* kModes[] = {"dev", "demo", "training"};
 

@@ -2,8 +2,8 @@
 #include "hardware/parts/ssd1681/model.h"
 #include "hardware/parts/ssd1681/ssd1681.h"
 #include "ui/framebuffer.h"
-#include "ui/screens/altvs.h"
 #include "ui/screens/radar.h"
+#include "ui/screens/status.h"
 
 using namespace skyblip::ui;
 
@@ -145,23 +145,42 @@ TEST_CASE("radar: everything is centred on the 99|100 point, not on a pixel") {
     CHECK(top == 199 - bottom);
 }
 
-TEST_CASE("altvs: draws altitude and vs bar") {
-    Framebuffer fb;
-    AltVsSnapshot s;
-    s.have_data = true;
-    s.alt_ft = 4500;
-    s.vs_fpm = 500;
-    draw_altvs(fb, s);
-    CHECK(fb.count_black() > 50);
+TEST_CASE("status: every value reads in the aeronautical unit first, then SI") {
+    // 1500 m = 4921 ft, 40 kt = 20 m/s (speed_q is quarter-m/s), +2.0 m/s =
+    // +394 fpm. Rendering is 5x7 glyphs, so the check is on the row's ink: the
+    // dual-unit row is wider than a single-unit one would be.
+    Framebuffer both;
+    StatusSnapshot s;
+    s.fix_valid = true;
+    s.utc_valid = true;
+    s.sats = 9;
+    s.alt_m = 1500;
+    s.speed_q = 80;
+    s.climb_e8 = 16;
+    s.track_c9 = 128;
+    draw_status(both, s);
+
+    // The barometric rows only exist when a barometer answered: altitude on the
+    // subscale the pilot set, pressure altitude on 1013.25, and both pressures.
+    Framebuffer with_baro;
+    StatusSnapshot b = s;
+    b.baro_valid = true;
+    b.pressure_pa = 84556;
+    b.qnh_pa = 101325;
+    b.alt_qnh_m = 1500;
+    b.alt_std_m = 1500;
+    draw_status(with_baro, b);
+    CHECK(with_baro.count_black() > both.count_black());
 }
 
 TEST_CASE("panel model: the driver's own output is what the model shows") {
     Framebuffer fb;
-    AltVsSnapshot s;
-    s.have_data = true;
-    s.alt_ft = 3000;
-    s.vs_fpm = -200;
-    draw_altvs(fb, s);
+    StatusSnapshot s;
+    s.fix_valid = true;
+    s.alt_m = 900;
+    s.baro_valid = true;
+    s.pressure_pa = 90810;
+    draw_status(fb, s);
 
     skyblip::models::Ssd1681 panel;
     skyblip::parts::Ssd1681 driver(panel, panel, panel.dc, panel.rst, panel.busy);
@@ -173,5 +192,33 @@ TEST_CASE("panel model: the driver's own output is what the model shows") {
     // Round trip through the driver's inversion: what the panel holds must be
     // pixel-for-pixel what the UI drew.
     CHECK(panel.framebuffer().count_black() == fb.count_black());
-    CHECK(panel.save_pgm("build/altvs.pgm"));
+    CHECK(panel.save_pgm("build/status.pgm"));
+}
+
+TEST_CASE("status: the widest position on earth still fits its row") {
+    // -90.0000000 and -180.0000000: eleven and twelve characters, the most the
+    // format can produce. The latitude ends on the first column's unit edge and
+    // the longitude block is anchored to the margin, so the worst case is where
+    // they nearly meet.
+    Framebuffer fb;
+    StatusSnapshot s;
+    s.fix_valid = true;
+    s.lat_1e7 = -900000000;
+    s.lon_1e7 = -1800000000;
+    draw_status(fb, s);
+
+    const int y0 = 43, y1 = 50;  // the LAT/LON row, one glyph tall
+    for (int y = y0; y < y1; y++)
+        for (int x = 196; x < Framebuffer::kW; x++) CHECK_FALSE(fb.get_pixel(x, y));
+
+    // At least one blank column between the latitude and the LON block, and the
+    // label is not touched either.
+    int blank = 0;
+    for (int x = 88; x < 106; x++) {
+        bool ink = false;
+        for (int y = y0; y < y1; y++) ink = ink || fb.get_pixel(x, y);
+        if (!ink) blank++;
+    }
+    CHECK(blank >= 1);
+    for (int y = y0; y < y1; y++) CHECK_FALSE(fb.get_pixel(23, y));
 }
