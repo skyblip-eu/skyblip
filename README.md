@@ -1,5 +1,7 @@
 # skyBlip
 
+Open-source electronic conspicuity for general aviation: [ADS-L 4 SRD-860](https://www.easa.europa.eu/en/document-library/agency-decisions/ed-decision-2022024r) for aircraft (skyBlip) and ground stations (skyPost).
+
 ## Acknowledgements
 
 skyBlip stands on a decade of open work by the free-flight community. Thanks to the authors of the projects we learned from while building it:
