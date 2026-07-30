@@ -1,0 +1,15 @@
+# skyblip
+
+## Acknowledgements
+
+skyBlip stands on a decade of open work by the free-flight community. Thanks to the authors of the projects we learned from while building it:
+
+- **Paweł Jałocha** — the ADS-L reference implementation and [nrf52-ogn-tracker](https://github.com/pjalocha/nrf52-ogn-tracker)
+- **Linar Yusupov** — [SoftRF](https://github.com/lyusupov/SoftRF)
+- **Moshe Braner** — the [SoftRF fork](https://github.com/moshe-braner/SoftRF)
+
+## License
+
+**GPL-3.0-only** - see [`LICENSE`](LICENSE).
+
+Copyright (C) 2026 François Catuhe
