@@ -1,4 +1,4 @@
-# skyblip
+# skyBlip
 
 ## Acknowledgements
 
