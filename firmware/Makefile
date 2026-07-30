@@ -32,10 +32,10 @@ SRC := $(filter-out hardware/platform/zephyr/%,$(wildcard core/*/*.cpp ui/*.cpp 
        hardware/parts/*/*.cpp runtime/*.cpp products/*/*.cpp products/*/services/*.cpp \
        simulator/world/*.cpp))
 SRC := $(filter-out products/skyblip_go/main.cpp %/test_%.cpp,$(SRC))
-SRC := $(filter-out $(wildcard hardware/parts/*/test_*.cpp),$(SRC))
 
-# Test sources (mirrored tree).
-TEST_SRC := $(wildcard test/*.cpp test/*/*.cpp hardware/parts/*/test_*.cpp)
+# Test sources (mirrored tree): one folder per layer, tests never live beside
+# the code they test.
+TEST_SRC := $(wildcard test/*.cpp test/*/*.cpp)
 
 OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC) $(TEST_SRC))
 
