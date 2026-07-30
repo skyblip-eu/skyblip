@@ -15,6 +15,7 @@ namespace skyblip::go {
 enum class Feature : uint32_t {
     AdslRx = 1u << 0,
     UplinkRx = 1u << 1,
+    AdslTx = 1u << 6,
     Radar = 1u << 2,
     Alarms = 1u << 3,
     Instruments = 1u << 4,
@@ -24,7 +25,8 @@ enum class Feature : uint32_t {
 constexpr Feature kFeatures = static_cast<Feature>(
     static_cast<uint32_t>(Feature::AdslRx) | static_cast<uint32_t>(Feature::UplinkRx) |
     static_cast<uint32_t>(Feature::Radar) | static_cast<uint32_t>(Feature::Alarms) |
-    static_cast<uint32_t>(Feature::Instruments) | static_cast<uint32_t>(Feature::CompanionLink));
+    static_cast<uint32_t>(Feature::Instruments) | static_cast<uint32_t>(Feature::CompanionLink) |
+    static_cast<uint32_t>(Feature::AdslTx));
 
 // What this product cannot fly without, and what it can lose and keep flying.
 constexpr hal::Capabilities kRequired = hal::Capability::Rf | hal::Capability::Gnss;

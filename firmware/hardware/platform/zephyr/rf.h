@@ -40,7 +40,8 @@ class Rf : public hal::Rf {
 
     Status arm(const hal::RfPlan& plan) override {
         if (plan.end_us <= plan.start_us) return Status::OutOfRange;
-        if (plan.mode == hal::RfMode::TxMband && plan.tx == nullptr) return Status::OutOfRange;
+        if (plan.tx != nullptr && (plan.tx_at_us < plan.start_us || plan.tx_at_us >= plan.end_us))
+            return Status::OutOfRange;
         // A dwell that cannot start before its own end is refused here rather
         // than truncated on air.
         if (clock_.micros() >= plan.end_us) {
@@ -80,10 +81,6 @@ class Rf : public hal::Rf {
     }
 
     void start(const hal::RfPlan& plan) {
-        if (plan.mode == hal::RfMode::TxMband) {
-            radio_.transmit(plan.tx, plan.tx_len);
-            return;
-        }
         if (plan.freq_hz != 0) {
             parts::MbandConfig cfg{};
             cfg.freq_hz = plan.freq_hz;
@@ -92,9 +89,30 @@ class Rf : public hal::Rf {
         radio_.start_receive();
     }
 
+    // §C.2 backoff interval, drawn per failed carrier sample.
+    uint64_t backoff_us(const hal::RfPlan& plan) {
+        const uint32_t span = plan.backoff_max_ms - plan.backoff_min_ms + 1;
+        backoff_seed_ = backoff_seed_ * 1664525u + 1013904223u;
+        return static_cast<uint64_t>(plan.backoff_min_ms + (backoff_seed_ >> 16) % span) * 1000;
+    }
+
     void dwell(const hal::RfPlan& plan) {
         bool completed = false;
+        bool transmitted = false;
+        // §D.3: carrier sense, then a backoff interval before the next sample.
+        // Backing off never stops the receiver, and the dwell's end is what
+        // gives up, so a burst is never truncated on air.
+        uint64_t next_carrier_sample_us = plan.tx_at_us;
         while (!abort_ && clock_.micros() < plan.end_us) {
+            const uint64_t now_us = clock_.micros();
+            if (plan.tx != nullptr && !transmitted && now_us >= next_carrier_sample_us) {
+                if (!plan.lbt || radio_.rssi_inst() < plan.lbt_threshold_dbm) {
+                    transmitted = true;
+                    radio_.transmit(plan.tx, plan.tx_len);
+                } else {
+                    next_carrier_sample_us = now_us + backoff_us(plan);
+                }
+            }
             uint8_t buf[64];
             const parts::RadioEvent ev = radio_.poll(buf, sizeof(buf));
             switch (ev.type) {
@@ -111,7 +129,8 @@ class Rf : public hal::Rf {
                 default: emit(messages::RfEventType::Missed); return;
             }
         }
-        if (!completed && plan.mode == hal::RfMode::TxMband) emit(messages::RfEventType::Missed);
+        if (plan.tx != nullptr && !completed)
+            emit(transmitted ? messages::RfEventType::Missed : messages::RfEventType::TxBusy);
     }
 
     void emit(messages::RfEventType type, const uint8_t* data = nullptr, uint8_t len = 0,
@@ -129,6 +148,7 @@ class Rf : public hal::Rf {
     hal::Clock& clock_;
     bus::Queue<messages::RfEvent, 8>& out_;
     hal::RfPlan plan_{};
+    uint32_t backoff_seed_{0x5eed1262u};
     struct k_sem armed_{};
     struct k_thread thread_{};
     k_tid_t tid_{nullptr};

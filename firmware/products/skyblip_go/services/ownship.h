@@ -15,7 +15,13 @@ class OwnshipService : public runtime::Service {
 
     bool baro_active() const { return baro_ref_ms_ != 0; }
 
+    static uint8_t flight_state_from(uint16_t speed_q, uint8_t current, bool fix_valid);
+
    private:
+    // Quarter metres per second: airborne above 5 m/s, on the ground below 3.
+    static constexpr uint16_t kAirborneSpeedQ = 20;
+    static constexpr uint16_t kGroundSpeedQ = 12;
+
     void apply_fix(const gnss::GnssFix& fix, uint32_t now_ms);
     void apply_baro(const messages::BaroSample& sample);
     void update_turn_rate(uint32_t now_ms);

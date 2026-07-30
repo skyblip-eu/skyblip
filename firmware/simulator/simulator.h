@@ -21,7 +21,12 @@ class Simulator {
         product_.step(now_ms);
     }
 
-    void run(uint32_t until_ms, uint32_t step_ms = 50) {
+    // A step is how finely the one host loop stands in for the radio thread the
+    // silicon platform runs: coarser than the 5 ms guard on the O->M edge and
+    // the simulation, not the firmware, is what misses a slot boundary.
+    static constexpr uint32_t kStepMs = 5;
+
+    void run(uint32_t until_ms, uint32_t step_ms = kStepMs) {
         for (uint32_t t = 0; t <= until_ms; t += step_ms) step(t);
     }
 

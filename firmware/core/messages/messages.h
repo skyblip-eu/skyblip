@@ -44,6 +44,9 @@ struct OwnState {
     uint16_t speed_q;
     uint16_t track_c9;
     uint32_t utc;
+    // When the fix that made this state arrived. ADS-L G.1.16 refuses to
+    // transmit a navigation solution older than 500 ms.
+    uint32_t fix_ms;
     uint8_t sats;
     uint8_t aircraft_cat;
     uint8_t flight_state;
@@ -70,7 +73,7 @@ struct DfuRequest {
     uint16_t session_id;
 };
 
-enum class RfEventType : uint8_t { RxDone, CrcError, TxDone, Missed };
+enum class RfEventType : uint8_t { RxDone, CrcError, TxDone, Missed, TxBusy };
 
 struct RfEvent {
     RfEventType type;

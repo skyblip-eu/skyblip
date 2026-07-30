@@ -13,7 +13,7 @@ using namespace skyblip;
 namespace {
 
 void run(simulator::Simulator& h, uint32_t from, uint32_t to) {
-    for (uint32_t t = from; t <= to; t += 50) h.step(t);
+    for (uint32_t t = from; t <= to; t += simulator::Simulator::kStepMs) h.step(t);
 }
 
 // A press has to outlast ui::Button's debounce window, so it is held across

@@ -4,6 +4,16 @@
 
 namespace skyblip::go {
 
+// ADS-L G.1.4 FlightState: 0 unknown, 1 on ground, 2 airborne. The gap between
+// the two thresholds is what stops a taxiing aircraft toggling its transmit
+// rate between 1 Hz and 0.1 Hz every fix.
+uint8_t OwnshipService::flight_state_from(uint16_t speed_q, uint8_t current, bool fix_valid) {
+    if (!fix_valid) return 0;
+    if (speed_q >= kAirborneSpeedQ) return 2;
+    if (speed_q < kGroundSpeedQ) return 1;
+    return current == 0 ? 1 : current;
+}
+
 void OwnshipService::tick(uint32_t now_ms) {
     gnss::GnssFix fix{};
     while (context_.bus.gnss.pop(fix)) apply_fix(fix, now_ms);
@@ -26,8 +36,10 @@ void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
     own.speed_q = f.speed_q;
     own.track_c9 = f.track_c9;
     own.utc = f.utc;
+    own.fix_ms = now_ms;
     own.sats = f.sats;
     own.aircraft_cat = context_.state.settings.aircraft_type;
+    own.flight_state = flight_state_from(own.speed_q, own.flight_state, f.valid);
 
     context_.state.clock.utc_valid = f.utc_valid;
 

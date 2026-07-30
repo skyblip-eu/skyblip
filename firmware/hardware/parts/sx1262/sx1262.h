@@ -37,6 +37,10 @@ class Sx1262 {
     Status transmit(const uint8_t* data, uint8_t len);
     Status start_receive();
 
+    // Instantaneous RSSI on the tuned channel, for listen-before-talk. Valid
+    // only while the receiver is running (DS 13.5.2).
+    int8_t rssi_inst();
+
     RadioEvent poll(uint8_t* rx_buf, uint8_t cap);
 
     bool service(uint32_t elapsed_ms, uint32_t no_rx_reinit_ms = 30000);
@@ -75,7 +79,9 @@ constexpr uint8_t kReadBuffer = 0x1E;
 constexpr uint8_t kGetIrqStatus = 0x12;
 constexpr uint8_t kClearIrqStatus = 0x02;
 constexpr uint8_t kGetStatus = 0xC0;
+constexpr uint8_t kGetRssiInst = 0x15;
 constexpr uint8_t kGetRxBufferStatus = 0x13;
+constexpr uint8_t kGetPacketStatus = 0x14;
 constexpr uint16_t kIrqTxDone = 0x0001;
 constexpr uint16_t kIrqRxDone = 0x0002;
 constexpr uint16_t kIrqCrcErr = 0x0040;

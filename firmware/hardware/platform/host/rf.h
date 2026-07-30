@@ -25,11 +25,14 @@ class Rf : public hal::Rf {
 
     Status arm(const hal::RfPlan& plan) override {
         if (plan.end_us <= plan.start_us) return Status::OutOfRange;
-        if (plan.mode == hal::RfMode::TxMband && plan.tx == nullptr) return Status::OutOfRange;
+        if (plan.tx != nullptr && (plan.tx_at_us < plan.start_us || plan.tx_at_us >= plan.end_us))
+            return Status::OutOfRange;
         plan_ = plan;
         armed_ = true;
         started_ = false;
+        transmitted_ = false;
         completed_ = false;
+        next_carrier_sample_us_ = plan.tx_at_us;
         return Status::Ok;
     }
 
@@ -42,10 +45,15 @@ class Rf : public hal::Rf {
         radio_.service(dt, runtime::kRadioNoRxReinitMs);
 
         if (armed_ && !started_ && now_us >= plan_.start_us) start();
-        if (started_) drain(now_us);
+        if (armed_ && started_ && plan_.tx != nullptr && !transmitted_ && now_us >= plan_.tx_at_us)
+            try_transmit(now_us);
+        // The receiver keeps reporting between dwells: a frame that arrived
+        // while the next plan was being armed is in the chip, not lost.
+        if (started_ || radio_.mode() == parts::RadioMode::Rx) drain(now_us);
         if (armed_ && now_us >= plan_.end_us) {
-            if (!completed_ && plan_.mode == hal::RfMode::TxMband)
-                emit(messages::RfEventType::Missed, 0, 0, now_us);
+            if (plan_.tx != nullptr && !completed_)
+                emit(transmitted_ ? messages::RfEventType::Missed : messages::RfEventType::TxBusy,
+                     0, 0, now_us);
             armed_ = false;
             started_ = false;
         }
@@ -57,16 +65,32 @@ class Rf : public hal::Rf {
     void start() {
         started_ = true;
         armed_count_++;
-        if (plan_.mode == hal::RfMode::TxMband) {
-            radio_.transmit(plan_.tx, plan_.tx_len);
-            return;
-        }
         if (plan_.freq_hz != 0) {
             parts::MbandConfig cfg{};
             cfg.freq_hz = plan_.freq_hz;
             radio_.configure_mband(cfg);
         }
         radio_.start_receive();
+    }
+
+    void try_transmit(uint64_t now_us) {
+        if (plan_.lbt && !carrier_clear(now_us)) return;
+        transmitted_ = true;
+        radio_.transmit(plan_.tx, plan_.tx_len);
+    }
+
+    // ADS-L 4 SRD-860 issue 2 §D.3 / §C.2: sample the carrier, and on a busy
+    // channel wait a backoff interval before sampling again. Backing off never
+    // stops the receiver, and the dwell's end is the only thing that gives up,
+    // so a burst is never truncated on air.
+    bool carrier_clear(uint64_t now_us) {
+        if (now_us < next_carrier_sample_us_) return false;
+        if (radio_.rssi_inst() < plan_.lbt_threshold_dbm) return true;
+        const uint32_t span = plan_.backoff_max_ms - plan_.backoff_min_ms + 1;
+        backoff_seed_ = backoff_seed_ * 1664525u + 1013904223u;
+        const uint32_t wait_ms = plan_.backoff_min_ms + (backoff_seed_ >> 16) % span;
+        next_carrier_sample_us_ = now_us + static_cast<uint64_t>(wait_ms) * 1000;
+        return false;
     }
 
     void drain(uint64_t now_us) {
@@ -110,10 +134,13 @@ class Rf : public hal::Rf {
     hal::Clock& clock_;
     bus::Queue<messages::RfEvent, 8>& out_;
     hal::RfPlan plan_{};
+    uint64_t next_carrier_sample_us_{0};
+    uint32_t backoff_seed_{0x5eed1262u};
     uint32_t last_ms_{0};
     uint32_t armed_count_{0};
     bool armed_{false};
     bool started_{false};
+    bool transmitted_{false};
     bool completed_{false};
 };
 

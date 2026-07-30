@@ -34,6 +34,16 @@ void World::step(uint32_t now_ms, const bus::State& state) {
     service_button(now_ms);
     service_aircraft(now_ms, state.own);
     apply_events(now_ms, state);
+
+    const uint64_t now_us = platform_.clock().micros();
+    const uint64_t epoch_us = now_us - now_us % 1000000;
+    const uint32_t sec = static_cast<uint32_t>(now_us / 1000000);
+    if (!scheduled_ || sec != scheduled_sec_) {
+        scheduled_ = true;
+        scheduled_sec_ = sec;
+        schedule_second(epoch_us, state.own);
+    }
+    air_.step(now_us, platform_.chips().radio);
 }
 
 void World::service_button(uint32_t now_ms) {
@@ -45,7 +55,7 @@ void World::service_button(uint32_t now_ms) {
 }
 
 int World::add_aircraft(double north_m, double east_m, double up_m, double speed_mps,
-                        double track_deg) {
+                        double track_deg, int phase_ms, int slot) {
     for (int i = 0; i < kMaxAircraft; i++) {
         if (aircraft_[i].used) continue;
         aircraft_[i] = VirtualAircraft{};
@@ -56,6 +66,8 @@ int World::add_aircraft(double north_m, double east_m, double up_m, double speed
         aircraft_[i].up_m = up_m;
         aircraft_[i].speed_mps = speed_mps;
         aircraft_[i].track_deg = track_deg;
+        aircraft_[i].phase_ms = phase_ms;
+        aircraft_[i].slot = slot;
         return i;
     }
     return -1;
@@ -73,6 +85,7 @@ int World::aircraft_count() const {
 }
 
 void World::service_aircraft(uint32_t now_ms, const messages::OwnState& own) {
+    (void)own;
     if (now_ms - last_aircraft_ms_ < 100) return;
     const double dt = (now_ms - last_aircraft_ms_) / 1000.0;
     last_aircraft_ms_ = now_ms;
@@ -83,16 +96,30 @@ void World::service_aircraft(uint32_t now_ms, const messages::OwnState& own) {
         a.north_m += a.speed_mps * std::cos(rad) * dt;
         a.east_m += a.speed_mps * std::sin(rad) * dt;
     }
-    for (int k = 0; k < kMaxAircraft; k++) {
-        round_robin_ = (round_robin_ + 1) % kMaxAircraft;
-        if (aircraft_[round_robin_].used) {
-            transmit(aircraft_[round_robin_], own);
-            return;
-        }
+}
+
+// Every aircraft transmits once per second, at its own instant of the direct
+// slot and on the channel that slot carries (ADS-L 4 SRD-860 issue 2 §C.2.5,
+// §C.5). Scheduling the whole second up front is what a real transmitter's
+// clock does, and it keeps the emission instant independent of how coarsely the
+// simulation is stepped.
+void World::schedule_second(uint64_t epoch_us, const messages::OwnState& own) {
+    for (auto& a : aircraft_) {
+        if (!a.used) continue;
+        transmit(a, epoch_us, own);
     }
 }
 
-void World::transmit(const VirtualAircraft& a, const messages::OwnState& own) {
+// Free-space-ish: a burst 100 m away lands at -40 dBm and every decade of
+// distance costs 20 dB, which puts a 10 km target near the receiver's floor.
+int8_t World::rssi_at(double range_m) {
+    const double d = range_m < 10.0 ? 10.0 : range_m;
+    const double dbm = -40.0 - 20.0 * std::log10(d / 100.0);
+    if (dbm < -127.0) return -127;
+    return static_cast<int8_t>(dbm);
+}
+
+void World::transmit(VirtualAircraft& a, uint64_t epoch_us, const messages::OwnState& own) {
     const double coslat = std::cos(own.lat_1e7 / 1e7 * kPi / 180.0);
     int32_t lat = own.lat_1e7 + static_cast<int32_t>(a.north_m * 1e7 / kMetresPerDegLat);
     int32_t lon = own.lon_1e7;
@@ -102,7 +129,7 @@ void World::transmit(const VirtualAircraft& a, const messages::OwnState& own) {
     p.init();
     p.set_address(a.addr);
     p.set_addr_table(6);
-    p.TimeStamp = static_cast<uint8_t>((last_aircraft_ms_ / 250) & 0x3F);
+    p.TimeStamp = static_cast<uint8_t>(((epoch_us / 1000000) % 15) * 4);
     p.FlightState = 2;
     p.AcftCat = 4;
     p.Emergency = 1;
@@ -121,9 +148,29 @@ void World::transmit(const VirtualAircraft& a, const messages::OwnState& own) {
     p.scramble();
     p.set_crc();
 
+    int slot = a.slot;
+    if (slot < 0)
+        slot = a.phase_ms >= 0 ? (timing::Scheduler::slot_of(a.phase_ms) == 1 ? 1 : 0)
+                               : static_cast<int>(a.transmissions & 1u);
+    // A pinned phase inside slot 1's tail belongs to the slot that opened in the
+    // previous second, so its burst is 800..1200 ms after that second, not this.
+    const bool tail = a.phase_ms >= 0 && a.phase_ms < timing::kSlot1Wrap;
+    int phase_ms = a.phase_ms;
+    if (phase_ms < 0) {
+        const int first = timing::Scheduler::slot_start(slot) + timing::kJitterGuardMs;
+        const int last = timing::Scheduler::slot_end(slot) - timing::kJitterGuardMs -
+                         static_cast<int>(Air::kAirTimeUs / 1000);
+        phase_ms = first + static_cast<int>((a.addr * 2654435761u + a.transmissions * 40503u) %
+                                            static_cast<uint32_t>(last - first));
+    }
+    a.transmissions++;
+
+    const double range_m = std::sqrt(a.north_m * a.north_m + a.east_m * a.east_m);
     uint8_t wire[protocol::AdslPacket::kTxBytes];
     std::memcpy(wire, &p, sizeof(wire));
-    platform_.chips().radio.queue_rx(wire, static_cast<uint8_t>(sizeof(wire)));
+    air_.emit(epoch_us + static_cast<uint64_t>(tail ? phase_ms + 1000 : phase_ms) * 1000,
+              timing::Scheduler::slot_freq(slot), wire, static_cast<uint8_t>(sizeof(wire)),
+              rssi_at(range_m));
 }
 
 void World::load(const Scenario& scenario) {
@@ -141,7 +188,7 @@ void World::load(const Scenario& scenario) {
 
     clear_aircraft();
     for (const ScenarioAircraft& a : scenario.aircraft)
-        add_aircraft(a.north_m, a.east_m, a.up_m, a.speed_mps, a.track_deg);
+        add_aircraft(a.north_m, a.east_m, a.up_m, a.speed_mps, a.track_deg, a.phase_ms, a.slot);
 }
 
 void World::apply_events(uint32_t now_ms, const bus::State& state) {

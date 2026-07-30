@@ -96,6 +96,13 @@ Status Sx1262::start_receive() {
     return Status::Ok;
 }
 
+// DS 13.5.2: the chip reports -2x the signal level in dBm, one byte.
+int8_t Sx1262::rssi_inst() {
+    uint8_t v = 0;
+    cmd_read(sx::kGetRssiInst, &v, 1);
+    return static_cast<int8_t>(-(static_cast<int>(v) / 2));
+}
+
 RadioEvent Sx1262::poll(uint8_t* rx_buf, uint8_t cap) {
     RadioEvent ev{};
     if (wait_busy_low(10000) != Status::Ok) {
@@ -137,6 +144,10 @@ RadioEvent Sx1262::poll(uint8_t* rx_buf, uint8_t cap) {
             spi_.transfer(&tx, &rx_buf[i], 1);
         }
         spi_.select(false);
+        // DS 13.5.3 GetPacketStatus in GFSK: RxStatus, RssiSync, RssiAvg.
+        uint8_t st3[3] = {0, 0, 0};
+        cmd_read(sx::kGetPacketStatus, st3, 3);
+        ev.rssi_dbm = static_cast<int8_t>(-(static_cast<int>(st3[2]) / 2));
         ev.type = RadioEventType::RxDone;
         ev.len = len;
         ms_since_rx_ = 0;
