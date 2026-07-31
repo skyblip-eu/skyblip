@@ -11,6 +11,11 @@
 
 namespace skyblip::protocol {
 
+// §C.4: the O-band HDR carrier is not Manchester-coded, so the detector matches
+// the sync word itself. Its last byte is the frame length, as on the M band.
+constexpr uint8_t kUplinkSync[3] = {0x2D, 0xD4, 0x18};
+constexpr uint8_t kUplinkSyncBits = 24;
+
 class AdslUplink {
    public:
     static constexpr int kVersion = 1;

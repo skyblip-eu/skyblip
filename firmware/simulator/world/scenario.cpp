@@ -69,6 +69,10 @@ bool event_from(const json::Reader& r, ScenarioEvent& out) {
     return false;
 }
 
+protocol::System system_from(const std::string& name) {
+    return name == "alptas" ? protocol::System::Alptas : protocol::System::AdslDirect;
+}
+
 Mode mode_from(const std::string& name) {
     if (name == "demo") return Mode::Demo;
     if (name == "training") return Mode::Training;
@@ -96,6 +100,7 @@ bool parse_scenario(const char* json, int len, Scenario& out) {
     for (const std::string& obj : objects_in_array(text, "aircraft")) {
         const json::Reader r(obj.c_str(), static_cast<int>(obj.size()));
         ScenarioAircraft a;
+        if (r.get_str("system", buf, sizeof(buf))) a.system = system_from(buf);
         a.north_m = static_cast<double>(int_or(r, "north_m", 0));
         a.east_m = static_cast<double>(int_or(r, "east_m", 0));
         a.up_m = static_cast<double>(int_or(r, "up_m", 0));

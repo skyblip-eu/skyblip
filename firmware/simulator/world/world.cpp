@@ -55,11 +55,12 @@ void World::service_button(uint32_t now_ms) {
 }
 
 int World::add_aircraft(double north_m, double east_m, double up_m, double speed_mps,
-                        double track_deg, int phase_ms, int slot) {
+                        double track_deg, int phase_ms, int slot, protocol::System system) {
     for (int i = 0; i < kMaxAircraft; i++) {
         if (aircraft_[i].used) continue;
         aircraft_[i] = VirtualAircraft{};
         aircraft_[i].used = true;
+        aircraft_[i].system = system;
         aircraft_[i].addr = 0x300000u + static_cast<uint32_t>(i) + 1u;
         aircraft_[i].north_m = north_m;
         aircraft_[i].east_m = east_m;
@@ -119,23 +120,21 @@ int8_t World::rssi_at(double range_m) {
     return static_cast<int8_t>(dbm);
 }
 
-void World::transmit(VirtualAircraft& a, uint64_t epoch_us, const messages::OwnState& own) {
-    const double coslat = std::cos(own.lat_1e7 / 1e7 * kPi / 180.0);
-    int32_t lat = own.lat_1e7 + static_cast<int32_t>(a.north_m * 1e7 / kMetresPerDegLat);
-    int32_t lon = own.lon_1e7;
-    if (coslat > 0.01) lon += static_cast<int32_t>(a.east_m * 1e7 / (kMetresPerDegLat * coslat));
+namespace {
 
+size_t adsl_burst(const VirtualAircraft& a, uint32_t utc, int32_t alt_m, int32_t lat_1e7,
+                  int32_t lon_1e7, uint8_t* chips) {
     protocol::AdslPacket p;
     p.init();
     p.set_address(a.addr);
     p.set_addr_table(6);
-    p.TimeStamp = static_cast<uint8_t>(((epoch_us / 1000000) % 15) * 4);
+    p.TimeStamp = static_cast<uint8_t>((utc % 15) * 4);
     p.FlightState = 2;
     p.AcftCat = 4;
     p.Emergency = 1;
-    p.set_lat_1e7(lat);
-    p.set_lon_1e7(lon);
-    p.set_alt_m(own.alt_m + static_cast<int32_t>(a.up_m));
+    p.set_lat_1e7(lat_1e7);
+    p.set_lon_1e7(lon_1e7);
+    p.set_alt_m(alt_m);
     p.set_speed_q(static_cast<uint16_t>(a.speed_mps * 4));
     p.set_climb_e8(static_cast<int16_t>(a.climb_e8));
     p.set_track_c9(static_cast<uint16_t>(a.track_deg * 512 / 360) & 0x1FF);
@@ -147,6 +146,53 @@ void World::transmit(VirtualAircraft& a, uint64_t epoch_us, const messages::OwnS
     p.VelAccuracy = 2;
     p.scramble();
     p.set_crc();
+    return protocol::encode_mband(protocol::kAdslSyncWord,
+                                  reinterpret_cast<const uint8_t*>(&p.Version),
+                                  protocol::kAdslFrameBytes, chips);
+}
+
+// An ALP-TAS aircraft carries a FLARM-taxonomy address, so the address type says
+// so and the receiver reports it as one.
+size_t alptas_burst(const VirtualAircraft& a, uint32_t utc, int32_t alt_m, int32_t lat_1e7,
+                    int32_t lon_1e7, uint8_t* chips) {
+    messages::AircraftObs obs{};
+    obs.addr = a.addr;
+    obs.addr_table = 0x06;
+    obs.aircraft_cat = 4;
+    obs.flight_state = 2;
+    obs.lat_1e7 = lat_1e7;
+    obs.lon_1e7 = lon_1e7;
+    obs.alt_m = alt_m;
+    obs.speed_q = static_cast<uint16_t>(a.speed_mps * 4);
+    obs.climb_e8 = static_cast<int16_t>(a.climb_e8);
+    obs.track_c9 = static_cast<uint16_t>(a.track_deg * 512 / 360) & 0x1FF;
+    obs.has_speed = true;
+    obs.has_climb = true;
+    obs.valid_pos = true;
+
+    uint8_t frame[protocol::kAlptasFrameBytes] = {0};
+    if (protocol::alptas_encode(frame, obs, utc, lat_1e7, lon_1e7) != Status::Ok) return 0;
+    return protocol::encode_mband(protocol::kAlptasSyncWord, frame, protocol::kAlptasFrameBytes,
+                                  chips);
+}
+
+}  // namespace
+
+void World::transmit(VirtualAircraft& a, uint64_t epoch_us, const messages::OwnState& own) {
+    const double coslat = std::cos(own.lat_1e7 / 1e7 * kPi / 180.0);
+    int32_t lat = own.lat_1e7 + static_cast<int32_t>(a.north_m * 1e7 / kMetresPerDegLat);
+    int32_t lon = own.lon_1e7;
+    if (coslat > 0.01) lon += static_cast<int32_t>(a.east_m * 1e7 / (kMetresPerDegLat * coslat));
+
+    // ALP-TAS keys its frames on the UTC second, so a transmitter has to use the
+    // second the receiver is in, not the simulation's own count of seconds.
+    const uint32_t utc = own.utc_valid ? own.utc : static_cast<uint32_t>(epoch_us / 1000000);
+    const int32_t alt_m = own.alt_m + static_cast<int32_t>(a.up_m);
+    uint8_t chips[protocol::kTxChipBytes] = {0};
+    const size_t chip_len = a.system == protocol::System::Alptas
+                                ? alptas_burst(a, utc, alt_m, lat, lon, chips)
+                                : adsl_burst(a, utc, alt_m, lat, lon, chips);
+    if (chip_len == 0) return;
 
     int slot = a.slot;
     if (slot < 0)
@@ -166,10 +212,8 @@ void World::transmit(VirtualAircraft& a, uint64_t epoch_us, const messages::OwnS
     a.transmissions++;
 
     const double range_m = std::sqrt(a.north_m * a.north_m + a.east_m * a.east_m);
-    uint8_t wire[protocol::AdslPacket::kTxBytes];
-    std::memcpy(wire, &p, sizeof(wire));
     air_.emit(epoch_us + static_cast<uint64_t>(tail ? phase_ms + 1000 : phase_ms) * 1000,
-              timing::Scheduler::slot_freq(slot), wire, static_cast<uint8_t>(sizeof(wire)),
+              timing::Scheduler::slot_freq(slot), chips, static_cast<uint8_t>(chip_len),
               rssi_at(range_m));
 }
 
@@ -188,7 +232,8 @@ void World::load(const Scenario& scenario) {
 
     clear_aircraft();
     for (const ScenarioAircraft& a : scenario.aircraft)
-        add_aircraft(a.north_m, a.east_m, a.up_m, a.speed_mps, a.track_deg, a.phase_ms, a.slot);
+        add_aircraft(a.north_m, a.east_m, a.up_m, a.speed_mps, a.track_deg, a.phase_ms, a.slot,
+                     a.system);
 }
 
 void World::apply_events(uint32_t now_ms, const bus::State& state) {

@@ -18,6 +18,7 @@
       "items": {
         "type": "object",
         "properties": {
+          "system": {"type": "string", "enum": ["adsl", "alptas"]},
           "north_m": {"type": "integer"},
           "east_m": {"type": "integer"},
           "up_m": {"type": "integer"},

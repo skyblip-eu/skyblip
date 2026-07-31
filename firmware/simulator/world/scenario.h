@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "core/protocol/air.h"
+
 namespace skyblip::simulator {
 
 enum class Mode : uint8_t { Dev, Demo, Training };
@@ -24,6 +26,9 @@ enum class EventKind : uint8_t {
 };
 
 struct ScenarioAircraft {
+    // "adsl" or "alptas": what this aircraft is equipped with, which is the only
+    // thing that decides whether our shared sync window frames its bursts.
+    protocol::System system{protocol::System::AdslDirect};
     double north_m{0};
     double east_m{0};
     double up_m{0};

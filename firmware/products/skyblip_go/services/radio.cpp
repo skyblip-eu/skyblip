@@ -48,6 +48,20 @@ hal::RfMode RadioService::mode_for(const timing::SlotPlan& plan) {
     return plan.band == timing::Band::O ? hal::RfMode::RxOband : hal::RfMode::RxMband;
 }
 
+// The M band carries two systems past one sync window; the O band carries the
+// ground station's uplink and nothing else.
+void RadioService::listen_for(timing::Band band, hal::RfPlan& plan) {
+    if (band == timing::Band::O) {
+        plan.sync = protocol::kUplinkSync;
+        plan.sync_bits = protocol::kUplinkSyncBits;
+        plan.rx_len = static_cast<uint8_t>(protocol::AdslUplink::kFrameBytes);
+        return;
+    }
+    plan.sync = protocol::kSharedSync;
+    plan.sync_bits = protocol::kSharedSyncBits;
+    plan.rx_len = protocol::kRxChipBytes;
+}
+
 // The dwell already armed carries this second's burst, or there is none to
 // carry: re-arming would only restart the receiver mid-slot.
 bool RadioService::transmit_due(const timing::SlotPlan& plan, uint32_t now_ms) const {
@@ -71,6 +85,7 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
     hal::RfPlan plan{};
     plan.mode = mode_for(slot);
     plan.freq_hz = slot.freq_hz;
+    listen_for(slot.band, plan);
     plan.start_us = epoch_us + static_cast<uint64_t>(slot.start_ms) * 1000;
     plan.end_us = epoch_us + static_cast<uint64_t>(slot.end_ms) * 1000;
     // Arming inside the window means the dwell has already started: begin now and
@@ -87,8 +102,10 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
                            context_.state.settings.stealth);
         outgoing_.scramble();
         outgoing_.set_crc();
-        plan.tx = reinterpret_cast<const uint8_t*>(&outgoing_);
-        plan.tx_len = protocol::AdslPacket::kTxBytes;
+        plan.tx = outgoing_chips_;
+        plan.tx_len = static_cast<uint8_t>(protocol::encode_mband(
+            protocol::kAdslSyncWord, reinterpret_cast<const uint8_t*>(&outgoing_.Version),
+            protocol::kAdslFrameBytes, outgoing_chips_));
         plan.tx_at_us = tx_at_us;
         plan.lbt = !a.force;
         plan.lbt_threshold_dbm = timing::Transmitter::kBusyThresholdDbm;

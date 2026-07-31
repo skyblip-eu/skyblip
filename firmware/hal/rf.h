@@ -21,6 +21,13 @@ struct RfPlan {
     uint64_t end_us{0};
     RfMode mode{RfMode::Idle};
     uint32_t freq_hz{0};
+    // What the receiver's sync detector matches during this dwell, and how many
+    // bytes it reads once it has. A window can be shared by two systems
+    // (core/protocol/air.h), so this is what the dwell listens FOR, never which
+    // protocol it expects to get.
+    const uint8_t* sync{nullptr};
+    uint8_t sync_bits{0};
+    uint8_t rx_len{0};
     const uint8_t* tx{nullptr};
     uint8_t tx_len{0};
     uint64_t tx_at_us{0};

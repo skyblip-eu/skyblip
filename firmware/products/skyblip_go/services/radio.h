@@ -1,7 +1,8 @@
 #ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_RADIO_H
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_RADIO_H
 
-#include "core/protocol/adsl.h"
+#include "core/protocol/adsl_uplink.h"
+#include "core/protocol/air.h"
 #include "core/timing/slot.h"
 #include "core/timing/transmit.h"
 #include "runtime/service.h"
@@ -34,6 +35,7 @@ class RadioService : public runtime::Service {
     uint64_t dwell_epoch_us(uint32_t now_ms) const;
     uint32_t slot_utc(uint32_t now_ms) const;
     static hal::RfMode mode_for(const timing::SlotPlan& plan);
+    static void listen_for(timing::Band band, hal::RfPlan& plan);
     timing::Transmitter::Attempt attempt(const timing::SlotPlan& plan, uint32_t now_ms) const;
     bool transmit_due(const timing::SlotPlan& plan, uint32_t now_ms) const;
     void arm_dwell(const timing::SlotPlan& plan, uint32_t now_ms);
@@ -42,6 +44,7 @@ class RadioService : public runtime::Service {
     timing::Scheduler scheduler_{};
     timing::Transmitter transmitter_{};
     protocol::AdslPacket outgoing_{};
+    uint8_t outgoing_chips_[protocol::kTxChipBytes]{};
     hal::RfMode armed_{hal::RfMode::Idle};
     uint32_t armed_freq_{0};
     uint32_t arm_count_{0};

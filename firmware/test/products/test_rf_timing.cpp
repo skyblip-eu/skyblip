@@ -140,8 +140,14 @@ TEST_CASE("rf: what own-ship put on air decodes back to own-ship state") {
     for (int i = 0; i < air.record_count(); i++) {
         const simulator::AirRecord& r = air.record(i);
         if (r.event != simulator::AirEvent::Tx) continue;
+        // Own bursts go on air as chips behind the ADS-L sync word, so reading
+        // them back means framing them the way the receiver does.
+        protocol::Frame frame{};
+        REQUIRE(simulator::Air::framed(r, frame));
+        REQUIRE(frame.system == protocol::System::AdslDirect);
         protocol::AdslPacket p{};
-        std::memcpy(&p, r.bytes, protocol::AdslPacket::kTxBytes);
+        p.init();
+        std::memcpy(&p.Version, frame.data, protocol::kAdslFrameBytes);
         REQUIRE(p.check_crc() == 0);
         p.descramble();
         CHECK(p.address() == h.platform().device_addr());

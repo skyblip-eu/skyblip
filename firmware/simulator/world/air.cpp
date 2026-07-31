@@ -17,7 +17,7 @@ const char* channel_name(uint32_t freq_hz) {
 }
 }  // namespace
 
-void Air::emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* bytes, uint8_t len,
+void Air::emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint8_t len,
                int8_t rssi_dbm) {
     for (Burst& b : burst_) {
         if (b.used) continue;
@@ -26,8 +26,8 @@ void Air::emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* bytes, uint8_t l
         b.at_us = at_us;
         b.freq_hz = freq_hz;
         b.rssi_dbm = rssi_dbm;
-        b.len = len > sizeof(b.bytes) ? static_cast<uint8_t>(sizeof(b.bytes)) : len;
-        std::memcpy(b.bytes, bytes, b.len);
+        b.len = len > sizeof(b.chips) ? static_cast<uint8_t>(sizeof(b.chips)) : len;
+        std::memcpy(b.chips, chips, b.len);
         return;
     }
 }
@@ -66,11 +66,15 @@ void Air::step(uint64_t now_us, models::Sx1262& radio) {
         } else if (b.collided) {
             collisions_++;
             log(b, AirEvent::Collision);
-            radio.queue_rx(b.bytes, b.len, /*crc_error=*/true, b.rssi_dbm);
-        } else {
+            radio.receive_air(b.chips, b.len, /*crc_error=*/true, b.rssi_dbm);
+        } else if (radio.receive_air(b.chips, b.len, /*crc_error=*/false, b.rssi_dbm)) {
             heard_++;
             log(b, AirEvent::Rx);
-            radio.queue_rx(b.bytes, b.len, /*crc_error=*/false, b.rssi_dbm);
+        } else {
+            // Tuned, listening, and still nothing: the detector was armed for a
+            // sync word this burst does not carry.
+            deaf_++;
+            log(b, AirEvent::Deaf);
         }
         b.used = false;
     }
@@ -81,11 +85,11 @@ void Air::step(uint64_t now_us, models::Sx1262& radio) {
 // Own-ship's burst is air like any other: it occupies the channel, it collides,
 // and the radio only reports TxDone once it has actually been sent.
 void Air::take_own_transmission(uint64_t now_us, models::Sx1262& radio) {
-    uint8_t bytes[protocol::AdslPacket::kTxBytes] = {0};
+    uint8_t chips[protocol::kTxChipBytes] = {0};
     uint8_t len = 0;
-    if (!radio.take_tx(bytes, len)) return;
-    if (len > sizeof(bytes)) len = sizeof(bytes);
-    emit(now_us, radio.freq_hz, bytes, len, 0);
+    if (!radio.take_tx(chips, len)) return;
+    if (len > sizeof(chips)) len = sizeof(chips);
+    emit(now_us, radio.freq_hz, chips, len, 0);
     for (Burst& b : burst_)
         if (b.used && !b.started && b.at_us == now_us && b.freq_hz == radio.freq_hz) b.mine = true;
     tx_in_flight_ = true;
@@ -113,8 +117,15 @@ void Air::log(const Burst& b, AirEvent event) {
     r.event = event;
     r.rssi_dbm = b.rssi_dbm;
     r.len = b.len;
-    std::memcpy(r.bytes, b.bytes, b.len);
+    std::memcpy(r.chips, b.chips, b.len);
     count_++;
+}
+
+bool Air::framed(const AirRecord& record, protocol::Frame& out) {
+    uint8_t payload[protocol::kRxChipBytes] = {0};
+    models::Sx1262::deliver_after_sync(record.chips, record.len, protocol::kSharedSync,
+                                       protocol::kSharedSyncBits, payload, sizeof(payload));
+    return protocol::receive_mband(payload, sizeof(payload), out);
 }
 
 const AirRecord& Air::record(int i) const {
@@ -129,24 +140,37 @@ void Air::clear() {
     tx_in_flight_ = false;
 }
 
-// One line per burst, decoded the way a receiver would: descramble, check the
-// CRC, then read the address and position out of the frame that was actually
-// on air.
+// One line per burst, framed and decoded the way a receiver on the shared sync
+// window would: name the system, then read what that system puts in the clear.
+// ALP-TAS codes position against the receiver's own, which a channel log does
+// not have, so it shows the address the frame carries unencrypted.
 int Air::format(int i, char* out, int cap) const {
     if (i < 0 || i >= record_count()) {
         if (cap > 0) out[0] = 0;
         return 0;
     }
     const AirRecord& r = record(i);
+    const int head = std::snprintf(out, static_cast<size_t>(cap), "%4u ms %s %s %3d dBm %02u B ",
+                                   r.phase_ms, channel_name(r.freq_hz),
+                                   kEventName[static_cast<int>(r.event)], r.rssi_dbm, r.len);
+
+    protocol::Frame frame{};
+    if (!framed(r, frame))
+        return head + std::snprintf(out + head, static_cast<size_t>(cap - head), "unframed");
+
+    if (frame.system == protocol::System::Alptas)
+        return head + std::snprintf(out + head, static_cast<size_t>(cap - head),
+                                    "ALP-TAS %06X %s", protocol::alptas_address(frame.data),
+                                    protocol::alptas_crc_ok(frame.data) ? "crc ok" : "CRC BAD");
+
     protocol::AdslPacket p{};
-    std::memcpy(&p, r.bytes, sizeof(p) < r.len ? sizeof(p) : r.len);
+    p.init();
+    std::memcpy(&p.Version, frame.data, protocol::kAdslFrameBytes);
     const bool crc_ok = p.check_crc() == 0;
     p.descramble();
-    return std::snprintf(out, static_cast<size_t>(cap),
-                         "%4u ms %s %s %3d dBm %02u B %06X %+.5f,%+.5f %5d m %s", r.phase_ms,
-                         channel_name(r.freq_hz), kEventName[static_cast<int>(r.event)], r.rssi_dbm,
-                         r.len, p.address(), p.lat_1e7() / 1e7, p.lon_1e7() / 1e7, p.alt_m(),
-                         crc_ok ? "crc ok" : "CRC BAD");
+    return head + std::snprintf(out + head, static_cast<size_t>(cap - head),
+                                "ADS-L %06X %+.5f,%+.5f %5d m %s", p.address(), p.lat_1e7() / 1e7,
+                                p.lon_1e7() / 1e7, p.alt_m(), crc_ok ? "crc ok" : "CRC BAD");
 }
 
 }  // namespace skyblip::simulator
