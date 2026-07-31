@@ -1,8 +1,8 @@
 // The committed scenarios are regression fixtures: the same files the browser and
 // the terminal load are replayed here, and a training scenario's expectations are
 // the assertions. A bug found in flight becomes a file, not a bug report.
-#include "doctest/doctest.h"
 #include "core/protocol/nmea_out.h"
+#include "doctest/doctest.h"
 #include "simulator/simulator.h"
 
 using namespace skyblip;
@@ -141,9 +141,8 @@ TEST_CASE("scenario: an ALP-TAS target decodes to where it actually is") {
         if (t == nullptr || !t->used || t->obs.source != messages::Source::Alptas) continue;
         found++;
         // 900 m north and 250 m east of us at the start, closing from the south.
-        const int32_t north_m =
-            static_cast<int32_t>((static_cast<int64_t>(t->obs.lat_1e7 - own.lat_1e7) * 11132) /
-                                 1000000);
+        const int64_t dlat = t->obs.lat_1e7 - own.lat_1e7;
+        const int32_t north_m = static_cast<int32_t>((dlat * 11132) / 1000000);
         CHECK(north_m > 400);
         CHECK(north_m < 1100);
         CHECK(t->obs.alt_m < own.alt_m);

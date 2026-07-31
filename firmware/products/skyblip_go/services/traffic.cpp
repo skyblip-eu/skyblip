@@ -27,9 +27,8 @@ void TrafficService::on_frame(const messages::RfEvent& event, uint32_t now_ms) {
 
     const uint32_t utc = context_.state.traffic_now(now_ms);
     messages::AircraftObs obs{};
-    const bool decoded = frame.system == protocol::System::Alptas
-                             ? decode_alptas(frame, utc, obs)
-                             : decode_adsl(frame, utc, obs);
+    const bool alptas = frame.system == protocol::System::Alptas;
+    const bool decoded = alptas ? decode_alptas(frame, utc, obs) : decode_adsl(frame, utc, obs);
     if (!decoded) {
         context_.state.rx_bad++;
         return;
@@ -43,8 +42,7 @@ void TrafficService::on_frame(const messages::RfEvent& event, uint32_t now_ms) {
 
 // The Manchester error map travels with the frame, so the forward correction
 // knows which bits the air already told us not to trust.
-bool TrafficService::decode_adsl(protocol::Frame& frame, uint32_t utc,
-                                 messages::AircraftObs& obs) {
+bool TrafficService::decode_adsl(protocol::Frame& frame, uint32_t utc, messages::AircraftObs& obs) {
     protocol::AdslPacket p{};
     p.init();
     __builtin_memcpy(&p.Version, frame.data, protocol::kAdslFrameBytes);
@@ -64,10 +62,10 @@ bool TrafficService::decode_alptas(const protocol::Frame& frame, uint32_t utc,
     const messages::OwnState& own = context_.state.own;
     if (!own.fix_valid || !own.utc_valid) return false;
     if (!protocol::alptas_crc_ok(frame.data)) return false;
-    if (protocol::alptas_decode(frame.data, utc, own.lat_1e7, own.lon_1e7, obs) == Status::Ok)
-        return true;
-    return utc > 0 && protocol::alptas_decode(frame.data, utc - 1, own.lat_1e7, own.lon_1e7,
-                                              obs) == Status::Ok;
+    const int32_t lat = own.lat_1e7;
+    const int32_t lon = own.lon_1e7;
+    if (protocol::alptas_decode(frame.data, utc, lat, lon, obs) == Status::Ok) return true;
+    return utc > 0 && protocol::alptas_decode(frame.data, utc - 1, lat, lon, obs) == Status::Ok;
 }
 
 }  // namespace skyblip::go

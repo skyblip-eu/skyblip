@@ -154,23 +154,24 @@ int Air::format(int i, char* out, int cap) const {
                                    r.phase_ms, channel_name(r.freq_hz),
                                    kEventName[static_cast<int>(r.event)], r.rssi_dbm, r.len);
 
+    const size_t left = static_cast<size_t>(cap - head);
     protocol::Frame frame{};
-    if (!framed(r, frame))
-        return head + std::snprintf(out + head, static_cast<size_t>(cap - head), "unframed");
+    if (!framed(r, frame)) return head + std::snprintf(out + head, left, "unframed");
 
-    if (frame.system == protocol::System::Alptas)
-        return head + std::snprintf(out + head, static_cast<size_t>(cap - head),
-                                    "ALP-TAS %06X %s", protocol::alptas_address(frame.data),
-                                    protocol::alptas_crc_ok(frame.data) ? "crc ok" : "CRC BAD");
+    if (frame.system == protocol::System::Alptas) {
+        const uint32_t addr = protocol::alptas_address(frame.data);
+        const char* crc = protocol::alptas_crc_ok(frame.data) ? "crc ok" : "CRC BAD";
+        return head + std::snprintf(out + head, left, "ALP-TAS %06X %s", addr, crc);
+    }
 
     protocol::AdslPacket p{};
     p.init();
     std::memcpy(&p.Version, frame.data, protocol::kAdslFrameBytes);
     const bool crc_ok = p.check_crc() == 0;
     p.descramble();
-    return head + std::snprintf(out + head, static_cast<size_t>(cap - head),
-                                "ADS-L %06X %+.5f,%+.5f %5d m %s", p.address(), p.lat_1e7() / 1e7,
-                                p.lon_1e7() / 1e7, p.alt_m(), crc_ok ? "crc ok" : "CRC BAD");
+    return head + std::snprintf(out + head, left, "ADS-L %06X %+.5f,%+.5f %5d m %s", p.address(),
+                                p.lat_1e7() / 1e7, p.lon_1e7() / 1e7, p.alt_m(),
+                                crc_ok ? "crc ok" : "CRC BAD");
 }
 
 }  // namespace skyblip::simulator

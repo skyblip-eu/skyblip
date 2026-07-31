@@ -1,8 +1,8 @@
 // SX1262 driver recovery tests against models/sx1262.h with fault injection
 // The class of intermittent bug that is hell to reproduce on hardware.
-#include "doctest/doctest.h"
 #include "core/protocol/adsl_uplink.h"
 #include "core/protocol/air.h"
+#include "doctest/doctest.h"
 #include "hardware/parts/sx1262/model.h"
 #include "hardware/parts/sx1262/sx1262.h"
 
@@ -188,8 +188,7 @@ TEST_CASE("radio: a burst is framed from the chips after the sync window, either
         uint8_t payload[protocol::kAlptasFrameBytes];
         for (uint8_t i = 0; i < sizeof(payload); i++) payload[i] = static_cast<uint8_t>(i + 1);
         uint8_t chips[protocol::kTxChipBytes] = {0};
-        const size_t chip_len =
-            protocol::encode_mband(sync_word, payload, sizeof(payload), chips);
+        const size_t chip_len = protocol::encode_mband(sync_word, payload, sizeof(payload), chips);
         REQUIRE(chip.receive_air(chips, static_cast<uint8_t>(chip_len)));
 
         uint8_t buf[64];

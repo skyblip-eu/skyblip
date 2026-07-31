@@ -57,8 +57,7 @@ class Air {
 
     // A burst is chips on a frequency: the sync word the transmitter used is part
     // of them, which is what decides whether a listening receiver frames it.
-    void emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint8_t len,
-              int8_t rssi_dbm);
+    void emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint8_t len, int8_t rssi_dbm);
 
     // Drive the channel up to now_us: own-ship transmissions are picked up from
     // the radio, bursts that started are judged heard or not, bursts that ended
