@@ -120,6 +120,10 @@ void ScreenService::render() {
             snap.utc = own.utc;
             snap.n_targets = context_.state.traffic.count();
             snap.baro_valid = context_.state.baro_active;
+            snap.battery_valid = context_.state.battery.valid;
+            snap.battery_mv = context_.state.battery.millivolts;
+            snap.battery_percent = context_.state.battery.percent;
+            snap.charging = context_.state.battery.charging;
             snap.pressure_pa = context_.state.pressure_pa;
             snap.qnh_pa = context_.state.qnh_pa;
             if (context_.state.baro_active) {

@@ -109,6 +109,27 @@ void pressure_row(Framebuffer& fb, int y, uint32_t pressure_pa, uint32_t qnh_pa)
 
     text_row(fb, y, "BARO", baro, "", qnh, " hPa");
 }
+
+// Volts and state of charge, and the fact that decides which of the two curves
+// the percentage came from. A pilot who cannot see "CHG" cannot tell a cell that
+// is filling from one that is holding 4.1 V on its way down.
+void battery_row(Framebuffer& fb, int y, const StatusSnapshot& s) {
+    if (!s.battery_valid) {
+        row(fb, y, "BAT", "no sensor");
+        return;
+    }
+
+    // Centivolts, so the two decimals a cell is judged on fit the value field.
+    char volts[8];
+    int n = fmt_uint(volts, (s.battery_mv + 5u) / 10u, 1, 2);
+    volts[n] = 0;
+
+    char percent[8];
+    n = fmt_uint(percent, s.battery_percent, 1);
+    percent[n] = 0;
+
+    text_row(fb, y, "BAT", volts, " V", percent, s.charging ? " % CHG" : " %");
+}
 }  // namespace
 
 void draw_status(Framebuffer& fb, const StatusSnapshot& s) {
@@ -219,6 +240,9 @@ void draw_status(Framebuffer& fb, const StatusSnapshot& s) {
 
     dual_row(fb, y, "VS", {feet_per_minute(s.climb_e8), 0, " fpm"},
              {(static_cast<int32_t>(s.climb_e8) * 10) / 8, 1, " m/s"}, false);
+    y += kLineH;
+
+    battery_row(fb, y, s);
 }
 
 }  // namespace skyblip::ui

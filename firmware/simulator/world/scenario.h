@@ -13,6 +13,8 @@ enum class EventKind : uint8_t {
     Fix,
     Pps,
     Baro,
+    BatteryMv,
+    ExternalPower,
     Button,
     Altitude,
     Track,

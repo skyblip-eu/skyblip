@@ -12,6 +12,7 @@
 #include "hal/capabilities.h"
 #include "hardware/platform/zephyr/annunciator.h"
 #include "hardware/platform/zephyr/baro.h"
+#include "hardware/platform/zephyr/battery.h"
 #include "hardware/platform/zephyr/clock.h"
 #include "hardware/platform/zephyr/dfu.h"
 #include "hardware/platform/zephyr/io.h"
@@ -58,11 +59,14 @@ class Platform {
     zephyr::Dfu& dfu() { return dfu_; }
     zephyr::Pps& pps() { return pps_; }
     zephyr::Baro* baro() { return baro_; }
+    zephyr::Battery& battery() { return battery_; }
 
     bool button_down() { return gpio_pin_get_dt(&button_) == 1; }
     bool read_pressure_pa(uint32_t& out_pa) {
         return baro_ != nullptr && baro_->read_pressure_pa(out_pa);
     }
+    bool read_battery_mv(uint16_t& out_mv) { return battery_.read_mv(out_mv); }
+    bool external_power() { return zephyr::Battery::external_power(); }
 
     // Probe only: what silicon answered, before anything is brought up.
     hal::Capabilities capabilities() const {
@@ -73,6 +77,7 @@ class Platform {
         if (device_is_ready(gnss_uart_dev_)) c |= hal::Capability::Gnss;
         if (device_is_ready(baro76_dev_) || device_is_ready(baro77_dev_))
             c |= hal::Capability::Baro;
+        if (device_is_ready(battery_dev_)) c |= hal::Capability::Battery;
         return c;
     }
 
@@ -102,6 +107,7 @@ class Platform {
     // becomes ready, the other never does.
     const struct device* baro76_dev_{DEVICE_DT_GET(DT_NODELABEL(bme280_76))};
     const struct device* baro77_dev_{DEVICE_DT_GET(DT_NODELABEL(bme280_77))};
+    const struct device* battery_dev_{DEVICE_DT_GET(DT_NODELABEL(vbatt))};
     // Assigned, not brace-initialised: the DT_SPEC macros ARE brace lists, so
     // member{MACRO} nests them one level too deep and the first field eats the
     // whole struct.
@@ -123,6 +129,7 @@ class Platform {
     zephyr::Baro baro76_{baro76_dev_};
     zephyr::Baro baro77_{baro77_dev_};
     zephyr::Baro* baro_{nullptr};
+    zephyr::Battery battery_{battery_dev_};
     zephyr::Pps pps_{};
 };
 

@@ -38,6 +38,8 @@
           "fix": {"type": "integer", "enum": [0, 1]},
           "pps": {"type": "integer", "enum": [0, 1]},
           "baro": {"type": "integer", "enum": [0, 1]},
+          "battery_mv": {"type": "integer", "minimum": 0, "maximum": 5000},
+          "external_power": {"type": "integer", "enum": [0, 1]},
           "button": {"type": "integer"},
           "altitude_m": {"type": "integer"},
           "track_deg": {"type": "integer"},

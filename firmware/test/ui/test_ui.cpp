@@ -173,6 +173,36 @@ TEST_CASE("status: every value reads in the aeronautical unit first, then SI") {
     CHECK(with_baro.count_black() > both.count_black());
 }
 
+TEST_CASE("status: the battery row states the voltage, the charge and which curve") {
+    // 4.00 V is nearly full off charge and about half full on it, so the two rows
+    // must not read the same - and the charging one carries the CHG marker, which
+    // is more ink either way.
+    StatusSnapshot s;
+    s.battery_valid = true;
+    s.battery_mv = 4000;
+    s.battery_percent = 89;
+
+    Framebuffer resting;
+    draw_status(resting, s);
+
+    StatusSnapshot c = s;
+    c.charging = true;
+    c.battery_percent = 55;
+    Framebuffer charging;
+    draw_status(charging, c);
+    CHECK(charging.count_black() != resting.count_black());
+
+    // A board with no divider fitted says so rather than reading empty.
+    StatusSnapshot absent;
+    Framebuffer no_sensor;
+    draw_status(no_sensor, absent);
+    CHECK(no_sensor.count_black() != resting.count_black());
+
+    // The row is the last one on the panel: it has to fit inside it.
+    for (int y = 194; y < Framebuffer::kH; y++)
+        for (int x = 0; x < Framebuffer::kW; x++) CHECK_FALSE(charging.get_pixel(x, y));
+}
+
 TEST_CASE("panel model: the driver's own output is what the model shows") {
     Framebuffer fb;
     StatusSnapshot s;

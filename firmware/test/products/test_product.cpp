@@ -219,6 +219,47 @@ TEST_CASE("product: once the barometer speaks, GNSS stops setting vertical speed
     CHECK(rig.state().own.climb_e8 == from_baro);
 }
 
+TEST_CASE("product: the board reads the cell and the gauge publishes it") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    CHECK_FALSE(rig.state().battery.valid);
+
+    rig.platform.battery().millivolts = 3800;
+    rig.run(0, 12000);
+    CHECK(rig.state().battery.valid);
+    CHECK(rig.state().battery.millivolts == 3800);
+    CHECK(rig.state().battery.percent == power::percent_from_mv(3800, false));
+    CHECK_FALSE(rig.state().battery.charging);
+    CHECK_FALSE(rig.state().battery.external_power);
+}
+
+TEST_CASE("product: the same cell on USB power reports a lower state of charge") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.platform.battery().millivolts = 4000;
+    rig.run(0, 12000);
+    const uint8_t resting = rig.state().battery.percent;
+
+    rig.platform.battery().external_power = true;
+    rig.run(12000, 24000);
+    CHECK(rig.state().battery.charging);
+    CHECK(rig.state().battery.millivolts == 4000);
+    CHECK(rig.state().battery.percent < resting);
+}
+
+TEST_CASE("product: a board with no battery sense says so instead of reporting empty") {
+    constexpr hal::Capabilities kNoBattery = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
+        ~static_cast<uint32_t>(hal::Capability::Battery));
+    Rig rig{kNoBattery};
+    REQUIRE(rig.setup() == Status::Ok);
+    CHECK(rig.product.degraded() == hal::Capability::Battery);
+
+    rig.run(0, 12000);
+    CHECK_FALSE(rig.state().battery.valid);
+    CHECK(rig.state().battery.percent == 0);
+}
+
 TEST_CASE("product: settings changed over the link are persisted") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);

@@ -3,6 +3,7 @@
 
 #include "core/flight/atmosphere.h"
 #include "core/messages/messages.h"
+#include "core/power/battery.h"
 #include "core/settings/settings.h"
 #include "core/timing/slot.h"
 #include "core/traffic/table.h"
@@ -15,6 +16,7 @@ struct State {
     timing::ClockState clock{};
     timing::SlotPlan plan{};
     traffic::TrafficTable traffic{};
+    power::BatteryState battery{};
 
     uint8_t alarm_level{0};
     uint32_t rx_ok{0};

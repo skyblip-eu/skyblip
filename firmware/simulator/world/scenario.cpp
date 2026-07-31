@@ -50,6 +50,8 @@ bool event_from(const json::Reader& r, ScenarioEvent& out) {
         {"fix", EventKind::Fix},
         {"pps", EventKind::Pps},
         {"baro", EventKind::Baro},
+        {"battery_mv", EventKind::BatteryMv},
+        {"external_power", EventKind::ExternalPower},
         {"button", EventKind::Button},
         {"altitude_m", EventKind::Altitude},
         {"track_deg", EventKind::Track},
