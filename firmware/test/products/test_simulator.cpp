@@ -209,3 +209,25 @@ TEST_CASE("simulator: a threat going away does not buzz the motor again") {
     CHECK(h.alarm_level() == 0);
     CHECK(h.vibro_ms() == after_escalation);  // unchanged: no pulse on the way down
 }
+
+// The same call the page's "+ Aircraft" button and the terminal's [j] make. If
+// this passes and the page still shows nothing, the gap is in the shell, not in
+// the receive path.
+TEST_CASE("simulator: an ALP-TAS-equipped aircraft enters traffic as ALP-TAS") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    run(h, 0, 2000);
+    REQUIRE(h.product().state().own.fix_valid);
+
+    h.world().add_aircraft(2000, 0, 0, 30, 270, -1, -1, protocol::System::Alptas);
+    run(h, 2000, 5000);
+
+    const traffic::TrafficTable& table = h.product().state().traffic;
+    REQUIRE(table.count() >= 1);
+    int alptas = 0;
+    for (int i = 0; i < traffic::TrafficTable::kCapacity; i++) {
+        const traffic::Target* t = table.at(i);
+        if (t != nullptr && t->used && t->obs.source == messages::Source::Alptas) alptas++;
+    }
+    CHECK(alptas == 1);
+}

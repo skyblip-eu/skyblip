@@ -83,7 +83,8 @@ void render(simulator::Simulator& s) {
         std::printf("   %s\n", line);
     }
     std::printf(" device: [p]age [b]acklight [o]n/off   sensors: [f]ix [n]o-pps\n");
-    std::printf(" alt a/z  speed s/x  track d/c   traffic: [g]+1 [h]threat [k]clear  [q]uit\n");
+    std::printf(
+        " alt a/z  speed s/x  track d/c   traffic: [g]+1 [j]+ALP-TAS [h]threat [k]clear  [q]uit\n");
     std::fflush(stdout);
 }
 
@@ -133,6 +134,10 @@ int main(int argc, char** argv) {
                 case 'c': s.world().set_track_deg(trk = (trk + 345) % 360); break;
                 case 'g': s.world().add_aircraft(1500, 800, 50, 30, 250); break;
                 case 'h': s.world().add_threat(); break;
+                case 'j':
+                    s.world().add_aircraft(1500, 800, 50, 30, 250, -1, -1,
+                                           protocol::System::Alptas);
+                    break;
                 case 'k': s.world().clear_aircraft(); break;
                 default: break;
             }

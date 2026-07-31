@@ -45,7 +45,9 @@ class World {
     int add_aircraft(double north_m, double east_m, double up_m, double speed_mps = 30,
                      double track_deg = 270, int phase_ms = -1, int slot = -1,
                      protocol::System system = protocol::System::AdslDirect);
-    int add_threat() { return add_aircraft(600, 200, 30, 40, 200); }
+    int add_threat(protocol::System system = protocol::System::AdslDirect) {
+        return add_aircraft(600, 200, 30, 40, 200, -1, -1, system);
+    }
     void clear_aircraft();
     int aircraft_count() const;
 
