@@ -84,6 +84,9 @@ class Rf : public hal::Rf {
         if (plan.freq_hz != 0) {
             parts::MbandConfig cfg{};
             cfg.freq_hz = plan.freq_hz;
+            cfg.sync = plan.sync;
+            cfg.sync_bits = plan.sync_bits;
+            cfg.payload_bytes = plan.rx_len;
             radio_.configure_mband(cfg);
         }
         radio_.start_receive();

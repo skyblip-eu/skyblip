@@ -1,6 +1,7 @@
 // The committed scenarios are regression fixtures: the same files the browser and
 // the terminal load are replayed here, and a training scenario's expectations are
 // the assertions. A bug found in flight becomes a file, not a bug report.
+#include "core/protocol/nmea_out.h"
 #include "doctest/doctest.h"
 #include "simulator/simulator.h"
 
@@ -98,4 +99,56 @@ TEST_CASE("scenario: a failed expectation is reported, not swallowed") {
 
     CHECK(s.world().failures() == 1);
     REQUIRE(s.world().first_failure() != nullptr);
+}
+
+// One dwell, two systems: an ADS-L neighbour and an ALP-TAS neighbour transmit on
+// the same two M-band channels, and both have to arrive as targets. Losing the
+// ALP-TAS one is the failure this fixture exists to catch, because it is silent:
+// the radar simply shows less sky than there is.
+TEST_CASE("scenario: ADS-L and ALP-TAS traffic are both heard in the same dwells") {
+    simulator::Simulator s;
+    REQUIRE(s.setup() == Status::Ok);
+    REQUIRE(s.load_file("scenarios/mixed_traffic.json"));
+    replay(s);
+
+    CHECK(s.world().failures() == 0);
+    const traffic::TrafficTable& table = s.product().state().traffic;
+    int adsl = 0, alptas = 0;
+    for (int i = 0; i < traffic::TrafficTable::kCapacity; i++) {
+        const traffic::Target* t = table.at(i);
+        if (t == nullptr || !t->used) continue;
+        if (t->obs.source == messages::Source::AdslDirect) adsl++;
+        if (t->obs.source == messages::Source::Alptas) alptas++;
+    }
+    CHECK(adsl == 1);
+    CHECK(alptas == 1);
+}
+
+// The ALP-TAS target the scenario flies must come back with the position and
+// identity it was sent with, not merely as a blip: a decrypt that lands on
+// plausible-looking garbage is worse than a dropped frame.
+TEST_CASE("scenario: an ALP-TAS target decodes to where it actually is") {
+    simulator::Simulator s;
+    REQUIRE(s.setup() == Status::Ok);
+    REQUIRE(s.load_file("scenarios/mixed_traffic.json"));
+    s.run(5000);
+
+    const traffic::TrafficTable& table = s.product().state().traffic;
+    const messages::OwnState& own = s.product().state().own;
+    int found = 0;
+    for (int i = 0; i < traffic::TrafficTable::kCapacity; i++) {
+        const traffic::Target* t = table.at(i);
+        if (t == nullptr || !t->used || t->obs.source != messages::Source::Alptas) continue;
+        found++;
+        // 900 m north and 250 m east of us at the start, closing from the south.
+        const int64_t dlat = t->obs.lat_1e7 - own.lat_1e7;
+        const int32_t north_m = static_cast<int32_t>((dlat * 11132) / 1000000);
+        CHECK(north_m > 400);
+        CHECK(north_m < 1100);
+        CHECK(t->obs.alt_m < own.alt_m);
+        // A FLARM-taxonomy address is reported as one, so an EFB labels it IDType 2.
+        CHECK(protocol::addr_table_to_idtype(t->obs.addr_table) == 2);
+        CHECK(t->obs.valid_pos);
+    }
+    CHECK(found == 1);
 }

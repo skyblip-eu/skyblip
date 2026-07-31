@@ -57,6 +57,32 @@ Status Sx1262::begin() {
     return Status::Ok;
 }
 
+void Sx1262::write_register(uint16_t addr, const uint8_t* data, size_t n) {
+    spi_.select(true);
+    uint8_t head[3] = {sx::kWriteRegister, static_cast<uint8_t>(addr >> 8),
+                       static_cast<uint8_t>(addr)};
+    spi_.transfer(head, nullptr, sizeof(head));
+    spi_.transfer(data, nullptr, n);
+    spi_.select(false);
+}
+
+void Sx1262::configure_frame(const MbandConfig& cfg) {
+    if (cfg.sync_bits == 0) return;
+    write_register(sx::kSyncWordRegister, cfg.sync, (cfg.sync_bits + 7u) / 8u);
+    // DS 13.4.6 SetPacketParams, GFSK, in the datasheet's order.
+    uint8_t params[9] = {0};
+    params[0] = static_cast<uint8_t>(sx::kPreambleChips >> 8);
+    params[1] = static_cast<uint8_t>(sx::kPreambleChips);
+    params[2] = sx::kPreambleDetect8Chips;
+    params[3] = cfg.sync_bits;
+    params[4] = sx::kAddrCompOff;
+    params[5] = sx::kFixedLength;
+    params[6] = cfg.payload_bytes;
+    params[7] = sx::kCrcOff;
+    params[8] = sx::kWhiteningOff;
+    cmd(sx::kSetPacketParams, params, sizeof(params));
+}
+
 Status Sx1262::configure_mband(const MbandConfig& cfg) {
     cfg_ = cfg;
     uint8_t gfsk = 0x00;
@@ -65,6 +91,7 @@ Status Sx1262::configure_mband(const MbandConfig& cfg) {
     uint8_t f[4] = {static_cast<uint8_t>(frf >> 24), static_cast<uint8_t>(frf >> 16),
                     static_cast<uint8_t>(frf >> 8), static_cast<uint8_t>(frf)};
     cmd(sx::kSetRfFrequency, f, 4);
+    configure_frame(cfg);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
     configured_ = true;
     return Status::Ok;

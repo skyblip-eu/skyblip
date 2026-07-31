@@ -1,5 +1,7 @@
 // SX1262 driver recovery tests against models/sx1262.h with fault injection
 // The class of intermittent bug that is hell to reproduce on hardware.
+#include "core/protocol/adsl_uplink.h"
+#include "core/protocol/air.h"
 #include "doctest/doctest.h"
 #include "hardware/parts/sx1262/model.h"
 #include "hardware/parts/sx1262/sx1262.h"
@@ -149,4 +151,75 @@ TEST_CASE("radio: what was written to the buffer is what goes on air") {
     CHECK(out[0] == 0x72);
     CHECK(out[4] == 0x55);
     CHECK_FALSE(chip.take_tx(out, len));
+}
+
+// The dwell hands the radio a sync window and a length; without them programmed
+// the chip frames nothing, so this is where the shared-window trick either
+// reaches the hardware or quietly does not.
+TEST_CASE("radio: configure programs the sync window and the fixed read length") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    MbandConfig cfg{};
+    cfg.sync = protocol::kSharedSync;
+    cfg.sync_bits = protocol::kSharedSyncBits;
+    cfg.payload_bytes = protocol::kRxChipBytes;
+    CHECK(r.configure_mband(cfg) == Status::Ok);
+    CHECK(chip.saw_cmd(sx::kWriteRegister));
+    CHECK(chip.saw_cmd(sx::kSetPacketParams));
+    CHECK(chip.sync[0] == protocol::kSharedSync[0]);
+    CHECK(chip.sync[1] == protocol::kSharedSync[1]);
+    CHECK(chip.sync_bits == protocol::kSharedSyncBits);
+    CHECK(chip.payload_bytes == protocol::kRxChipBytes);
+}
+
+TEST_CASE("radio: a burst is framed from the chips after the sync window, either system") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    MbandConfig cfg{};
+    cfg.sync = protocol::kSharedSync;
+    cfg.sync_bits = protocol::kSharedSyncBits;
+    cfg.payload_bytes = protocol::kRxChipBytes;
+    r.configure_mband(cfg);
+    r.start_receive();
+
+    for (uint32_t sync_word : {protocol::kAdslSyncWord, protocol::kAlptasSyncWord}) {
+        uint8_t payload[protocol::kAlptasFrameBytes];
+        for (uint8_t i = 0; i < sizeof(payload); i++) payload[i] = static_cast<uint8_t>(i + 1);
+        uint8_t chips[protocol::kTxChipBytes] = {0};
+        const size_t chip_len = protocol::encode_mband(sync_word, payload, sizeof(payload), chips);
+        REQUIRE(chip.receive_air(chips, static_cast<uint8_t>(chip_len)));
+
+        uint8_t buf[64];
+        RadioEvent ev = r.poll(buf, sizeof(buf));
+        REQUIRE(ev.type == RadioEventType::RxDone);
+        protocol::Frame frame{};
+        REQUIRE(protocol::receive_mband(buf, ev.len, frame));
+        const bool adsl = sync_word == protocol::kAdslSyncWord;
+        if (adsl) CHECK(frame.system == protocol::System::AdslDirect);
+        if (!adsl) CHECK(frame.system == protocol::System::Alptas);
+        CHECK(frame.data[0] == 1);
+        r.start_receive();
+    }
+}
+
+TEST_CASE("radio: a burst carrying a sync word the dwell is not armed for is not reported") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    MbandConfig cfg{};
+    cfg.sync = protocol::kUplinkSync;
+    cfg.sync_bits = protocol::kUplinkSyncBits;
+    cfg.payload_bytes = protocol::kRxChipBytes;
+    r.configure_mband(cfg);
+    r.start_receive();
+
+    uint8_t payload[protocol::kAdslFrameBytes] = {0};
+    uint8_t chips[protocol::kTxChipBytes] = {0};
+    const size_t chip_len =
+        protocol::encode_mband(protocol::kAdslSyncWord, payload, sizeof(payload), chips);
+    CHECK_FALSE(chip.receive_air(chips, static_cast<uint8_t>(chip_len)));
+    uint8_t buf[64];
+    CHECK(r.poll(buf, sizeof(buf)).type == RadioEventType::None);
 }

@@ -12,6 +12,9 @@ namespace skyblip::simulator {
 
 struct VirtualAircraft {
     bool used{false};
+    // Which system this aircraft is equipped with. Both are Manchester bursts on
+    // the same two M-band channels, which is exactly why one dwell can hear them.
+    protocol::System system{protocol::System::AdslDirect};
     uint32_t addr{0};
     double north_m{0}, east_m{0}, up_m{0};
     double speed_mps{30};
@@ -40,7 +43,8 @@ class World {
     void load(const Scenario& scenario);
 
     int add_aircraft(double north_m, double east_m, double up_m, double speed_mps = 30,
-                     double track_deg = 270, int phase_ms = -1, int slot = -1);
+                     double track_deg = 270, int phase_ms = -1, int slot = -1,
+                     protocol::System system = protocol::System::AdslDirect);
     int add_threat() { return add_aircraft(600, 200, 30, 40, 200); }
     void clear_aircraft();
     int aircraft_count() const;

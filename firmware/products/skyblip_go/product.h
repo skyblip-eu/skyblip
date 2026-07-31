@@ -17,6 +17,9 @@ enum class Feature : uint32_t {
     AdslRx = 1u << 0,
     UplinkRx = 1u << 1,
     AdslTx = 1u << 6,
+    // Receive only: the same M-band dwell as AdslRx, framed by the sync window
+    // the two systems share (core/protocol/air.h). We never transmit it.
+    AlptasRx = 1u << 7,
     Radar = 1u << 2,
     Alarms = 1u << 3,
     Instruments = 1u << 4,
@@ -27,7 +30,7 @@ constexpr Feature kFeatures = static_cast<Feature>(
     static_cast<uint32_t>(Feature::AdslRx) | static_cast<uint32_t>(Feature::UplinkRx) |
     static_cast<uint32_t>(Feature::Radar) | static_cast<uint32_t>(Feature::Alarms) |
     static_cast<uint32_t>(Feature::Instruments) | static_cast<uint32_t>(Feature::CompanionLink) |
-    static_cast<uint32_t>(Feature::AdslTx));
+    static_cast<uint32_t>(Feature::AdslTx) | static_cast<uint32_t>(Feature::AlptasRx));
 
 // What this product cannot fly without, and what it can lose and keep flying.
 constexpr hal::Capabilities kRequired = hal::Capability::Rf | hal::Capability::Gnss;

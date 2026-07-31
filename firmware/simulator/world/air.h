@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-#include "core/protocol/adsl.h"
+#include "core/protocol/air.h"
 #include "core/timing/slot.h"
 #include "hardware/parts/sx1262/model.h"
 
@@ -15,7 +15,8 @@ enum class AirEvent : uint8_t {
     // A burst arrived while the radio was tuned to its channel and listening.
     Rx,
     // A burst arrived while the radio was elsewhere: wrong band, wrong channel,
-    // transmitting, or between dwells. This is what a slot-timing bug looks like.
+    // transmitting, between dwells, or listening for a sync word this burst does
+    // not carry. This is what a slot-timing bug looks like.
     Deaf,
     // Two bursts overlapped on the same channel.
     Collision,
@@ -28,7 +29,7 @@ struct AirRecord {
     AirEvent event{AirEvent::Deaf};
     int8_t rssi_dbm{0};
     uint8_t len{0};
-    uint8_t bytes[protocol::AdslPacket::kTxBytes]{};
+    uint8_t chips[protocol::kTxChipBytes]{};
 };
 
 // The 868 MHz channel between the modelled radio and everything else flying.
@@ -54,13 +55,20 @@ class Air {
                kChannelToleranceHz;
     }
 
-    void emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* bytes, uint8_t len, int8_t rssi_dbm);
+    // A burst is chips on a frequency: the sync word the transmitter used is part
+    // of them, which is what decides whether a listening receiver frames it.
+    void emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint8_t len, int8_t rssi_dbm);
 
     // Drive the channel up to now_us: own-ship transmissions are picked up from
     // the radio, bursts that started are judged heard or not, bursts that ended
     // are handed to the receiver, and the carrier the radio would measure is
     // set for the listen-before-talk sample that follows.
     void step(uint64_t now_us, models::Sx1262& radio);
+
+    // What a receiver armed with the shared sync window would frame out of a
+    // logged burst: the tape is chips, and reading it means detecting the sync
+    // exactly as the radio does.
+    static bool framed(const AirRecord& record, protocol::Frame& out);
 
     void clear();
 
@@ -82,7 +90,7 @@ class Air {
         uint32_t freq_hz{0};
         int8_t rssi_dbm{0};
         uint8_t len{0};
-        uint8_t bytes[protocol::AdslPacket::kTxBytes]{};
+        uint8_t chips[protocol::kTxChipBytes]{};
     };
 
     void log(const Burst& b, AirEvent event);

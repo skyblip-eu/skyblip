@@ -24,6 +24,11 @@ struct MbandConfig {
     uint32_t freq_hz{868200000};
     uint32_t bitrate{100000};
     uint32_t fdev_hz{50000};
+    // The detector runs on chips, so both of these are chip counts: the pattern
+    // to match and the fixed number of bytes to read behind it.
+    const uint8_t* sync{nullptr};
+    uint8_t sync_bits{0};
+    uint8_t payload_bytes{0};
 };
 
 class Sx1262 {
@@ -52,6 +57,8 @@ class Sx1262 {
     Status wait_busy_low(uint32_t max_spins = 100000);
     void cmd(uint8_t opcode, const uint8_t* params, size_t n);
     void cmd_read(uint8_t opcode, uint8_t* out, size_t n);
+    void write_register(uint16_t addr, const uint8_t* data, size_t n);
+    void configure_frame(const MbandConfig& cfg);
     Status reinit();
 
     io::Spi& spi_;
@@ -74,6 +81,9 @@ constexpr uint8_t kSetTx = 0x83;
 constexpr uint8_t kSetRx = 0x82;
 constexpr uint8_t kSetRfFrequency = 0x86;
 constexpr uint8_t kSetPacketType = 0x8A;
+constexpr uint8_t kSetPacketParams = 0x8C;
+constexpr uint8_t kWriteRegister = 0x0D;
+constexpr uint16_t kSyncWordRegister = 0x06C0;  // DS 13.4.9, 8 bytes
 constexpr uint8_t kWriteBuffer = 0x0E;
 constexpr uint8_t kReadBuffer = 0x1E;
 constexpr uint8_t kGetIrqStatus = 0x12;
@@ -86,6 +96,14 @@ constexpr uint16_t kIrqTxDone = 0x0001;
 constexpr uint16_t kIrqRxDone = 0x0002;
 constexpr uint16_t kIrqCrcErr = 0x0040;
 constexpr uint16_t kIrqTimeout = 0x0200;
+// §C.2 puts 16 chips of preamble before the sync word; eight of them are enough
+// for the detector to declare a preamble.
+constexpr uint16_t kPreambleChips = 16;
+constexpr uint8_t kPreambleDetect8Chips = 0x04;
+constexpr uint8_t kAddrCompOff = 0x00;
+constexpr uint8_t kFixedLength = 0x00;
+constexpr uint8_t kCrcOff = 0x00;
+constexpr uint8_t kWhiteningOff = 0x00;
 }
 
 }
