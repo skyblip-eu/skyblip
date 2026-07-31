@@ -60,6 +60,12 @@ class World {
     // is flying through. The barometer reads what that implies at its altitude.
     void set_airmass_qnh_pa(uint32_t pa) { airmass_qnh_pa_ = pa; }
     void set_pps_locked(bool on) { platform_.pps().set_locked(on); }
+    // The cell as the world holds it: what the divider reads, and whether a
+    // cable is in. Everything else about the battery is the firmware's opinion.
+    void set_battery_mv(int32_t mv) {
+        platform_.battery().millivolts = static_cast<uint16_t>(mv < 0 ? 0 : mv);
+    }
+    void set_external_power(bool on) { platform_.battery().external_power = on; }
     void press_button() { press_pending_ = true; }
 
     int failures() const { return failures_; }

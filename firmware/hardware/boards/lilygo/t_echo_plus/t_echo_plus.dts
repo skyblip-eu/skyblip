@@ -1,5 +1,7 @@
 /dts-v1/;
 #include <nordic/nrf52840_qiaa.dtsi>
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/adc/nrf-saadc.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/i2c/i2c.h>
 
@@ -54,6 +56,41 @@
 		buzzer_pwm: buzzer_pwm {
 			pwms = <&pwm0 0 PWM_HZ(2000) PWM_POLARITY_NORMAL>;
 		};
+	};
+
+	/*
+	 * Battery sense: the pack sits behind a 100K + 100K divider on P0.04
+	 * (AIN2), so the ADC sees half the cell voltage. Ratio lives here, not in
+	 * code: it is a fact about the board, and the divider driver scales the
+	 * reading back with it.
+	 * sources: SoftRF platform/nRF52.h SOC_GPIO_PIN_BATTERY = P0.04 with
+	 * SOC_ADC_VOLTAGE_DIV 2.0, and Meshtastic's t-echo variant (same net).
+	 */
+	vbatt: vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc 2>;
+		output-ohms = <100000>;
+		full-ohms = <200000>;
+	};
+};
+
+/*
+ * SAADC for the battery divider. 0.6 V internal reference at gain 1/6 gives a
+ * 3.6 V full scale, against the 2.1 V the divider presents at full charge; 40 us
+ * of acquisition is what a 100K source impedance needs to settle.
+ */
+&adc {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@2 {
+		reg = <2>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
+		zephyr,input-positive = <NRF_SAADC_AIN2>;
+		zephyr,resolution = <12>;
 	};
 };
 

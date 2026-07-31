@@ -111,7 +111,7 @@
                 onclick="SIM.button()"></button>
         <div class="leds">
           <span class="led red" id="led_alarm" title="the LED we drive — lit on a traffic alarm"></span>
-          <span class="led amber" title="charge state — the charger drives this one, not the MCU"></span>
+          <span class="led amber" id="led_charge" title="charge state — the charger drives this one, not the MCU"></span>
         </div>
       </div>
       <div class="keymap">
@@ -154,9 +154,17 @@
         <div class="ctl"><label>QNH set</label>
           <input type="range" id="qnh" min="9600" max="10500" step="5" value="10132" oninput="SIM.qnh(this.value)">
           <output id="qnh_o">1013.2 hPa</output></div>
+        <div class="ctl"><label>Cell</label>
+          <input type="range" id="bat" min="3200" max="4250" step="10" value="4050" oninput="SIM.battery(this.value)">
+          <output id="bat_o">4.05 V</output></div>
+        <div class="row" style="margin-bottom:8px;">
+          <button id="extbtn" onclick="SIM.toggleExternalPower()">USB power: OFF</button>
+        </div>
         <div class="hint">Sliders feed a simulated L76K that emits real NMEA; the
           production parser decodes it. Airmass is the weather the BME280 sits in;
-          QNH is the subscale the device is set to.</div>
+          QNH is the subscale the device is set to. The cell slider is the
+          divider's millivolts: plug USB in and the same voltage reads a lower
+          state of charge, because a charger holds the terminal above the cell.</div>
       </div>
 
       <!-- ---------------- scenario / mode ---------------- -->
@@ -225,6 +233,7 @@
           <div>Track</div><div id="t_trk">–</div>
           <div>Vert speed</div><div id="t_vs">–</div>
           <div>Static pressure</div><div id="t_baro">–</div>
+          <div>Battery</div><div id="t_bat">–</div>
           <div>Traffic</div><div id="t_tfc">–</div>
           <div>RX ok / bad</div><div id="t_rx">–</div>
           <div>TX ok / busy</div><div id="t_tx">–</div>
@@ -260,7 +269,12 @@ Module.onRuntimeInitialized = () => {
     setClimb: C('simulator_set_climb', null, ['number']),
     setQnh: C('simulator_set_qnh', null, ['number']),
     setAirmass: C('simulator_set_airmass', null, ['number']),
+    setBatteryMv: C('simulator_set_battery_mv', null, ['number']),
+    setExternalPower: C('simulator_set_external_power', null, ['number']),
     pressurePa: C('simulator_pressure_pa', 'number', []),
+    batteryMv: C('simulator_battery_mv', 'number', []),
+    batteryPercent: C('simulator_battery_percent', 'number', []),
+    batteryCharging: C('simulator_battery_charging', 'number', []),
     addAircraft: C('simulator_add_aircraft', null, ['number','number','number','number','number']),
     addThreat: C('simulator_add_threat', null, []),
     clearTraffic: C('simulator_clear_traffic', null, []),
@@ -296,7 +310,7 @@ Module.onRuntimeInitialized = () => {
     airLine: C('simulator_air_line', 'string', ['number']),
   };
 
-  let bl = false, pwr = true, fix = true;
+  let bl = false, pwr = true, fix = true, ext = false;
   f.setup();
 
   const $ = id => document.getElementById(id);
@@ -322,6 +336,9 @@ Module.onRuntimeInitialized = () => {
   SIM.airmass = v => { f.setAirmass(v * HPA_E1_TO_PA); $('air_o').textContent = (v/10).toFixed(1) + ' hPa'; };
   SIM.qnh = v => { f.setQnh(v * HPA_E1_TO_PA); $('qnh_o').textContent = (v/10).toFixed(1) + ' hPa'; };
   SIM.range = v => { f.setRange(+v); $('rng_o').textContent = (v/1000) + ' km'; };
+  SIM.battery = v => { f.setBatteryMv(+v); $('bat_o').textContent = (v/1000).toFixed(2) + ' V'; };
+  SIM.toggleExternalPower = () => { ext = !ext; f.setExternalPower(ext ? 1 : 0);
+                                    $('extbtn').textContent = 'USB power: ' + (ext ? 'ON' : 'OFF'); };
   SIM.addRandom = () => {
     const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 4000;
     f.addAircraft(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d),
@@ -433,8 +450,9 @@ Module.onRuntimeInitialized = () => {
     ctx.putImageData(img, 0, 0);
     canvas.className = (f.powered() ? '' : 'off ') + (f.blOn() ? 'bl' : '');
     // Only the left LED is the firmware's; the right one follows the charger,
-    // and the world has no battery to charge.
+    // which on this board is USB power minus a full cell.
     $('led_alarm').className = 'led red' + (f.alarm() ? ' on' : '');
+    $('led_charge').className = 'led amber' + (f.batteryCharging() ? ' on' : '');
     $('pagehint').textContent = 'page: ' + PAGES[f.page()] +
         '  ·  backlight ' + (f.blOn() ? 'on' : 'off') +
         '  ·  power ' + (f.powered() ? 'on' : 'off');
@@ -448,6 +466,8 @@ Module.onRuntimeInitialized = () => {
     $('t_trk').textContent  = Math.round(f.trackC9()*360/512).toString().padStart(3,'0') + '°';
     $('t_vs').textContent   = (f.climbE8()/8).toFixed(1) + ' m/s';
     $('t_baro').textContent = (f.pressurePa()/100).toFixed(1) + ' hPa';
+    $('t_bat').textContent  = (f.batteryMv()/1000).toFixed(2) + ' V · ' + f.batteryPercent() + ' %'
+                              + (f.batteryCharging() ? ' charging' : '');
     $('t_tfc').textContent  = f.traffic() + ' target(s)';
     $('t_rx').textContent   = f.rxOk() + ' / ' + f.rxBad();
     $('t_tx').textContent   = f.txOk() + ' / ' + f.txBusy();

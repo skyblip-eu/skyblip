@@ -47,6 +47,7 @@ struct Bus {
     Queue<messages::RfEvent, 8> rf;
     Queue<messages::RxFrame, 4> link_rx;
     Queue<messages::ButtonEvent, 4> input;
+    Queue<messages::BatterySample, 2> battery;
 };
 
 }  // namespace skyblip::bus

@@ -17,6 +17,7 @@ enum class Capability : uint32_t {
     Storage = 1u << 7,
     Dfu = 1u << 8,
     Button = 1u << 9,
+    Battery = 1u << 10,
 };
 
 using Capabilities = Capability;
