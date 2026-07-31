@@ -16,6 +16,7 @@ FW = os.path.join(ROOT, "firmware")
 REQUIRED_MODULES = [
     "core/util", "core/fec", "core/protocol", "core/gnss", "core/timing",
     "core/traffic", "core/settings", "core/comms", "core/flight", "core/bus",
+    "core/power",
     "ui/screens", "ui/widgets", "ui/input", "runtime", "simulator",
 ]
 

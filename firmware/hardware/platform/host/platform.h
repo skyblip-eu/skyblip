@@ -37,6 +37,22 @@ class Baro {
     bool present{true};
 };
 
+// The cell the world charges and drains. Millivolts is the only thing the board
+// can read on silicon, so it is the only thing settable here.
+class Battery {
+   public:
+    bool ready() const { return present; }
+    bool read_mv(uint16_t& out_mv) {
+        if (!present) return false;
+        out_mv = millivolts;
+        return true;
+    }
+
+    bool present{true};
+    uint16_t millivolts{4050};
+    bool external_power{false};
+};
+
 class Pps {
    public:
     bool locked() const { return locked_; }
@@ -59,12 +75,14 @@ class Platform {
     static constexpr hal::Capabilities kFullyFitted =
         hal::Capability::Display | hal::Capability::Gnss | hal::Capability::Baro |
         hal::Capability::Link | hal::Capability::Storage | hal::Capability::Dfu |
-        hal::Capability::Buzzer | hal::Capability::Vibro | hal::Capability::Button;
+        hal::Capability::Buzzer | hal::Capability::Vibro | hal::Capability::Button |
+        hal::Capability::Battery;
 
     // A host board can be fitted with less than everything, which is how the
     // degraded paths get exercised without a soldering iron.
     explicit Platform(hal::Capabilities fitted = kFullyFitted) : fitted_(fitted) {
         baro_.present = hal::has(fitted, hal::Capability::Baro);
+        battery_.present = hal::has(fitted, hal::Capability::Battery);
     }
 
     Status begin() { return Status::Ok; }
@@ -83,9 +101,12 @@ class Platform {
     host::Annunciator& annunciator() { return annunciator_; }
     host::Dfu& dfu() { return dfu_; }
     host::Baro& baro() { return baro_; }
+    host::Battery& battery() { return battery_; }
     host::Pps& pps() { return pps_; }
     bool button_down() { return gpio_.button_down; }
     bool read_pressure_pa(uint32_t& out_pa) { return baro_.read_pressure_pa(out_pa); }
+    bool read_battery_mv(uint16_t& out_mv) { return battery_.read_mv(out_mv); }
+    bool external_power() { return battery_.external_power; }
     uint32_t device_addr() const { return 0x0ABBCC; }
     Chips& chips() { return chips_; }
     Gpio& board_gpio() { return gpio_; }
@@ -101,6 +122,7 @@ class Platform {
     host::Annunciator annunciator_{};
     host::Dfu dfu_{};
     host::Baro baro_{};
+    host::Battery battery_{};
     host::Pps pps_{};
     hal::Capabilities fitted_;
 };

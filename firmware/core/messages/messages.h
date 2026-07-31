@@ -92,6 +92,13 @@ struct ButtonEvent {
     uint8_t id;
 };
 
+// The cell's terminal voltage, and whether something is feeding the charger.
+// What that pair means is core/power's problem, not the board's.
+struct BatterySample {
+    uint16_t millivolts;
+    bool external_power;
+};
+
 }
 
 #endif

@@ -50,6 +50,11 @@ KEEPALIVE void simulator_set_qnh(int pa) {
 KEEPALIVE void simulator_set_airmass(int pa) {
     g_simulator.world().set_airmass_qnh_pa(static_cast<uint32_t>(pa));
 }
+// The cell and the cable: the same two facts the board can read on silicon.
+KEEPALIVE void simulator_set_battery_mv(int mv) { g_simulator.world().set_battery_mv(mv); }
+KEEPALIVE void simulator_set_external_power(int on) {
+    g_simulator.world().set_external_power(on != 0);
+}
 KEEPALIVE void simulator_set_position(int lat_1e7, int lon_1e7) {
     g_simulator.world().gnss().lat_1e7 = lat_1e7;
     g_simulator.world().gnss().lon_1e7 = lon_1e7;
@@ -89,6 +94,11 @@ KEEPALIVE int simulator_lon_1e7() { return g_simulator.product().state().own.lon
 KEEPALIVE int simulator_alt_m() { return g_simulator.product().state().own.alt_m; }
 KEEPALIVE int simulator_pressure_pa() {
     return static_cast<int>(g_simulator.product().state().pressure_pa);
+}
+KEEPALIVE int simulator_battery_mv() { return g_simulator.product().state().battery.millivolts; }
+KEEPALIVE int simulator_battery_percent() { return g_simulator.product().state().battery.percent; }
+KEEPALIVE int simulator_battery_charging() {
+    return g_simulator.product().state().battery.charging ? 1 : 0;
 }
 KEEPALIVE int simulator_speed_q() { return g_simulator.product().state().own.speed_q; }
 KEEPALIVE int simulator_track_c9() { return g_simulator.product().state().own.track_c9; }

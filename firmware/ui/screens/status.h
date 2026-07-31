@@ -1,5 +1,5 @@
-// Shows own-ship sensor state: GNSS fix, sats,
-// position, altitude, speed, track, pressure, UTC, PPS lock and traffic count.
+// Shows own-ship sensor state: GNSS fix, sats, position, altitude, speed, track,
+// pressure, UTC, PPS lock, traffic count and the battery.
 // This is the page that makes the sensor inputs observable on the panel.
 #ifndef SKYBLIP_UI_SCREENS_STATUS_H
 #define SKYBLIP_UI_SCREENS_STATUS_H
@@ -29,6 +29,10 @@ struct StatusSnapshot {
     int16_t climb_e8{0};   // eighth-m/s
     uint32_t utc{0};
     int n_targets{0};
+    bool battery_valid{false};
+    bool charging{false};
+    uint16_t battery_mv{0};
+    uint8_t battery_percent{0};
 };
 
 void draw_status(Framebuffer& fb, const StatusSnapshot& snap);

@@ -5,6 +5,7 @@
 #include "products/skyblip_go/services/alarm.h"
 #include "products/skyblip_go/services/config.h"
 #include "products/skyblip_go/services/ownship.h"
+#include "products/skyblip_go/services/power.h"
 #include "products/skyblip_go/services/radio.h"
 #include "products/skyblip_go/services/screen.h"
 #include "products/skyblip_go/services/traffic.h"
@@ -30,10 +31,10 @@ constexpr Feature kFeatures = static_cast<Feature>(
 
 // What this product cannot fly without, and what it can lose and keep flying.
 constexpr hal::Capabilities kRequired = hal::Capability::Rf | hal::Capability::Gnss;
-constexpr hal::Capabilities kOptional = hal::Capability::Display | hal::Capability::Baro |
-                                        hal::Capability::Buzzer | hal::Capability::Vibro |
-                                        hal::Capability::Link | hal::Capability::Storage |
-                                        hal::Capability::Dfu | hal::Capability::Button;
+constexpr hal::Capabilities kOptional =
+    hal::Capability::Display | hal::Capability::Baro | hal::Capability::Buzzer |
+    hal::Capability::Vibro | hal::Capability::Link | hal::Capability::Storage |
+    hal::Capability::Dfu | hal::Capability::Button | hal::Capability::Battery;
 
 // skyBlip Go: one board, one service list. The shell around it only decides how
 // often step() is called and where the pixels go.
@@ -68,6 +69,7 @@ class Product {
     const bus::State& state() const { return state_; }
 
     OwnshipService& ownship() { return ownship_; }
+    PowerService& power() { return power_; }
     RadioService& radio() { return radio_; }
     TrafficService& traffic() { return traffic_; }
     AlarmService& alarm() { return alarm_; }
@@ -83,13 +85,15 @@ class Product {
 
     ConfigLinkService config_{ctx_};
     OwnshipService ownship_{ctx_};
+    PowerService power_{ctx_};
     RadioService radio_{ctx_};
     TrafficService traffic_{ctx_};
     AlarmService alarm_{ctx_};
     ScreenService screen_{ctx_};
 
-    runtime::Service* services_[6]{&config_, &ownship_, &radio_, &traffic_, &alarm_, &screen_};
-    runtime::Loop loop_{services_, 6};
+    runtime::Service* services_[7]{&config_,  &ownship_, &power_, &radio_,
+                                   &traffic_, &alarm_,   &screen_};
+    runtime::Loop loop_{services_, 7};
 };
 
 }  // namespace skyblip::go

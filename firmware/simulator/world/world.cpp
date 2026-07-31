@@ -200,6 +200,8 @@ void World::apply_events(uint32_t now_ms, const bus::State& state) {
             case EventKind::Fix: set_fix(e.value != 0); break;
             case EventKind::Pps: set_pps_locked(e.value != 0); break;
             case EventKind::Baro: platform_.baro().present = e.value != 0; break;
+            case EventKind::BatteryMv: set_battery_mv(static_cast<int32_t>(e.value)); break;
+            case EventKind::ExternalPower: set_external_power(e.value != 0); break;
             case EventKind::Button: press_button(); break;
             case EventKind::Altitude: set_altitude_m(static_cast<int32_t>(e.value)); break;
             case EventKind::Track: set_track_deg(static_cast<int32_t>(e.value)); break;
