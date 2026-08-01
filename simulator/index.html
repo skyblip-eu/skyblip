@@ -189,8 +189,12 @@
           <button class="warn" onclick="SIM.addThreat()">+ Collision threat</button>
           <button onclick="SIM.clearTraffic()">Clear</button>
         </div>
-        <div class="row" style="margin-top:8px;">
-          <label><input type="checkbox" id="tfc_alptas"> equip new traffic with ALP-TAS</label>
+        <div class="row" style="margin-top:8px; align-items:center;">
+          <label class="hint" for="tfc_system">new traffic is equipped with</label>
+          <select id="tfc_system">
+            <option value="adsl" selected>ADS-L</option>
+            <option value="alptas">ALP-TAS</option>
+          </select>
         </div>
         <div class="ctl" style="margin-top:10px;"><label>Range</label>
           <input type="range" id="rng" min="1000" max="20000" step="1000" value="10000" oninput="SIM.range(this.value)">
@@ -348,7 +352,7 @@ Module.onRuntimeInitialized = () => {
                                     $('extbtn').textContent = 'USB power: ' + (ext ? 'ON' : 'OFF'); };
   // Which system the next aircraft transmits with. Nothing else about the two
   // differs from the page's side: same channels, same buttons, same radar.
-  const alptas = () => ($('tfc_alptas').checked ? 1 : 0);
+  const alptas = () => ($('tfc_system').value === 'alptas' ? 1 : 0);
   SIM.addRandom = () => {
     const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 4000;
     f.addAircraft(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d),
