@@ -103,6 +103,16 @@ void ScreenService::render() {
             ui::draw_sixpack(fb_, snap);
             break;
         }
+        case Page::Signal: {
+            ui::SignalSnapshot snap;
+            snap.have_fix = own.fix_valid;
+            snap.n_heard = context_.state.traffic.count();
+            snap.n_rows =
+                traffic::rank_by_range(context_.state.traffic, own, signal_rows_, ui::kSignalRows);
+            snap.rows = signal_rows_;
+            ui::draw_signal(fb_, snap);
+            break;
+        }
         case Page::Status:
         default: {
             ui::StatusSnapshot snap;
