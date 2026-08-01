@@ -22,7 +22,7 @@ struct Settings {
     bool stealth{false};
     Units units{Units::Metric};
     uint8_t rotation{0};
-    uint8_t page_mask{0x07};
+    uint8_t page_mask{0x0F};
     bool power_save{false};
     char callsign[10]{0};
 

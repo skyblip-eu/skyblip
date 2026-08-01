@@ -4,12 +4,13 @@
 #include "runtime/service.h"
 #include "ui/framebuffer.h"
 #include "ui/screens/radar.h"
+#include "ui/screens/signal.h"
 #include "ui/screens/sixpack.h"
 #include "ui/screens/status.h"
 
 namespace skyblip::go {
 
-enum class Page : uint8_t { Radar, SixPack, Status, kCount };
+enum class Page : uint8_t { Radar, SixPack, Status, Signal, kCount };
 
 class ScreenService : public runtime::Service {
    public:
@@ -44,6 +45,7 @@ class ScreenService : public runtime::Service {
 
     ui::Framebuffer fb_{};
     ui::RadarTarget targets_[kMaxRadarTargets]{};
+    traffic::LinkRow signal_rows_[ui::kSignalRows]{};
     Page page_{Page::Radar};
     int32_t range_m_{10000};
     uint32_t last_render_ms_{0};
