@@ -60,18 +60,29 @@ KEEPALIVE void simulator_set_position(int lat_1e7, int lon_1e7) {
     g_simulator.world().gnss().lon_1e7 = lon_1e7;
 }
 
+// alptas picks what the aircraft is equipped with: 0 is ADS-L, anything else is
+// ALP-TAS. Both land on the same two M-band channels, so it is the shared sync
+// window that decides whether we hear it, not the button.
+static protocol::System system_of(int alptas) {
+    return alptas != 0 ? protocol::System::Alptas : protocol::System::AdslDirect;
+}
+
 KEEPALIVE void simulator_add_aircraft(int north_m, int east_m, int up_m, int speed_mps,
-                                      int track_deg) {
-    g_simulator.world().add_aircraft(north_m, east_m, up_m, speed_mps, track_deg);
+                                      int track_deg, int alptas) {
+    g_simulator.world().add_aircraft(north_m, east_m, up_m, speed_mps, track_deg, -1, -1,
+                                     system_of(alptas));
 }
 // phase_ms/slot below zero let the aircraft pick its own instant, as a
 // conforming transmitter does; pinned, they put a burst where the dwell map
 // says we should or should not hear it.
 KEEPALIVE void simulator_add_aircraft_at(int north_m, int east_m, int up_m, int speed_mps,
-                                         int track_deg, int phase_ms, int slot) {
-    g_simulator.world().add_aircraft(north_m, east_m, up_m, speed_mps, track_deg, phase_ms, slot);
+                                         int track_deg, int phase_ms, int slot, int alptas) {
+    g_simulator.world().add_aircraft(north_m, east_m, up_m, speed_mps, track_deg, phase_ms, slot,
+                                     system_of(alptas));
 }
-KEEPALIVE void simulator_add_threat() { g_simulator.world().add_threat(); }
+KEEPALIVE void simulator_add_threat(int alptas) {
+    g_simulator.world().add_threat(system_of(alptas));
+}
 KEEPALIVE void simulator_clear_traffic() { g_simulator.world().clear_aircraft(); }
 KEEPALIVE int simulator_aircraft_count() { return g_simulator.world().aircraft_count(); }
 

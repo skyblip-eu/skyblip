@@ -175,6 +175,7 @@
             <option value="">— none (free flight) —</option>
             <option value="../../../scenarios/head_on.json">head-on converging glider</option>
             <option value="../../../scenarios/gnss_loss.json">fix lost then regained</option>
+            <option value="../../../scenarios/mixed_traffic.json">ADS-L and ALP-TAS neighbours</option>
           </select>
         </div>
         <div class="hint" id="modehint">mode: dev — every control visible</div>
@@ -182,17 +183,26 @@
 
       <!-- ---------------- traffic ---------------- -->
       <div class="panel">
-        <h2>Traffic (real ADS-L frames)</h2>
+        <h2>Traffic (real ADS-L / ALP-TAS frames)</h2>
         <div class="row">
           <button onclick="SIM.addRandom()">+ Aircraft</button>
           <button class="warn" onclick="SIM.addThreat()">+ Collision threat</button>
           <button onclick="SIM.clearTraffic()">Clear</button>
         </div>
+        <div class="row" style="margin-top:8px; align-items:center;">
+          <label class="hint" for="tfc_system">new traffic is equipped with</label>
+          <select id="tfc_system">
+            <option value="adsl" selected>ADS-L</option>
+            <option value="alptas">ALP-TAS</option>
+          </select>
+        </div>
         <div class="ctl" style="margin-top:10px;"><label>Range</label>
           <input type="range" id="rng" min="1000" max="20000" step="1000" value="10000" oninput="SIM.range(this.value)">
           <output id="rng_o">10 km</output></div>
-        <div class="hint">Each aircraft is encoded as a scrambled + CRC'd ADS-L
-          packet and decoded by the firmware's receive path.</div>
+        <div class="hint">Each aircraft is encoded as a real frame of its own system and
+          decoded by the firmware's receive path: ADS-L scrambled + CRC'd, ALP-TAS
+          encrypted the way the 2024 protocol does. Both are Manchester bursts on the
+          same channels, framed by the one sync window the dwell arms.</div>
       </div>
 
       <!-- ---------------- the 868 band ---------------- -->
@@ -275,8 +285,9 @@ Module.onRuntimeInitialized = () => {
     batteryMv: C('simulator_battery_mv', 'number', []),
     batteryPercent: C('simulator_battery_percent', 'number', []),
     batteryCharging: C('simulator_battery_charging', 'number', []),
-    addAircraft: C('simulator_add_aircraft', null, ['number','number','number','number','number']),
-    addThreat: C('simulator_add_threat', null, []),
+    addAircraft: C('simulator_add_aircraft', null,
+                   ['number','number','number','number','number','number']),
+    addThreat: C('simulator_add_threat', null, ['number']),
     clearTraffic: C('simulator_clear_traffic', null, []),
     fb: C('simulator_fb', 'number', []),
     W: C('simulator_fb_w', 'number', [])(),
@@ -302,7 +313,7 @@ Module.onRuntimeInitialized = () => {
     slotState: C('simulator_slot_state', 'number', []),
     dwellFreq: C('simulator_dwell_freq', 'number', []),
     addAircraftAt: C('simulator_add_aircraft_at', null,
-                     ['number','number','number','number','number','number','number']),
+                     ['number','number','number','number','number','number','number','number']),
     airCount: C('simulator_air_count', 'number', []),
     airPhase: C('simulator_air_phase_ms', 'number', ['number']),
     airEvent: C('simulator_air_event', 'number', ['number']),
@@ -339,19 +350,22 @@ Module.onRuntimeInitialized = () => {
   SIM.battery = v => { f.setBatteryMv(+v); $('bat_o').textContent = (v/1000).toFixed(2) + ' V'; };
   SIM.toggleExternalPower = () => { ext = !ext; f.setExternalPower(ext ? 1 : 0);
                                     $('extbtn').textContent = 'USB power: ' + (ext ? 'ON' : 'OFF'); };
+  // Which system the next aircraft transmits with. Nothing else about the two
+  // differs from the page's side: same channels, same buttons, same radar.
+  const alptas = () => ($('tfc_system').value === 'alptas' ? 1 : 0);
   SIM.addRandom = () => {
     const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 4000;
     f.addAircraft(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d),
                   Math.round((Math.random()-0.5)*300),
-                  20 + Math.round(Math.random()*40), Math.round(Math.random()*359));
+                  20 + Math.round(Math.random()*40), Math.round(Math.random()*359), alptas());
   };
-  SIM.addThreat = () => f.addThreat();
+  SIM.addThreat = () => f.addThreat(alptas());
   // A neighbour pinned to one instant of the second: the only way to prove the
   // dwell map is to put a burst where we should, and should not, hear it.
   SIM.addAt = phase => {
     const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 3000;
     f.addAircraftAt(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d), 0, 30,
-                    Math.round(Math.random()*359), phase, -1);
+                    Math.round(Math.random()*359), phase, -1, alptas());
   };
   // A mode is a scenario plus chrome: the firmware runs the same either way.
   const MODES = ['dev', 'demo', 'training'];
