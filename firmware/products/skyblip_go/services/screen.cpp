@@ -32,9 +32,8 @@ void ScreenService::tick(uint32_t now_ms) {
     dirty_ = false;
     render();
 
-    const bool changed =
-        !presented_once_ ||
-        std::memcmp(fb_.data(), presented_.data(), ui::Framebuffer::kBytes) != 0;
+    const bool changed = !presented_once_ ||
+                         std::memcmp(fb_.data(), presented_.data(), ui::Framebuffer::kBytes) != 0;
     const bool full = decide_full(now_ms, quiet);
     if (!changed && !full) return;
 

@@ -84,7 +84,7 @@ TEST_CASE("screen policy: changing frames refresh fast until the full is owed") 
     rig.churn(t, 1);
     CHECK(rig.chip.last_full);
     rig.churn(t, 1);
-    rig.run_seconds(t, 1);  // the full is still settling when the change arrives
+    rig.run_seconds(t, 1);            // the full is still settling when the change arrives
     CHECK_FALSE(rig.chip.last_full);  // and the counter restarted
     CHECK(rig.screen.fasts_since_full() == 1);
 }

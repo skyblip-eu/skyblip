@@ -22,11 +22,11 @@ class ScreenService : public runtime::Service {
     static constexpr int kMaxRadarTargets = 12;
     static constexpr uint32_t kRenderPeriodMs = 1000;  // draw + diff cadence
     static constexpr uint32_t kPresentFloorMs = 1000;  // min gap between refreshes
-    static constexpr int kFastPerFull = 12;      // fast refreshes before a full is owed
-    static constexpr int kFastHardCeiling = 24;  // owed full forced, alarm or not
+    static constexpr int kFastPerFull = 12;            // fast refreshes before a full is owed
+    static constexpr int kFastHardCeiling = 24;        // owed full forced, alarm or not
     static constexpr uint32_t kSkyEmptyBeforeFullMs = 60000;  // quiet time before an
                                                               // owed full is taken early
-    static constexpr uint32_t kFullEveryMs = 0;  // wall-clock full floor, 0 = disabled
+    static constexpr uint32_t kFullEveryMs = 0;               // wall-clock full floor, 0 = disabled
 
     using runtime::Service::Service;
 
