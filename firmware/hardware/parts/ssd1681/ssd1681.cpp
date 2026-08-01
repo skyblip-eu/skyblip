@@ -1,10 +1,4 @@
-// ONCE and shared (like sx1262). Talks only to io::Spi / io::Gpio, so it runs
-// unchanged on Zephyr, on the host (against models/ssd1681.h), and anywhere else.
-//
-// Command set per the Solomon SSD1681 datasheet + the GDEH0154D67 panel init
-// sequence for the T-Echo panel. A present() writes both RAM banks — previous
-// image from shadow_, new image from the framebuffer — kicks the refresh and
-// returns; ready() polls BUSY and puts the panel to deep sleep once it settles.
+// GDEH0154D67 panel on the SSD1681 controller, over io::Spi / io::Gpio only.
 #include "hardware/parts/ssd1681/ssd1681.h"
 
 #include <cstring>
@@ -26,15 +20,13 @@ constexpr uint8_t kSetRamYAddr = 0x45;
 constexpr uint8_t kSetRamXCounter = 0x4E;
 constexpr uint8_t kSetRamYCounter = 0x4F;
 constexpr uint8_t kDeepSleep = 0x10;
+constexpr uint8_t kDeepSleepRetainRam = 0x01;
 
-// Display update control 2 sequences: full flashing waveform vs the fast
-// differential one (display mode 2), both LUTs from the panel's OTP, both
-// powering the analog rails down when done.
 constexpr uint8_t kSequenceFull = 0xF7;
 constexpr uint8_t kSequenceFast = 0xFF;
 
-constexpr int kW = ui::Framebuffer::kW;  // 200
-constexpr int kH = ui::Framebuffer::kH;  // 200
+constexpr int kW = ui::Framebuffer::kW;
+constexpr int kH = ui::Framebuffer::kH;
 }  // namespace
 
 void Ssd1681::begin() {
@@ -48,7 +40,7 @@ void Ssd1681::begin() {
 }
 
 void Ssd1681::present(const ui::Framebuffer& fb, hal::Refresh mode, uint32_t now_ms) {
-    if (refreshing_) {  // only the shutdown path collides; let the glass settle
+    if (refreshing_) {  // only the shutdown path presents into a running refresh
         wait_busy();
         finish_refresh();
     }
@@ -79,8 +71,6 @@ bool Ssd1681::ready(uint32_t now_ms) {
     if (static_cast<int32_t>(now_ms - ready_at_ms_) < 0) return false;
     if (gpio_.get(busy_)) {
         if (static_cast<int32_t>(now_ms - timeout_at_ms_) < 0) return false;
-        // BUSY stuck past any plausible refresh: re-initialise the panel. The
-        // glass is in an unknown state, so the next present is forced full.
         init_panel();
         glass_known_ = false;
         refreshing_ = false;
@@ -107,7 +97,6 @@ void Ssd1681::set_backlight(bool on) {
 }
 
 void Ssd1681::init_panel() {
-    // Hardware reset pulse.
     gpio_.set(rst_, true);
     gpio_.set(rst_, false);
     gpio_.set(rst_, true);
@@ -116,11 +105,10 @@ void Ssd1681::init_panel() {
     cmd(kSwReset);
     wait_busy();
 
-    // 200 lines, gate scan settings.
     cmd(kDriverOutputCtrl);
-    data(0xC7);  // (200-1) low byte
-    data(0x00);  // high byte
-    data(0x00);  // GD=0, SM=0, TB=0
+    data(0xC7);  // 200 - 1 gates
+    data(0x00);
+    data(0x00);
 
     cmd(kDataEntryMode);
     data(0x03);  // X inc, Y inc
@@ -130,8 +118,9 @@ void Ssd1681::init_panel() {
     cmd(kBorderWaveform);
     data(0x05);
 
+    // INFO: fc 01aug25 internal sensor selects the temperature-compensated OTP LUT
     cmd(kTempSensorCtrl);
-    data(0x80);  // internal sensor: the OTP LUT is temperature-compensated
+    data(0x80);
 
     set_cursor(0, 0);
     wait_busy();
@@ -139,38 +128,34 @@ void Ssd1681::init_panel() {
 
 void Ssd1681::finish_refresh() {
     refreshing_ = false;
-    // INFO: fc 01aug25 vendor guidance (Waveshare/Good Display): a panel left
-    // powered between refreshes degrades irreversibly; deep sleep after every
-    // update, image retained. present() wakes it with a reset pulse.
+    // INFO: fc 01aug25 vendor rule: a panel left powered between refreshes degrades
     enter_sleep();
 }
 
 void Ssd1681::enter_sleep() {
     cmd(kDeepSleep);
-    data(0x01);  // mode 1: keep RAM powered enough to retain the image
+    data(kDeepSleepRetainRam);
     asleep_ = true;
 }
 
-// ---- low-level helpers ------------------------------------------------------
-
 void Ssd1681::cmd(uint8_t c) {
-    gpio_.set(dc_, false);  // command
+    gpio_.set(dc_, false);
     spi_.select(true);
     spi_.transfer(&c, nullptr, 1);
     spi_.select(false);
 }
 
 void Ssd1681::data(uint8_t d) {
-    gpio_.set(dc_, true);  // data
+    gpio_.set(dc_, true);
     spi_.select(true);
     spi_.transfer(&d, nullptr, 1);
     spi_.select(false);
 }
 
-// SSD1681 RAM is 1=white, 0=black; the framebuffer stores 1=black.
 void Ssd1681::write_bank(uint8_t command, const uint8_t* fb_bytes) {
     set_cursor(0, 0);
     cmd(command);
+    // INFO: fc 01aug25 panel RAM is 1=white, the framebuffer 1=black
     for (size_t i = 0; i < ui::Framebuffer::kBytes; i++) {
         data(static_cast<uint8_t>(~fb_bytes[i]));
     }
@@ -196,9 +181,6 @@ void Ssd1681::set_cursor(int x, int y) {
 }
 
 void Ssd1681::wait_busy(uint32_t max_spins) {
-    // BUSY is high while the panel works. Bounded spin: used for the short init
-    // waits and the shutdown path only — a running refresh is finished through
-    // ready(), never waited on here.
     for (uint32_t i = 0; i < max_spins; i++) {
         if (!gpio_.get(busy_)) return;
     }

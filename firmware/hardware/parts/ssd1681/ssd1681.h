@@ -19,9 +19,7 @@ class Ssd1681 : public hal::Display {
     void power_on() override { begin(); }
     void set_backlight(bool on) override;
 
-    // A fast refresh settles in ~460 ms on this panel, a full one in ~2.5 s;
-    // BUSY is not worth polling before these. Past kBusyTimeoutMs the panel is
-    // declared hung and re-initialised.
+    // INFO: fc 01aug25 GDEH0154D67 settles in ~460 ms fast / ~2.5 s full (GxEPD2-measured)
     static constexpr uint32_t kReadyAfterFastMs = 300;
     static constexpr uint32_t kReadyAfterFullMs = 1500;
     static constexpr uint32_t kBusyTimeoutMs = 5000;
@@ -40,12 +38,10 @@ class Ssd1681 : public hal::Display {
     io::Spi& spi_;
     io::Gpio& gpio_;
     int dc_, rst_, busy_, backlight_;
-    // What the glass is showing, framebuffer polarity. Rewritten into the
-    // panel's previous-image bank on every present, so the per-pixel diff a
-    // fast refresh runs is always against the truth, deep sleep and panel-lot
-    // quirks notwithstanding.
+    // INFO: fc 01aug25 the glass image; rewritten into bank 0x26 each present so
+    // fast refreshes diff against the truth across deep sleep and panel lots
     uint8_t shadow_[ui::Framebuffer::kBytes]{};
-    bool glass_known_{false};  // false until a full refresh has landed
+    bool glass_known_{false};
     bool asleep_{false};
     bool refreshing_{false};
     uint32_t ready_at_ms_{0};

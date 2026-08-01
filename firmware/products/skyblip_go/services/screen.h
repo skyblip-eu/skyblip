@@ -12,21 +12,15 @@ namespace skyblip::go {
 
 enum class Page : uint8_t { Radar, SixPack, Status, Signal, kCount };
 
-// Draws the current page once a second and presents it only when the pixels
-// changed. Fast (differential, flicker-free) refresh is the default; the full
-// flashing refresh that clears e-paper ghosting is scheduled around the traffic
-// picture: never during an alarm, opportunistically when the sky has been empty
-// for a while, forced only past a hard ceiling.
 class ScreenService : public runtime::Service {
    public:
     static constexpr int kMaxRadarTargets = 12;
-    static constexpr uint32_t kRenderPeriodMs = 1000;  // draw + diff cadence
-    static constexpr uint32_t kPresentFloorMs = 1000;  // min gap between refreshes
-    static constexpr int kFastPerFull = 12;            // fast refreshes before a full is owed
-    static constexpr int kFastHardCeiling = 24;        // owed full forced, alarm or not
-    static constexpr uint32_t kSkyEmptyBeforeFullMs = 60000;  // quiet time before an
-                                                              // owed full is taken early
-    static constexpr uint32_t kFullEveryMs = 0;               // wall-clock full floor, 0 = disabled
+    static constexpr uint32_t kRenderPeriodMs = 1000;
+    static constexpr uint32_t kPresentFloorMs = 1000;
+    static constexpr int kFastPerFull = 12;
+    static constexpr int kFastHardCeiling = 24;
+    static constexpr uint32_t kSkyEmptyBeforeFullMs = 60000;
+    static constexpr uint32_t kFullEveryMs = 0;  // 0 disables
 
     using runtime::Service::Service;
 
@@ -71,7 +65,7 @@ class ScreenService : public runtime::Service {
     int fasts_since_full_{0};
     uint8_t last_alarm_{0};
     bool dirty_{true};
-    bool want_full_{true};  // first present, page changes, repower: prefer full
+    bool want_full_{true};
     bool presented_once_{false};
     bool backlight_{false};
     bool powered_{true};

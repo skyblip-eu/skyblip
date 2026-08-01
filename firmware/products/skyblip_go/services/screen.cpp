@@ -41,18 +41,14 @@ void ScreenService::tick(uint32_t now_ms) {
     note_presented(full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
 }
 
-// The full refresh flashes the panel for ~2.5 s — the worst possible thing to
-// show a pilot mid-encounter. It is owed on a counter and on page changes, but
-// paid only while no alarm is active, ideally while the sky is empty; the hard
-// ceiling is the escape valve for an encounter that outlasts the ghost budget.
+// INFO: fc 01aug25 a full refresh flashes ~2.5 s: pay ghost debt around the
+// traffic picture, never in a pilot's face
 bool ScreenService::decide_full(uint32_t now_ms, bool quiet) const {
     if (!presented_once_) return true;
     if (fasts_since_full_ >= kFastHardCeiling) return true;
     if (context_.state.alarm_level > 0) return false;
     if (want_full_ || fasts_since_full_ >= kFastPerFull) return true;
     if (kFullEveryMs != 0 && now_ms - last_full_ms_ >= kFullEveryMs) return true;
-    // Sky empty for a while and ghost debt outstanding: wash the panel now,
-    // while nobody needs it, instead of during the next encounter.
     return fasts_since_full_ > 0 && quiet && now_ms - quiet_since_ms_ >= kSkyEmptyBeforeFullMs;
 }
 
@@ -79,7 +75,7 @@ void ScreenService::next_page() {
         }
     }
     dirty_ = true;
-    want_full_ = true;  // a page swap replaces the whole layout: worst ghosting case
+    want_full_ = true;
 }
 
 void ScreenService::set_backlight(bool on) {
@@ -95,9 +91,7 @@ void ScreenService::set_power(bool on) {
         context_.roles.display.power_on();
         return;
     }
-    // An e-paper keeps whatever was written last once the rails drop, so the
-    // wordmark has to be pushed BEFORE the panel loses power: it is what the
-    // device wears while it is off.
+    // INFO: fc 01aug25 pushed before power-off: the glass wears it while off
     fb_.clear(/*white=*/true);
     ui::draw_wordmark(fb_, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
     context_.roles.display.present(fb_, hal::Refresh::Full, last_render_ms_);
