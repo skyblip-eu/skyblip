@@ -135,6 +135,10 @@ TEST_CASE("product: a button press switches page and forces a full refresh") {
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
     rig.press(t);
+    CHECK(rig.product.screen().page() == go::Page::Signal);
+
+    // Every page is on the rotation by default, and the rotation closes.
+    rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Radar);
 }
 
