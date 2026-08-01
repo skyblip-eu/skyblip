@@ -36,9 +36,12 @@ class Ssd1681 : public io::Spi, public io::Gpio {
             if (rx) rx[i] = 0;
             if (!dc_high_) {
                 cmds.push_back(b);
-                capturing_ = b == kWriteRam;
                 if (b == kWriteRam) ram.clear();
-                if (b == kDeepSleep) powered = false;
+                if (b == kWriteRamPrevious) ram_previous.clear();
+                if (b == kDeepSleep) {
+                    powered = false;
+                    deep_sleeps++;
+                }
                 if (b == kMasterActivation) {
                     present_count++;
                     // In deep sleep the panel's charge pump is off: it latches
@@ -47,7 +50,8 @@ class Ssd1681 : public io::Spi, public io::Gpio {
                 }
                 pending_ = b;
             } else {
-                if (capturing_) ram.push_back(b);
+                if (pending_ == kWriteRam) ram.push_back(b);
+                if (pending_ == kWriteRamPrevious) ram_previous.push_back(b);
                 if (pending_ == kUpdateCtrl2) last_full = b == 0xF7;
             }
         }
@@ -79,8 +83,10 @@ class Ssd1681 : public io::Spi, public io::Gpio {
 
     std::vector<uint8_t> cmds;
     std::vector<uint8_t> ram;
+    std::vector<uint8_t> ram_previous;
     int reset_pulses{0};
     int present_count{0};
+    int deep_sleeps{0};
     bool busy_stuck{false};
     bool powered{true};
     bool backlight{false};
@@ -88,6 +94,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
 
    private:
     static constexpr uint8_t kWriteRam = 0x24;
+    static constexpr uint8_t kWriteRamPrevious = 0x26;
     static constexpr uint8_t kMasterActivation = 0x20;
     static constexpr uint8_t kUpdateCtrl2 = 0x22;
     static constexpr uint8_t kDeepSleep = 0x10;
@@ -101,7 +108,6 @@ class Ssd1681 : public io::Spi, public io::Gpio {
     ui::Framebuffer panel_{};
     bool dc_high_{false};
     bool rst_level_{true};
-    bool capturing_{false};
     uint8_t pending_{0};
 };
 

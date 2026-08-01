@@ -50,7 +50,9 @@ class Simulator {
     platform::host::Platform& platform() { return platform_; }
 
     const ui::Framebuffer& panel() { return platform_.chips().epd.framebuffer(); }
-    bool panel_powered() { return platform_.chips().epd.powered; }
+    // Firmware intent, not the panel's pump state: the driver deep-sleeps the
+    // panel between refreshes and the glass keeps its image through that.
+    bool panel_powered() { return product_.screen().powered(); }
     bool backlight() { return platform_.chips().epd.backlight; }
     int present_count() { return platform_.chips().epd.present_count; }
     uint8_t alarm_level() { return platform_.annunciator().level(); }

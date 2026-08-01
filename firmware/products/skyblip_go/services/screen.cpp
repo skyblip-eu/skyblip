@@ -1,5 +1,7 @@
 #include "products/skyblip_go/services/screen.h"
 
+#include <cstring>
+
 #include "core/flight/atmosphere.h"
 #include "core/protocol/nmea_out.h"
 #include "core/util/units.h"
@@ -18,9 +20,54 @@ void ScreenService::tick(uint32_t now_ms) {
 
     if (!hal::has(context_.roles.capabilities, hal::Capability::Display)) return;
     if (!powered_) return;
+
+    const bool quiet = context_.state.alarm_level == 0 && context_.state.traffic.count() == 0;
+    if (!quiet) quiet_since_ms_ = now_ms;
+
     if (!dirty_ && now_ms - last_render_ms_ < kRenderPeriodMs) return;
+    if (!context_.roles.display.ready(now_ms)) return;
+    if (presented_once_ && now_ms - last_present_ms_ < kPresentFloorMs) return;
+
     last_render_ms_ = now_ms;
+    dirty_ = false;
     render();
+
+    const bool changed =
+        !presented_once_ ||
+        std::memcmp(fb_.data(), presented_.data(), ui::Framebuffer::kBytes) != 0;
+    const bool full = decide_full(now_ms, quiet);
+    if (!changed && !full) return;
+
+    context_.roles.display.present(fb_, full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
+    note_presented(full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
+}
+
+// The full refresh flashes the panel for ~2.5 s — the worst possible thing to
+// show a pilot mid-encounter. It is owed on a counter and on page changes, but
+// paid only while no alarm is active, ideally while the sky is empty; the hard
+// ceiling is the escape valve for an encounter that outlasts the ghost budget.
+bool ScreenService::decide_full(uint32_t now_ms, bool quiet) const {
+    if (!presented_once_) return true;
+    if (fasts_since_full_ >= kFastHardCeiling) return true;
+    if (context_.state.alarm_level > 0) return false;
+    if (want_full_ || fasts_since_full_ >= kFastPerFull) return true;
+    if (kFullEveryMs != 0 && now_ms - last_full_ms_ >= kFullEveryMs) return true;
+    // Sky empty for a while and ghost debt outstanding: wash the panel now,
+    // while nobody needs it, instead of during the next encounter.
+    return fasts_since_full_ > 0 && quiet && now_ms - quiet_since_ms_ >= kSkyEmptyBeforeFullMs;
+}
+
+void ScreenService::note_presented(hal::Refresh mode, uint32_t now_ms) {
+    std::memcpy(presented_.data(), fb_.data(), ui::Framebuffer::kBytes);
+    presented_once_ = true;
+    last_present_ms_ = now_ms;
+    if (mode == hal::Refresh::Full) {
+        fasts_since_full_ = 0;
+        want_full_ = false;
+        last_full_ms_ = now_ms;
+    } else {
+        fasts_since_full_++;
+    }
 }
 
 void ScreenService::next_page() {
@@ -33,6 +80,7 @@ void ScreenService::next_page() {
         }
     }
     dirty_ = true;
+    want_full_ = true;  // a page swap replaces the whole layout: worst ghosting case
 }
 
 void ScreenService::set_backlight(bool on) {
@@ -42,6 +90,7 @@ void ScreenService::set_backlight(bool on) {
 
 void ScreenService::set_power(bool on) {
     dirty_ = true;
+    want_full_ = true;
     powered_ = on;
     if (on) {
         context_.roles.display.power_on();
@@ -52,14 +101,11 @@ void ScreenService::set_power(bool on) {
     // device wears while it is off.
     fb_.clear(/*white=*/true);
     ui::draw_wordmark(fb_, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
-    context_.roles.display.present(fb_, {0, 0, ui::Framebuffer::kW, ui::Framebuffer::kH},
-                                   hal::Refresh::Full);
+    context_.roles.display.present(fb_, hal::Refresh::Full, last_render_ms_);
     context_.roles.display.power_off();
 }
 
 void ScreenService::render() {
-    const bool full = dirty_;
-    dirty_ = false;
     fb_.clear(/*white=*/true);
 
     const messages::OwnState& own = context_.state.own;
@@ -146,9 +192,6 @@ void ScreenService::render() {
             break;
         }
     }
-
-    context_.roles.display.present(fb_, {0, 0, ui::Framebuffer::kW, ui::Framebuffer::kH},
-                                   full ? hal::Refresh::Full : hal::Refresh::Partial);
 }
 
 }  // namespace skyblip::go
