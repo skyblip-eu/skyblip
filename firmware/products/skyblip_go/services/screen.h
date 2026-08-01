@@ -16,6 +16,11 @@ class ScreenService : public runtime::Service {
    public:
     static constexpr int kMaxRadarTargets = 12;
     static constexpr uint32_t kRenderPeriodMs = 1000;
+    static constexpr uint32_t kPresentFloorMs = 1000;
+    static constexpr int kFastPerFull = 12;
+    static constexpr int kFastHardCeiling = 24;
+    static constexpr uint32_t kSkyEmptyBeforeFullMs = 60000;
+    static constexpr uint32_t kFullEveryMs = 0;  // 0 disables
 
     using runtime::Service::Service;
 
@@ -32,11 +37,15 @@ class ScreenService : public runtime::Service {
     Page page() const { return page_; }
     int32_t range_m() const { return range_m_; }
     bool backlight() const { return backlight_; }
+    bool powered() const { return powered_; }
     const ui::Framebuffer& framebuffer() const { return fb_; }
     void mark_dirty() { dirty_ = true; }
+    int fasts_since_full() const { return fasts_since_full_; }
 
    private:
     void render();
+    bool decide_full(uint32_t now_ms, bool quiet) const;
+    void note_presented(hal::Refresh mode, uint32_t now_ms);
 
     // 1 m/s = 196.85 ft/min, from eighth-m/s.
     int32_t climb_fpm() const {
@@ -44,13 +53,20 @@ class ScreenService : public runtime::Service {
     }
 
     ui::Framebuffer fb_{};
+    ui::Framebuffer presented_{};
     ui::RadarTarget targets_[kMaxRadarTargets]{};
     traffic::LinkRow signal_rows_[ui::kSignalRows]{};
     Page page_{Page::Radar};
     int32_t range_m_{10000};
     uint32_t last_render_ms_{0};
+    uint32_t last_present_ms_{0};
+    uint32_t last_full_ms_{0};
+    uint32_t quiet_since_ms_{0};
+    int fasts_since_full_{0};
     uint8_t last_alarm_{0};
     bool dirty_{true};
+    bool want_full_{true};
+    bool presented_once_{false};
     bool backlight_{false};
     bool powered_{true};
 };

@@ -50,7 +50,8 @@ class Simulator {
     platform::host::Platform& platform() { return platform_; }
 
     const ui::Framebuffer& panel() { return platform_.chips().epd.framebuffer(); }
-    bool panel_powered() { return platform_.chips().epd.powered; }
+    // Firmware intent: the panel itself deep-sleeps between refreshes.
+    bool panel_powered() { return product_.screen().powered(); }
     bool backlight() { return platform_.chips().epd.backlight; }
     int present_count() { return platform_.chips().epd.present_count; }
     uint8_t alarm_level() { return platform_.annunciator().level(); }

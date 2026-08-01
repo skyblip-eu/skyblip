@@ -215,7 +215,7 @@ TEST_CASE("panel model: the driver's own output is what the model shows") {
     skyblip::models::Ssd1681 panel;
     skyblip::parts::Ssd1681 driver(panel, panel, panel.dc, panel.rst, panel.busy);
     driver.begin();
-    driver.present(fb, {0, 0, 200, 200}, skyblip::hal::Refresh::Full);
+    driver.present(fb, skyblip::hal::Refresh::Full, 0);
 
     CHECK(panel.present_count == 1);
     CHECK(panel.last_full);

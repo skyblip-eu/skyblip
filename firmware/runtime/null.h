@@ -12,7 +12,7 @@ namespace skyblip::runtime {
 
 class NullDisplay : public hal::Display {
    public:
-    void present(const ui::Framebuffer&, hal::Rect, hal::Refresh) override {}
+    void present(const ui::Framebuffer&, hal::Refresh, uint32_t) override {}
     void power_off() override {}
 };
 

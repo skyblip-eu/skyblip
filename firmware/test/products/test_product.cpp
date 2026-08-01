@@ -114,15 +114,22 @@ TEST_CASE("product: step() runs the service cycle deterministically under a mode
     CHECK(rig.state().traffic.count() == 0);
 }
 
-TEST_CASE("product: the e-paper is refreshed on cadence when a display is present") {
+TEST_CASE("product: the e-paper refreshes on change, not on cadence") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
-    rig.run(0, 3000);
-    CHECK(rig.platform.chips().epd.present_count >= 3);
-    CHECK_FALSE(rig.platform.chips().epd.last_full);
+    rig.run(0, 5000);
+    // The boot frame, presented full; the sky then stays static, so nothing
+    // else reaches the glass.
+    CHECK(rig.platform.chips().epd.present_count == 1);
+    CHECK(rig.platform.chips().epd.last_full);
+
+    rig.push_fix(1000, 1);  // fix arrives: the radar page changes
+    rig.run(5000, 8000);
+    CHECK(rig.platform.chips().epd.present_count == 2);
+    CHECK_FALSE(rig.platform.chips().epd.last_full);  // differential, no flash
 }
 
-TEST_CASE("product: a button press switches page and forces a full refresh") {
+TEST_CASE("product: a button press switches page and the layout swap lands full") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     CHECK(rig.product.screen().page() == go::Page::Radar);
@@ -130,7 +137,10 @@ TEST_CASE("product: a button press switches page and forces a full refresh") {
     uint32_t t = 100;
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::SixPack);
+    rig.run(t, t + 4000);  // panel settles, floor passes: the page-change full lands
+    t += 4000;
     CHECK(rig.platform.chips().epd.last_full);
+    CHECK(rig.product.screen().fasts_since_full() == 0);
 
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
