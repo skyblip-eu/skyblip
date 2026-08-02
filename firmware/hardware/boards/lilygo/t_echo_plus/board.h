@@ -110,11 +110,11 @@ class TEchoPlus {
         const uint64_t now_us = platform_.clock().micros();
         state.clock.pps_locked = platform_.pps().locked();
         state.clock.ms_since_pps = platform_.pps().ms_since(now_us);
-        // The edge itself, not the phase it had when this pass started: whoever
-        // reads it later reads an instant that has not gone stale in the
-        // meantime. Rebuilt from ms_since() because that is the whole of the PPS
-        // surface both platforms share.
-        state.clock.pps_edge_us = now_us - static_cast<uint64_t>(state.clock.ms_since_pps) * 1000;
+        // The edge itself, as the surface latched it: whoever reads it later
+        // reads an instant that has not gone stale in the meantime. Rebuilding
+        // it from the millisecond phase threw away up to a millisecond of the
+        // 5 ms jitter guard before the plan was even armed.
+        state.clock.pps_edge_us = platform_.pps().last_edge_us();
     }
 
     typename P::Rf& rf() { return rf_; }

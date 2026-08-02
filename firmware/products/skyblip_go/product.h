@@ -73,6 +73,10 @@ class Product {
     Status setup() {
         const Status board = board_.begin();
         reset_reason_ = power::classify(platform_.system_power().reset_causes());
+        // The register is read once and then only remembered, so the companion
+        // link is told at boot: a watchdog bite in the field is diagnosable
+        // from a phone, without the panel in hand.
+        config_.config().set_reset_reason(reset_reason_);
         flyable_ = board == Status::Ok &&
                    hal::missing(board_.capabilities(), kRequired) == hal::Capability::None;
 
@@ -93,6 +97,10 @@ class Product {
             board_.poll(state_, now_ms);
             loop_.step(now_ms);
             if (power_.cutoff()) shutdown_.request(power::ShutdownReason::LowBattery, now_ms);
+            if (config_.config().power_off_requested()) {
+                config_.config().clear_power_off_request();
+                shutdown_.request(power::ShutdownReason::LinkRequest, now_ms);
+            }
         }
         shutdown_.tick(now_ms, platform_.button_down());
         drive_shutdown();

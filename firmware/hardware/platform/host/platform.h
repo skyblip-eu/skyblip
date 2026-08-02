@@ -55,15 +55,30 @@ class Battery {
     bool external_power{false};
 };
 
+// The same PPS surface the silicon platform offers: a phase, and the instant the
+// edge itself arrived. The modelled receiver pulses on the whole second of the
+// clock the caller advances, so the edge is that second - not the phase rounded
+// to the millisecond whoever asked happened to ask on.
 class Pps {
    public:
+    explicit Pps(const Clock& clock) : clock_(clock) {}
+
     bool locked() const { return locked_; }
     void set_locked(bool on) { locked_ = on; }
     uint32_t ms_since(uint64_t now_us) const {
         return locked_ ? static_cast<uint32_t>(now_us / 1000 % 1000) : 0;
     }
 
+    uint64_t last_edge_us() const {
+        if (!locked_) return 0;
+        const uint64_t now_us = clock_.micros();
+        return now_us - now_us % kSecondUs;
+    }
+
    private:
+    static constexpr uint64_t kSecondUs = 1000000;
+
+    const Clock& clock_;
     bool locked_{true};
 };
 
@@ -127,7 +142,7 @@ class Platform {
     host::Dfu dfu_{};
     host::Baro baro_{};
     host::Battery battery_{};
-    host::Pps pps_{};
+    host::Pps pps_{clock_};
     host::Watchdog watchdog_{};
     host::SystemPower system_power_{};
     hal::Capabilities fitted_;

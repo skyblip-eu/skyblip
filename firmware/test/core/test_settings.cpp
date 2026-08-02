@@ -227,6 +227,13 @@ TEST_CASE("settings: the JSON offers nothing the firmware does not read") {
     // (callsign, page_mask, units), the annunciator (alarm, alarm_volume).
     CHECK(json.find("stealth") != std::string::npos);
     CHECK(json.find("callsign") != std::string::npos);
+    // units survived the same audit the three above failed, on one page: the
+    // six-pack graduates its dials in km/h, metres and m/s or in kt, ft and
+    // fpm, and there is nowhere else a value appears exactly once.
+    CHECK(json.find("units") != std::string::npos);
+    const char* imperial = "{\"units\":1}";
+    CHECK(apply_json(s, imperial, static_cast<int>(strlen(imperial))) == Status::Ok);
+    CHECK(s.units == Units::Imperial);
 
     // An older client still sending the dropped keys is not an error: the rest
     // of its patch applies, and the keys nothing reads are ignored.

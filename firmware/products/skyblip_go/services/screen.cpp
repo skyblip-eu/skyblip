@@ -157,6 +157,7 @@ void ScreenService::render() {
         case Page::SixPack: {
             ui::SixPackSnapshot snap;
             snap.have_data = own.fix_valid;
+            snap.units = settings.units;
             // 1 m/s = 1.94384 kt, from quarter-m/s.
             snap.speed_kt = (static_cast<int32_t>(own.speed_q) * 194384) / (4 * 100000);
             snap.alt_ft = to_feet(Metres(own.alt_m)).v;
@@ -198,12 +199,12 @@ void ScreenService::render() {
             snap.battery_mv = context_.state.battery.millivolts;
             snap.battery_percent = context_.state.battery.percent;
             snap.charging = context_.state.battery.charging;
-            // The acting side of this threshold is core/power's CutoffMonitor,
-            // which debounces before it takes the device down. The page only
-            // reports, and the gauge behind it is already a median of three.
-            snap.battery_low = context_.state.battery.valid &&
-                               !context_.state.battery.external_power &&
-                               context_.state.battery.millivolts < power::kLowWarnMv;
+            // The decision belongs to core/power's CutoffMonitor, which has
+            // already debounced it, ignored a cell on the cable and thrown out a
+            // floating sense. The page reports what it decided.
+            const power::PowerLevel level = context_.state.power_level;
+            snap.battery_low =
+                level == power::PowerLevel::Low || level == power::PowerLevel::Cutoff;
             snap.pressure_pa = context_.state.pressure_pa;
             snap.qnh_pa = context_.state.qnh_pa;
             if (context_.state.baro_active) {

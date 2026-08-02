@@ -1,6 +1,9 @@
 // The acceptance invariant on the host: the real product (board, services,
 // drivers) links and runs on the host platform with zero framework code. If any
 // of it leaks a Zephyr include, this stops compiling.
+#include <cstring>
+#include <string>
+
 #include "core/flight/atmosphere.h"
 #include "doctest/doctest.h"
 #include "hardware/platform/host/platform.h"
@@ -60,6 +63,15 @@ struct Rig {
     }
 
     bus::State& state() { return product.state(); }
+
+    // The companion app's side of the link, arriving where the board polls it.
+    void send(const char* json) {
+        messages::RxFrame frame{};
+        frame.endpoint = messages::Endpoint::Config;
+        frame.len = static_cast<uint16_t>(std::strlen(json));
+        std::memcpy(frame.data.data(), json, frame.len);
+        platform.link().push_rx(frame);
+    }
 };
 
 // A board with no fitted barometer: the samples in these cases are pushed by
@@ -407,6 +419,77 @@ TEST_CASE("product: the reset reason is read once at boot and kept") {
     CHECK(fresh.product.boot_page().count_black() != rig.product.boot_page().count_black());
 }
 
+// D5. The panel has the reason at boot and then it is gone; the field diagnosis
+// happens over the link, days later, with the device in a bag.
+TEST_CASE("product: the status reply over the link names why the device came up") {
+    Rig rig;
+    rig.platform.system_power().causes = power::ResetCause::Watchdog;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.platform.link().clear();
+
+    rig.send("{\"cmd\":\"status\"}");
+    rig.run(0, 200);
+    REQUIRE(rig.platform.link().count_on(messages::Endpoint::Config) == 1);
+    CHECK(rig.platform.link().last().bytes.find("WATCHDOG") != std::string::npos);
+
+    // A device that came up because someone pressed the button says that, and
+    // not the UNKNOWN a reason nobody passed on would read as.
+    Rig pressed;
+    pressed.platform.system_power().causes = power::ResetCause::Pin;
+    REQUIRE(pressed.setup() == Status::Ok);
+    pressed.platform.link().clear();
+    pressed.send("{\"cmd\":\"status\"}");
+    pressed.run(0, 200);
+    CHECK(pressed.platform.link().last().bytes.find("RESET PIN") != std::string::npos);
+    CHECK(pressed.platform.link().last().bytes.find("UNKNOWN") == std::string::npos);
+}
+
+// B3. The slot map is specified against the PPS edge, and the transmit plan is
+// armed from it. An edge rebuilt from the millisecond phase is up to a
+// millisecond late on a 5 ms guard.
+TEST_CASE("product: the PPS edge on the bus is the edge itself, to the microsecond") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+
+    rig.platform.clock().set_micros(12345678);
+    rig.product.step(12345);
+    CHECK(rig.state().clock.pps_locked);
+    CHECK(rig.state().clock.pps_edge_us == 12000000u);
+    CHECK(rig.state().clock.ms_since_pps == 345u);
+
+    // What the same pass used to publish, rebuilt from the phase: the sub-
+    // millisecond remainder was thrown away, and it is not a rounding error but
+    // a signed lateness on every plan armed from it.
+    const uint64_t rebuilt =
+        12345678u - static_cast<uint64_t>(rig.state().clock.ms_since_pps) * 1000;
+    CHECK(rebuilt - rig.state().clock.pps_edge_us == 678u);
+
+    // No lock, no edge: a stale instant is worse than none, because the phase
+    // it implies is a plausible one.
+    rig.platform.pps().set_locked(false);
+    rig.platform.clock().set_micros(13345678);
+    rig.product.step(13345);
+    CHECK_FALSE(rig.state().clock.pps_locked);
+    CHECK(rig.state().clock.pps_edge_us == 0u);
+}
+
+// B4. The one page where a value appears once, so the one page the unit setting
+// can decide. What is on the glass changes; the status page's two columns do not.
+TEST_CASE("product: the unit setting changes the instrument page a pilot reads") {
+    auto sixpack_ink = [](settings::Units units) {
+        Rig rig;
+        REQUIRE(rig.setup() == Status::Ok);
+        rig.state().settings.units = units;
+        uint32_t t = 100;
+        rig.press(t);  // radar -> six-pack
+        rig.run(t, t + 3000);
+        REQUIRE(rig.product.screen().page() == go::Page::SixPack);
+        return rig.product.screen().framebuffer().count_black();
+    };
+
+    CHECK(sixpack_ink(settings::Units::Metric) != sixpack_ink(settings::Units::Imperial));
+}
+
 // F5. The device said nothing when the receiver finally solved, and it
 // transmitted the first solution it got. Both are wrong on the bench and in the
 // air: a cold receiver's first fixes walk, and the pilot is left guessing.
@@ -462,7 +545,10 @@ TEST_CASE("product: the status page carries the device's name and a cell that is
         uint32_t t = 100;
         rig.press(t);  // radar -> six-pack
         rig.press(t);  // -> status
-        rig.run(t, t + 4000);
+        // Long enough for the cutoff monitor to have made its mind up: it wants
+        // three consecutive samples before it calls a cell low, and the page
+        // draws what it decided rather than deciding again.
+        rig.run(t, t + 8000);
         REQUIRE(rig.product.screen().page() == go::Page::Status);
         return rig.product.screen().framebuffer().count_black();
     };
@@ -475,4 +561,30 @@ TEST_CASE("product: the status page carries the device's name and a cell that is
     const int low = status_ink("", 3450);
     CHECK(low != plain);
     CHECK(status_ink("", 3450, /*on_cable=*/true) != low);
+}
+
+// D3, the reporting half. The marker on the page is the cutoff monitor's own
+// verdict, published on the bus: the page does not compare millivolts a second
+// time, so it cannot disagree with the thing that can switch the device off.
+TEST_CASE("product: the status page marks a low cell when the monitor says so, not before") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.platform.battery().millivolts = 3450;
+    uint32_t t = 100;
+    rig.press(t);  // radar -> six-pack
+    rig.press(t);  // -> status
+    REQUIRE(rig.product.screen().page() == go::Page::Status);
+
+    // Two samples under the warning is not yet a low cell: a transmit burst
+    // sags the rail for as long as it lasts, and the third sample is what
+    // decides. The page says nothing while the monitor has not.
+    rig.run(t, 2500);
+    REQUIRE(rig.state().power_level != power::PowerLevel::Low);
+    const int undecided = rig.product.screen().framebuffer().count_black();
+
+    rig.run(2500, 6000);
+    REQUIRE(rig.state().power_level == power::PowerLevel::Low);
+    // The same voltage and the same state of charge, so the only thing that can
+    // have changed on the glass is the marker.
+    CHECK(rig.product.screen().framebuffer().count_black() > undecided);
 }

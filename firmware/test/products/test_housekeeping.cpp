@@ -3,6 +3,8 @@
 // gauge that acts rather than reports, and the loop's half of the watchdog.
 // Nothing here is mocked below the services - the same board, the same service
 // list, the same part models the silicon build uses.
+#include <cstring>
+
 #include "doctest/doctest.h"
 #include "hardware/platform/host/platform.h"
 #include "products/skyblip_go/product.h"
@@ -46,6 +48,18 @@ struct Rig {
     }
 
     bus::State& state() { return product.state(); }
+
+    // A companion app talking to the device: the frame arrives on the link the
+    // board polls, so it takes the same road a phone's would.
+    void send(const char* json) {
+        messages::RxFrame frame{};
+        frame.endpoint = messages::Endpoint::Config;
+        frame.len = static_cast<uint16_t>(std::strlen(json));
+        std::memcpy(frame.data.data(), json, frame.len);
+        platform.link().push_rx(frame);
+    }
+
+    comms::ConfigService& config() { return product.config().config(); }
 };
 
 }  // namespace
@@ -77,6 +91,66 @@ TEST_CASE("product: a long press parks the radio and the panel, then asks for th
 
     rig.hold_button(t, power::kReleaseSettleMs + 200, /*down=*/false);
     CHECK(rig.product.ready_to_power_off());
+}
+
+// D4 over the link: the same road, from a phone instead of a thumb.
+
+TEST_CASE("product: a confirmed power_off over the link parks the device like a long press") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.config().set_flight_state(comms::FlightState::Ground);
+    rig.run(0, 1000);
+
+    rig.send("{\"cmd\":\"power_off\"}");
+    rig.run(1000, 1500);
+    // Asking is not doing: the request is still waiting for the confirmation
+    // the device demands, and nothing has moved.
+    CHECK(rig.config().pending() == comms::Pending::PowerOff);
+    CHECK_FALSE(rig.product.shutdown().going_down());
+    CHECK(rig.product.board().rf().sleeps() == 0);
+
+    rig.config().confirm();
+    rig.run(1500, 2000);
+    CHECK(rig.product.shutdown().reason() == power::ShutdownReason::LinkRequest);
+    CHECK(rig.product.shutdown().phase() == power::ShutdownPhase::Parking);
+    CHECK(rig.product.board().rf().sleeps() == 1);
+    CHECK_FALSE(rig.product.screen().powered());
+
+    // The latch is consumed, not left standing: a device that came back up with
+    // it set would power itself off again.
+    CHECK_FALSE(rig.config().power_off_requested());
+
+    // No button was ever down, so there is no release to wait for.
+    rig.run(2000, 2000 + power::kParkMs + power::kReleaseSettleMs + 500);
+    CHECK(rig.product.ready_to_power_off());
+}
+
+TEST_CASE("product: an unconfirmed power_off over the link turns nothing off") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.config().set_flight_state(comms::FlightState::Ground);
+    rig.send("{\"cmd\":\"power_off\"}");
+    rig.run(0, 5000);
+    CHECK_FALSE(rig.product.shutdown().going_down());
+    CHECK(rig.product.screen().powered());
+    CHECK(rig.product.board().rf().sleeps() == 0);
+
+    // And one that was cancelled stays cancelled.
+    rig.config().cancel();
+    rig.run(5000, 8000);
+    CHECK_FALSE(rig.product.shutdown().going_down());
+
+    // Airborne, the device refuses to arm it at all: a link request cannot land
+    // an aircraft.
+    Rig flying;
+    REQUIRE(flying.setup() == Status::Ok);
+    flying.config().set_flight_state(comms::FlightState::Airborne);
+    flying.send("{\"cmd\":\"power_off\"}");
+    flying.run(0, 2000);
+    CHECK(flying.config().pending() == comms::Pending::None);
+    flying.config().confirm();
+    flying.run(2000, 4000);
+    CHECK_FALSE(flying.product.shutdown().going_down());
 }
 
 TEST_CASE("product: a page press is not a power-off") {
@@ -114,7 +188,9 @@ TEST_CASE("product: a warning comes before the cutoff, and a floating sense neve
     REQUIRE(warned.setup() == Status::Ok);
     warned.platform.battery().millivolts = 3400;
     warned.run(0, 8000);
-    CHECK(warned.product.power().warning());
+    // The level is published on the bus, which is where the status page reads
+    // it: nothing downstream compares millivolts a second time.
+    CHECK(warned.state().power_level == power::PowerLevel::Low);
     CHECK_FALSE(warned.product.power().cutoff());
     CHECK_FALSE(warned.product.shutdown().going_down());
 

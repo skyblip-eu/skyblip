@@ -16,7 +16,8 @@
     "alarm_volume": {"type": "integer", "minimum": 0, "maximum": 5},
     "stealth": {"type": "boolean",
                 "description": "Transmit as an anonymous address table with the vertical rate marked unavailable (ADS-L G.1.9)"},
-    "units": {"type": "integer", "enum": [0, 1], "description": "0=metric,1=imperial"},
+    "units": {"type": "integer", "enum": [0, 1],
+              "description": "0=metric (km/h, m, m/s), 1=imperial (kt, ft, fpm). Graduates the six-pack instrument page, where each value appears once; the status page shows the aeronautical figure and the SI one side by side whatever this says"},
     "page_mask": {"type": "integer", "minimum": 0, "maximum": 255},
     "callsign": {"type": "string", "maxLength": 9,
                  "description": "Printable ASCII. Shown on the status page and reported over the link; ADS-L carries no callsign field, so it is never transmitted on the air"}

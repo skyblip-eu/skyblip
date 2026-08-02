@@ -9,6 +9,7 @@ void PowerService::tick(uint32_t) {
         cutoff_.apply(sample);
     }
     context_.state.battery = gauge_.state();
+    context_.state.power_level = cutoff_.level();
 }
 
 }  // namespace skyblip::go
