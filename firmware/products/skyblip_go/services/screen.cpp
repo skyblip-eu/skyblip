@@ -17,7 +17,7 @@ namespace skyblip::go {
 // device with no panel fitted still owes the pilot the answer.
 void ScreenService::annunciate_first_fix(uint32_t now_ms) {
     const bool quiet = context_.state.alarm_level == 0;
-    if (fix_watch_.take_acquired()) {
+    if (context_.state.own.fix_acquired) {
         dirty_ = true;
         if (!context_.state.settings.alarm_enabled || !quiet) return;
         context_.roles.annunciator.alarm(kFirstFixToneLevel, context_.state.settings.alarm_volume);
@@ -30,12 +30,48 @@ void ScreenService::annunciate_first_fix(uint32_t now_ms) {
     if (quiet) context_.roles.annunciator.silence();
 }
 
-void ScreenService::tick(uint32_t now_ms) {
-    fix_watch_.update(context_.state.own.fix_valid, now_ms);
-    annunciate_first_fix(now_ms);
+// INFO: cf 02aug26 One press means one thing at a time. While a prompt stands
+// there is no page cycling at all, so the press a pilot makes to change pages
+// cannot be spent on an authorisation - and a lone press at a prompt refuses it
+// rather than doing nothing, which is the same press failing closed.
+void ScreenService::handle_input(uint32_t now_ms) {
+    const comms::Pending pending = config_ ? config_->pending() : comms::Pending::None;
+    if (pending != prompt_) {
+        prompt_ = pending;
+        dirty_ = true;
+        want_full_ = true;
+        if (pending == comms::Pending::None)
+            gesture_.disarm();
+        else
+            gesture_.arm(now_ms);
+    }
 
     messages::ButtonEvent press{};
-    while (context_.bus.input.pop(press)) next_page();
+    while (context_.bus.input.pop(press)) {
+        if (prompt_ == comms::Pending::None) {
+            next_page();
+            continue;
+        }
+        resolve(gesture_.press(now_ms));
+    }
+    if (prompt_ != comms::Pending::None) resolve(gesture_.tick(now_ms));
+}
+
+void ScreenService::resolve(ui::Gesture gesture) {
+    if (gesture == ui::Gesture::None) return;
+    if (gesture == ui::Gesture::Confirm)
+        config_->confirm();
+    else
+        config_->cancel();
+    prompt_ = comms::Pending::None;
+    gesture_.disarm();
+    dirty_ = true;
+    want_full_ = true;
+}
+
+void ScreenService::tick(uint32_t now_ms) {
+    annunciate_first_fix(now_ms);
+    handle_input(now_ms);
 
     if (context_.state.alarm_level != last_alarm_) {
         last_alarm_ = context_.state.alarm_level;
@@ -122,7 +158,20 @@ void ScreenService::set_power(bool on) {
     context_.roles.display.power_off();
 }
 
+void ScreenService::draw_prompt() {
+    ui::ConfirmSnapshot snapshot;
+    snapshot.title = comms::pending_title(prompt_);
+    snapshot.detail = comms::pending_detail(prompt_);
+    snapshot.timeout_s = comms::kConfirmWindowMs / 1000;
+    ui::draw_confirm(fb_, snapshot);
+}
+
 void ScreenService::render() {
+    if (prompt_ != comms::Pending::None) {
+        draw_prompt();
+        return;
+    }
+
     fb_.clear(/*white=*/true);
 
     const messages::OwnState& own = context_.state.own;
@@ -163,7 +212,7 @@ void ScreenService::render() {
             snap.alt_ft = to_feet(Metres(own.alt_m)).v;
             snap.vs_fpm = climb_fpm();
             snap.track_deg = to_degrees(Cordic9(own.track_c9)).v;
-            snap.turn_dps = context_.state.turn_dps;
+            snap.turn_dps = own.turn_dps;
             ui::draw_sixpack(fb_, snap);
             break;
         }

@@ -7,10 +7,48 @@
 
 namespace skyblip::comms {
 
+FlightState flight_state_from(uint8_t adsl_code) {
+    switch (static_cast<flight::FlightState>(adsl_code)) {
+        case flight::FlightState::OnGround: return FlightState::Ground;
+        case flight::FlightState::Airborne: return FlightState::Airborne;
+        case flight::FlightState::Unknown: break;
+    }
+    return FlightState::Unknown;
+}
+
+const char* pending_title(Pending pending) {
+    switch (pending) {
+        case Pending::Set: return "SETTINGS";
+        case Pending::Dfu: return "FIRMWARE";
+        case Pending::Apply: return "INSTALL";
+        case Pending::Recovery: return "RECOVERY";
+        case Pending::PowerOff: return "POWER OFF";
+        case Pending::None: break;
+    }
+    return "";
+}
+
+const char* pending_detail(Pending pending) {
+    switch (pending) {
+        case Pending::Set: return "APPLY THE SETTINGS THE PHONE SENT";
+        case Pending::Dfu: return "LET THE PHONE WRITE A NEW IMAGE";
+        case Pending::Apply: return "REBOOT INTO THE STAGED IMAGE";
+        case Pending::Recovery: return "REBOOT INTO THE USB BOOTLOADER";
+        case Pending::PowerOff: return "SHUT THE DEVICE DOWN";
+        case Pending::None: break;
+    }
+    return "";
+}
+
 void ConfigService::tick(uint32_t now_ms) {
     now_ms_ = now_ms;
     if (upload_window_open_ && now_ms - window_opened_ms_ >= kUploadWindowMs) {
         upload_window_open_ = false;
+    }
+    if (pending_ != Pending::None && now_ms - pending_since_ms_ >= kConfirmWindowMs) {
+        pending_ = Pending::None;
+        pending_len_ = 0;
+        ack(false, "expired");
     }
 }
 
@@ -18,6 +56,13 @@ void ConfigService::set_flight_state(FlightState fs) {
     if (fs == FlightState::Airborne) {
         airborne_latched_ = true;
         upload_window_open_ = false;
+        // A prompt that survived the take-off roll would be an authorisation a
+        // pilot could confirm with an elbow in the air.
+        if (pending_ != Pending::None) {
+            pending_ = Pending::None;
+            pending_len_ = 0;
+            ack(false, "in_flight");
+        }
     }
     if (fs == FlightState::Ground) airborne_latched_ = false;
     if (airborne_latched_)
@@ -39,6 +84,18 @@ void ConfigService::on_link_down(const messages::LinkDown&) {
 void ConfigService::reply(const char* json) {
     link_.send(messages::Endpoint::Config, ConstByteSpan(reinterpret_cast<const uint8_t*>(json),
                                                          static_cast<size_t>(std::strlen(json))));
+}
+
+void ConfigService::stage(Pending pending, const char* reason) {
+    pending_ = pending;
+    pending_since_ms_ = now_ms_;
+    char buf[64];
+    json::Writer w(buf, sizeof(buf));
+    w.kv_bool("ack", false);
+    w.kv_bool("pending", true);
+    w.kv_str("reason", reason);
+    w.finish();
+    reply(buf);
 }
 
 void ConfigService::ack(bool ok, const char* reason) {
@@ -110,14 +167,7 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
                            : static_cast<int>(sizeof(pending_buf_)) - 1;
         std::memcpy(pending_buf_, data, static_cast<size_t>(pending_len_));
         pending_buf_[pending_len_] = 0;
-        pending_ = Pending::Set;
-        char buf[64];
-        json::Writer w(buf, sizeof(buf));
-        w.kv_bool("ack", false);
-        w.kv_bool("pending", true);
-        w.kv_str("reason", "confirm");
-        w.finish();
-        reply(buf);
+        stage(Pending::Set, "confirm");
         return;
     }
 
@@ -147,14 +197,7 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
             ack(false, "in_flight");
             return;
         }
-        pending_ = requested;
-        char buf[64];
-        json::Writer w(buf, sizeof(buf));
-        w.kv_bool("ack", false);
-        w.kv_bool("pending", true);
-        w.kv_str("reason", reason);
-        w.finish();
-        reply(buf);
+        stage(requested, reason);
         return;
     }
 

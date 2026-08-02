@@ -71,6 +71,12 @@ class Product {
     explicit Product(P& platform) : platform_(platform), board_(platform, bus_) {}
 
     Status setup() {
+        // The panel is where a pending operation is read and the button is where
+        // it is answered, so the screen service is the one that holds the
+        // companion link's state machine. Wired before anything can ask for an
+        // authorisation there is no way to grant.
+        screen_.attach_config(config_.config());
+
         const Status board = board_.begin();
         reset_reason_ = power::classify(platform_.system_power().reset_causes());
         // The register is read once and then only remembered, so the companion

@@ -1,6 +1,10 @@
 // core/comms config state machine tested over a link model with scripted JSON
 // messages, NO device. Covers get, set-with-confirmation,
 // the in-flight lockout (fail closed), backpressure and DFU routing.
+//
+// Two of these guard the wire the shell now provides: the gate is fed from the
+// ADS-L flight code core/flight publishes, and a prompt standing on the panel
+// is an open authorisation, so it has a life of its own that ends in a refusal.
 #include <cstring>
 #include <string>
 
@@ -283,6 +287,88 @@ TEST_CASE("comms: DFU refused in flight") {
     cs.on_rx(frame("{\"cmd\":\"dfu\"}"));
     CHECK(cs.pending() == Pending::None);
     CHECK(dfu.triggered == 0);
+}
+
+// Wire one: the value behind the gate. Nothing used to set it, so flight_ stayed
+// Unknown and every sensitive operation was refused forever - green tests, dead
+// device. It now comes from state.own.flight_state, and only one code opens it.
+TEST_CASE("comms: only the ADS-L on-ground code is permission, every other value refuses") {
+    CHECK(flight_state_from(static_cast<uint8_t>(flight::FlightState::OnGround)) ==
+          FlightState::Ground);
+    CHECK(flight_state_from(static_cast<uint8_t>(flight::FlightState::Airborne)) ==
+          FlightState::Airborne);
+    CHECK(flight_state_from(static_cast<uint8_t>(flight::FlightState::Unknown)) ==
+          FlightState::Unknown);
+
+    // G.1.4 is two bits and we own neither the sender nor the future: a code
+    // this build does not know is not a ground it may unlock on.
+    for (uint16_t code = 3; code < 256; code++)
+        CHECK(flight_state_from(static_cast<uint8_t>(code)) == FlightState::Unknown);
+
+    // And the state machine behind it behaves exactly as it does when the value
+    // is set by hand: a receiver that says "on the ground" is the only way in.
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(flight_state_from(0));
+    cs.on_rx(frame("{\"cmd\":\"dfu\"}"));
+    CHECK(cs.pending() == Pending::None);
+    cs.set_flight_state(flight_state_from(1));
+    cs.on_rx(frame("{\"cmd\":\"dfu\"}"));
+    CHECK(cs.pending() == Pending::Dfu);
+}
+
+TEST_CASE("comms: a prompt nobody answers expires, and a later confirm grants nothing") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+    cs.tick(1000);
+
+    cs.on_rx(frame("{\"cmd\":\"dfu\"}"));
+    REQUIRE(cs.pending() == Pending::Dfu);
+    cs.tick(1000 + kConfirmWindowMs - 1);
+    CHECK(cs.pending() == Pending::Dfu);
+
+    cs.tick(1000 + kConfirmWindowMs);
+    CHECK(cs.pending() == Pending::None);
+    CHECK(link.last().bytes.find("expired") != std::string::npos);
+
+    // The button pressed after the prompt came down authorises the operation
+    // that was on it, or it authorises nothing. It is nothing.
+    cs.confirm();
+    CHECK_FALSE(cs.upload_allowed());
+}
+
+TEST_CASE("comms: taking off takes a standing prompt away with it") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+    cs.on_rx(frame("{\"cmd\":\"recovery\"}"));
+    REQUIRE(cs.pending() == Pending::Recovery);
+
+    cs.set_flight_state(FlightState::Airborne);
+    CHECK(cs.pending() == Pending::None);
+    CHECK(link.last().bytes.find("in_flight") != std::string::npos);
+}
+
+// The prompt is the whole security boundary, so it has to say what it is: a
+// panel that shows an unlabelled question is a panel a pilot answers blind.
+TEST_CASE("comms: every operation that needs authorising names itself and what it will do") {
+    const Pending all[] = {Pending::Set, Pending::Dfu, Pending::Apply, Pending::Recovery,
+                           Pending::PowerOff};
+    for (Pending p : all) {
+        CHECK(std::strlen(pending_title(p)) > 0);
+        CHECK(std::strlen(pending_detail(p)) > 8);
+    }
+    // No two operations wear the same title, or confirming one would look like
+    // confirming another.
+    for (Pending a : all)
+        for (Pending b : all)
+            if (a != b) CHECK(std::strcmp(pending_title(a), pending_title(b)) != 0);
+
+    CHECK(std::strlen(pending_title(Pending::None)) == 0);
 }
 
 TEST_CASE("comms: link down cancels a pending change") {

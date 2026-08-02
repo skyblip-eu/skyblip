@@ -1,6 +1,8 @@
 // The housekeeping a device needs to survive being switched on, wired up to the
 // real product on the host platform: the way out (long press, cutoff, link), the
-// gauge that acts rather than reports, and the loop's half of the watchdog.
+// gauge that acts rather than reports, the loop's half of the watchdog, and the
+// two wires that decide whether the companion link can do anything at all - the
+// flight state behind the gate, and the gesture that answers a prompt.
 // Nothing here is mocked below the services - the same board, the same service
 // list, the same part models the silicon build uses.
 #include <cstring>
@@ -9,6 +11,7 @@
 #include "hardware/platform/host/platform.h"
 #include "products/skyblip_go/product.h"
 #include "runtime/tasks.h"
+#include "ui/screens/confirm.h"
 
 using namespace skyblip;
 
@@ -45,6 +48,42 @@ struct Rig {
     void press(uint32_t& t) {
         hold_button(t, 80, /*down=*/true);
         hold_button(t, 80, /*down=*/false);
+    }
+
+    // The authorising gesture: two presses well inside ui::ConfirmGesture's
+    // window. Each press() above advances the clock by ~200 ms, so the pair
+    // lands at a gap a thumb actually produces.
+    void double_press(uint32_t& t) {
+        press(t);
+        press(t);
+    }
+
+    // One solution from the receiver. core/flight decides what it means and
+    // publishes the ADS-L code; nothing here tells the companion link anything.
+    void push_fix(uint16_t speed_q, int32_t alt_msl_m) {
+        gnss::GnssFix fix{};
+        fix.valid = true;
+        fix.speed_q = speed_q;
+        fix.alt_msl_m = alt_msl_m;
+        fix.updates = 1;
+        product.bus().gnss.push(fix);
+    }
+
+    void on_ground(uint32_t& t) {
+        push_fix(/*speed_q=*/0, /*alt_msl_m=*/0);
+        run(t, t + 200);
+        t += 200;
+    }
+
+    // core/flight wants five seconds of motion it believes before it will call
+    // a device airborne, and it throws the first sample away as too jerky, so
+    // this is a climb-out rather than one hopeful fix.
+    void airborne(uint32_t& t) {
+        for (int i = 0; i < 14; i++) {
+            push_fix(/*speed_q=*/200, /*alt_msl_m=*/1200);
+            run(t, t + 500);
+            t += 500;
+        }
     }
 
     bus::State& state() { return product.state(); }
@@ -98,8 +137,9 @@ TEST_CASE("product: a long press parks the radio and the panel, then asks for th
 TEST_CASE("product: a confirmed power_off over the link parks the device like a long press") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
-    rig.config().set_flight_state(comms::FlightState::Ground);
-    rig.run(0, 1000);
+    uint32_t t = 0;
+    rig.on_ground(t);
+    rig.run(t, 1000);
 
     rig.send("{\"cmd\":\"power_off\"}");
     rig.run(1000, 1500);
@@ -128,9 +168,10 @@ TEST_CASE("product: a confirmed power_off over the link parks the device like a 
 TEST_CASE("product: an unconfirmed power_off over the link turns nothing off") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
-    rig.config().set_flight_state(comms::FlightState::Ground);
+    uint32_t t = 0;
+    rig.on_ground(t);
     rig.send("{\"cmd\":\"power_off\"}");
-    rig.run(0, 5000);
+    rig.run(t, 5000);
     CHECK_FALSE(rig.product.shutdown().going_down());
     CHECK(rig.product.screen().powered());
     CHECK(rig.product.board().rf().sleeps() == 0);
@@ -144,12 +185,14 @@ TEST_CASE("product: an unconfirmed power_off over the link turns nothing off") {
     // an aircraft.
     Rig flying;
     REQUIRE(flying.setup() == Status::Ok);
-    flying.config().set_flight_state(comms::FlightState::Airborne);
+    uint32_t ft = 0;
+    flying.airborne(ft);
     flying.send("{\"cmd\":\"power_off\"}");
-    flying.run(0, 2000);
+    flying.run(ft, ft + 2000);
+    ft += 2000;
     CHECK(flying.config().pending() == comms::Pending::None);
     flying.config().confirm();
-    flying.run(2000, 4000);
+    flying.run(ft, ft + 2000);
     CHECK_FALSE(flying.product.shutdown().going_down());
 }
 
@@ -223,4 +266,156 @@ TEST_CASE("product: the loop feeds the watchdog while it is flying and through a
     REQUIRE(rig.product.shutdown().going_down());
     rig.hold_button(t, 2 * runtime::kTaskWatchdogMs);
     CHECK(rig.product.may_feed_watchdog(t));
+}
+
+// The two dead wires, end to end on the real product. Neither had a caller: the
+// gate was never told the flight state, so it refused everything forever, and
+// nothing could ever call confirm(), so it refused everything twice over.
+
+TEST_CASE("product: the gate opens on the ground the fix stream proved, not on a phone's word") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+
+    // No solution yet: the device does not know where it is, so it is not on
+    // the ground, so it authorises nothing. This is the state a bench device
+    // was stuck in - Unknown, forever.
+    rig.send("{\"cmd\":\"dfu\"}");
+    rig.run(t, 500);
+    CHECK(rig.config().flight_state() == comms::FlightState::Unknown);
+    CHECK(rig.config().pending() == comms::Pending::None);
+    t = 500;
+
+    rig.on_ground(t);
+    CHECK(rig.config().flight_state() == comms::FlightState::Ground);
+    rig.send("{\"cmd\":\"dfu\"}");
+    rig.run(t, t + 500);
+    t += 500;
+    CHECK(rig.config().pending() == comms::Pending::Dfu);
+
+    // And the same stream takes it away again: the transmitter and the update
+    // lockout are reading one decision, not two.
+    rig.airborne(t);
+    CHECK(rig.config().flight_state() == comms::FlightState::Airborne);
+    CHECK(rig.config().pending() == comms::Pending::None);
+    CHECK(rig.product.screen().prompt() == comms::Pending::None);
+}
+
+// The case the whole gesture was chosen for.
+TEST_CASE("product: a page press does not authorise a firmware upload") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.on_ground(t);
+
+    // A pilot pages through the screens. Nothing is pending, so this is paging
+    // and only paging.
+    rig.press(t);
+    rig.run(t, t + 200);
+    t += 200;
+    REQUIRE(rig.product.screen().page() == go::Page::SixPack);
+
+    rig.send("{\"cmd\":\"dfu\"}");
+    rig.run(t, t + 500);
+    t += 500;
+    REQUIRE(rig.config().pending() == comms::Pending::Dfu);
+
+    // ... and pages again, exactly as before, on a device that is now asking
+    // for permission to be overwritten.
+    rig.press(t);
+    rig.run(t, t + ui::ConfirmGesture::kDoublePressMs + 200);
+    t += ui::ConfirmGesture::kDoublePressMs + 200;
+
+    CHECK_FALSE(rig.config().upload_allowed());
+    CHECK(rig.config().pending() == comms::Pending::None);
+    // The press was spent refusing, not paging: one press cannot mean two
+    // things, and the page it would have turned to is still not showing.
+    CHECK(rig.product.screen().page() == go::Page::SixPack);
+
+    // With the prompt gone, the same press pages again.
+    rig.press(t);
+    rig.run(t, t + 200);
+    CHECK(rig.product.screen().page() == go::Page::Status);
+}
+
+TEST_CASE("product: two presses on the ground are what open the upload window") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.on_ground(t);
+
+    rig.send("{\"cmd\":\"dfu\"}");
+    rig.run(t, t + 500);
+    t += 500;
+    REQUIRE(rig.config().pending() == comms::Pending::Dfu);
+    REQUIRE_FALSE(rig.config().upload_allowed());
+
+    rig.double_press(t);
+    rig.run(t, t + 200);
+    t += 200;
+    CHECK(rig.config().upload_allowed());
+    CHECK(rig.config().pending() == comms::Pending::None);
+    CHECK(rig.product.screen().prompt() == comms::Pending::None);
+    // The page it was on is the page it comes back to.
+    CHECK(rig.product.screen().page() == go::Page::Radar);
+
+    // The same two presses, airborne. Fail closed: the window shuts on takeoff
+    // and no gesture reopens it.
+    rig.airborne(t);
+    CHECK_FALSE(rig.config().upload_allowed());
+    rig.send("{\"cmd\":\"dfu\"}");
+    rig.run(t, t + 500);
+    t += 500;
+    rig.double_press(t);
+    rig.run(t, t + 200);
+    CHECK_FALSE(rig.config().upload_allowed());
+}
+
+TEST_CASE("product: the panel names the operation while it waits, and stops cycling pages") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.on_ground(t);
+
+    rig.send("{\"cmd\":\"power_off\"}");
+    rig.run(t, t + 6000);
+    t += 6000;
+    REQUIRE(rig.product.screen().prompt() == comms::Pending::PowerOff);
+
+    ui::ConfirmSnapshot expect;
+    expect.title = comms::pending_title(comms::Pending::PowerOff);
+    expect.detail = comms::pending_detail(comms::Pending::PowerOff);
+    expect.timeout_s = comms::kConfirmWindowMs / 1000;
+    ui::Framebuffer expected;
+    ui::draw_confirm(expected, expect);
+    CHECK(std::memcmp(rig.product.screen().framebuffer().data(), expected.data(),
+                      ui::Framebuffer::kBytes) == 0);
+
+    // It reached the glass, not just the buffer: the pilot being asked can see
+    // the question before the button can answer it.
+    CHECK(rig.platform.chips().epd.framebuffer().count_black() == expected.count_black());
+}
+
+TEST_CASE("product: a prompt nobody answers expires, and the device is not powered off") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.on_ground(t);
+
+    rig.send("{\"cmd\":\"power_off\"}");
+    rig.run(t, t + 1000);
+    t += 1000;
+    REQUIRE(rig.product.screen().prompt() == comms::Pending::PowerOff);
+
+    rig.run(t, t + comms::kConfirmWindowMs + 1000);
+    t += comms::kConfirmWindowMs + 1000;
+    CHECK(rig.config().pending() == comms::Pending::None);
+    CHECK(rig.product.screen().prompt() == comms::Pending::None);
+    CHECK_FALSE(rig.product.shutdown().going_down());
+
+    // And the panel is back on the page the pilot left it on.
+    CHECK(rig.product.screen().page() == go::Page::Radar);
+    rig.press(t);
+    rig.run(t, t + 200);
+    CHECK(rig.product.screen().page() == go::Page::SixPack);
 }

@@ -1,9 +1,11 @@
 #ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_SCREEN_H
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_SCREEN_H
 
-#include "core/gnss/first_fix.h"
+#include "core/comms/config.h"
 #include "runtime/service.h"
 #include "ui/framebuffer.h"
+#include "ui/input/gesture.h"
+#include "ui/screens/confirm.h"
 #include "ui/screens/radar.h"
 #include "ui/screens/signal.h"
 #include "ui/screens/sixpack.h"
@@ -27,6 +29,12 @@ class ScreenService : public runtime::Service {
 
     void tick(uint32_t now_ms) override;
 
+    // The one consumer of bus.input, and therefore the one place a press is
+    // given a meaning. The companion link's state machine is handed over here
+    // so that meaning can be "authorise this" when, and only when, a prompt the
+    // pilot can read is on the glass.
+    void attach_config(comms::ConfigService& config) { config_ = &config; }
+
     void next_page();
     void set_backlight(bool on);
     void set_power(bool on);
@@ -35,11 +43,8 @@ class ScreenService : public runtime::Service {
         dirty_ = true;
     }
 
-    // The receiver's first solution, and how long own-ship state has been
-    // steady since. The transmit policy reads settled(); nothing else does yet.
-    const gnss::FirstFix& first_fix() const { return fix_watch_; }
-
     Page page() const { return page_; }
+    comms::Pending prompt() const { return prompt_; }
     int32_t range_m() const { return range_m_; }
     bool backlight() const { return backlight_; }
     bool powered() const { return powered_; }
@@ -49,6 +54,9 @@ class ScreenService : public runtime::Service {
 
    private:
     void render();
+    void draw_prompt();
+    void handle_input(uint32_t now_ms);
+    void resolve(ui::Gesture gesture);
     void annunciate_first_fix(uint32_t now_ms);
     bool decide_full(uint32_t now_ms, bool quiet) const;
     void note_presented(hal::Refresh mode, uint32_t now_ms);
@@ -64,9 +72,12 @@ class ScreenService : public runtime::Service {
     static constexpr uint32_t kFirstFixToneMs = 250;
     static constexpr uint8_t kFirstFixToneLevel = 1;
 
-    gnss::FirstFix fix_watch_{};
     uint32_t tone_since_ms_{0};
     bool tone_on_{false};
+
+    comms::ConfigService* config_{nullptr};
+    comms::Pending prompt_{comms::Pending::None};
+    ui::ConfirmGesture gesture_{};
 
     ui::Framebuffer fb_{};
     ui::Framebuffer presented_{};
