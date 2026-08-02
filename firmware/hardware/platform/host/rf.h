@@ -38,6 +38,15 @@ class Rf : public hal::Rf {
 
     void abort() override { armed_ = false; }
 
+    // The part model has no sleep state to enter, so this records the intent:
+    // what the shutdown path must prove is that it asked before the rails drop.
+    void sleep() override {
+        armed_ = false;
+        sleeps_++;
+    }
+
+    int sleeps() const { return sleeps_; }
+
     void service(uint32_t now_ms) {
         const uint64_t now_us = clock_.micros();
         const uint32_t dt = now_ms - last_ms_;
@@ -141,6 +150,7 @@ class Rf : public hal::Rf {
     uint32_t backoff_seed_{0x5eed1262u};
     uint32_t last_ms_{0};
     uint32_t armed_count_{0};
+    int sleeps_{0};
     bool armed_{false};
     bool started_{false};
     bool transmitted_{false};

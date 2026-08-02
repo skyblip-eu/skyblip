@@ -5,6 +5,7 @@
 #include "doctest/doctest.h"
 #include "hardware/platform/host/platform.h"
 #include "products/skyblip_go/product.h"
+#include "ui/screens/boot.h"
 #include "ui/widgets/wordmark.h"
 
 using namespace skyblip;
@@ -118,14 +119,14 @@ TEST_CASE("product: the e-paper refreshes on change, not on cadence") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     rig.run(0, 5000);
-    // The boot frame, presented full. The sky then stays static, so nothing
-    // else reaches the glass.
-    CHECK(rig.platform.chips().epd.present_count == 1);
+    // The self-test page setup() paints, then the first radar frame, both full.
+    // The sky then stays static, so nothing else reaches the glass.
+    CHECK(rig.platform.chips().epd.present_count == 2);
     CHECK(rig.platform.chips().epd.last_full);
 
     rig.push_fix(1000, 1);  // fix arrives: the radar page changes
     rig.run(5000, 8000);
-    CHECK(rig.platform.chips().epd.present_count == 2);
+    CHECK(rig.platform.chips().epd.present_count == 3);
     CHECK_FALSE(rig.platform.chips().epd.last_full);  // differential, no flash
 }
 
@@ -334,4 +335,74 @@ TEST_CASE("product: the backlight starts off") {
     rig.run(0, 1000);
     CHECK_FALSE(rig.product.screen().backlight());
     CHECK_FALSE(rig.platform.chips().epd.backlight);
+}
+
+// D2: the panel is the self test. A device that returns from main and goes dark
+// tells a pilot on a bench nothing at all; a device holding a page that names
+// the part that did not answer tells them everything.
+
+TEST_CASE("product: the self-test page reaches the panel before anything refuses") {
+    constexpr hal::Capabilities kNoGnss = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
+        ~static_cast<uint32_t>(hal::Capability::Gnss));
+    Rig rig{kNoGnss};
+    CHECK(rig.setup() == Status::Down);
+    CHECK_FALSE(rig.product.flyable());
+
+    // Painted, full, and it is the self-test page rather than a blank glass.
+    CHECK(rig.platform.chips().epd.present_count == 1);
+    CHECK(rig.platform.chips().epd.last_full);
+    CHECK(rig.platform.chips().epd.framebuffer().count_black() ==
+          rig.product.boot_page().count_black());
+    CHECK(rig.product.boot_page().count_black() > 200);
+
+    // And it stays. The loop refuses to fly, so nothing overwrites the one page
+    // that says why.
+    rig.run(0, 20000);
+    CHECK(rig.platform.chips().epd.present_count == 1);
+    CHECK_FALSE(rig.state().started);
+}
+
+TEST_CASE("product: the self-test page names the part, not just the failure") {
+    constexpr hal::Capabilities kNoGnss = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
+        ~static_cast<uint32_t>(hal::Capability::Gnss));
+    Rig missing{kNoGnss};
+    missing.setup();
+
+    Rig whole;
+    whole.setup();
+
+    // Row 1 is GNSS (products/skyblip_go/product.h::kBootParts). The two pages
+    // differ there and nowhere else in that row's band.
+    const ui::Framebuffer& bad = missing.product.boot_page();
+    const ui::Framebuffer& good = whole.product.boot_page();
+    int row_difference = 0;
+    for (int y = ui::boot_row_y(1); y < ui::boot_row_y(1) + 8; y++)
+        for (int x = 0; x < ui::Framebuffer::kW; x++)
+            row_difference += bad.get_pixel(x, y) != good.get_pixel(x, y) ? 1 : 0;
+    CHECK(row_difference > 0);
+
+    // The radio row is identical on both: only the part that failed changed.
+    int radio_difference = 0;
+    for (int y = ui::boot_row_y(0); y < ui::boot_row_y(0) + 8; y++)
+        for (int x = 0; x < ui::Framebuffer::kW; x++)
+            radio_difference += bad.get_pixel(x, y) != good.get_pixel(x, y) ? 1 : 0;
+    CHECK(radio_difference == 0);
+}
+
+TEST_CASE("product: the reset reason is read once at boot and kept") {
+    Rig rig;
+    rig.platform.system_power().causes = power::ResetCause::Watchdog | power::ResetCause::Software;
+    REQUIRE(rig.setup() == Status::Ok);
+    // The bite, not the reset that followed it: that is the whole diagnostic
+    // value of the register.
+    CHECK(rig.product.reset_reason() == power::ResetReason::Watchdog);
+
+    Rig fresh;
+    fresh.platform.system_power().causes = power::ResetCause::PowerOn;
+    REQUIRE(fresh.setup() == Status::Ok);
+    CHECK(fresh.product.reset_reason() == power::ResetReason::PowerOn);
+    // Two different boots must not paint the same page.
+    CHECK(fresh.product.boot_page().count_black() != rig.product.boot_page().count_black());
 }

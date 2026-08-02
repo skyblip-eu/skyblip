@@ -4,6 +4,9 @@
 // ignores the sag of a 22 dBm burst. A percentage that jumps when the radio keys
 // is a gauge a pilot stops believing.
 #include "core/power/battery.h"
+#include "core/power/cutoff.h"
+#include "core/power/reset_reason.h"
+#include "core/power/shutdown.h"
 #include "doctest/doctest.h"
 
 using namespace skyblip;
@@ -139,4 +142,228 @@ TEST_CASE("gauge: a full cell on the cable is charged, not charging") {
     CHECK(gauge.state().millivolts >= kChargeCompleteMv);
     CHECK_FALSE(gauge.state().charging);
     CHECK(gauge.state().percent == 100);
+}
+
+// The acting half. The gauge above says what the cell holds; this says when that
+// number stops being a reading and becomes a decision. SoftRF's shape, because
+// it is the one that survived contact with the same pack on the same board:
+// 3.5 V warns, 3.2 V cuts off, three consecutive samples before either, and a
+// 1.8 V floor under both so an unconnected divider cannot switch the device off
+// in someone's hand.
+
+TEST_CASE("cutoff: two samples below the cutoff are not enough, the third acts") {
+    // Under the rule, two samples claim nothing at all: the monitor has not yet
+    // separated a real cell from a burst sagging the rail.
+    CutoffMonitor monitor;
+    CHECK(monitor.apply(sample(3100)) == PowerLevel::Unknown);
+    CHECK(monitor.apply(sample(3100)) == PowerLevel::Unknown);
+    CHECK_FALSE(monitor.cutoff());
+    CHECK(monitor.apply(sample(3100)) == PowerLevel::Cutoff);
+    CHECK(monitor.cutoff());
+}
+
+TEST_CASE("cutoff: one good sample resets the count, so a transmit sag cannot act") {
+    CutoffMonitor monitor;
+    monitor.apply(sample(3100));
+    monitor.apply(sample(3100));
+    monitor.apply(sample(3800));  // the burst ended, the rail came back
+    CHECK(monitor.below_cutoff() == 0);
+    CHECK(monitor.level() == PowerLevel::Normal);
+
+    monitor.apply(sample(3100));
+    monitor.apply(sample(3100));
+    CHECK_FALSE(monitor.cutoff());
+}
+
+TEST_CASE("cutoff: both thresholds are boundaries, not ranges") {
+    // Exactly at the warning: still normal. One millivolt under: warned.
+    CutoffMonitor at_warn;
+    for (int i = 0; i < 4; i++) at_warn.apply(sample(kLowWarnMv));
+    CHECK(at_warn.level() == PowerLevel::Normal);
+
+    CutoffMonitor under_warn;
+    for (int i = 0; i < 4; i++) under_warn.apply(sample(kLowWarnMv - 1));
+    CHECK(under_warn.level() == PowerLevel::Low);
+
+    // Exactly at the cutoff: warned, not cut off. One millivolt under: cut off.
+    CutoffMonitor at_cutoff;
+    for (int i = 0; i < 4; i++) at_cutoff.apply(sample(kCutoffMv));
+    CHECK(at_cutoff.level() == PowerLevel::Low);
+    CHECK_FALSE(at_cutoff.cutoff());
+
+    CutoffMonitor under_cutoff;
+    for (int i = 0; i < 4; i++) under_cutoff.apply(sample(kCutoffMv - 1));
+    CHECK(under_cutoff.cutoff());
+}
+
+TEST_CASE("cutoff: the warning comes before the cutoff, never instead of it") {
+    CutoffMonitor monitor;
+    for (int i = 0; i < 3; i++) monitor.apply(sample(3400));
+    CHECK(monitor.level() == PowerLevel::Low);
+    CHECK(monitor.warned());
+    CHECK_FALSE(monitor.cutoff());
+
+    for (int i = 0; i < 3; i++) monitor.apply(sample(3100));
+    CHECK(monitor.cutoff());
+}
+
+TEST_CASE("cutoff: a floating ADC cannot power the device off") {
+    CutoffMonitor monitor;
+    for (int i = 0; i < 20; i++) monitor.apply(sample(kImplausibleFloorMv));
+    CHECK_FALSE(monitor.cutoff());
+    CHECK(monitor.level() == PowerLevel::Unknown);
+    CHECK(monitor.implausible() == 20);
+
+    // And a divider that reads zero is the same case, not an empty cell.
+    CutoffMonitor disconnected;
+    for (int i = 0; i < 20; i++) disconnected.apply(sample(0));
+    CHECK_FALSE(disconnected.cutoff());
+
+    // One millivolt above the floor is a reading again, and it does act.
+    CutoffMonitor believable;
+    for (int i = 0; i < 3; i++) believable.apply(sample(kImplausibleFloorMv + 1));
+    CHECK(believable.cutoff());
+}
+
+TEST_CASE("cutoff: nothing acts on a terminal the charger is holding up") {
+    CutoffMonitor monitor;
+    for (int i = 0; i < 10; i++) monitor.apply(sample(3100, /*external_power=*/true));
+    CHECK(monitor.level() == PowerLevel::Normal);
+    CHECK_FALSE(monitor.cutoff());
+}
+
+TEST_CASE("cutoff: the decision latches once it is made") {
+    CutoffMonitor monitor;
+    for (int i = 0; i < 3; i++) monitor.apply(sample(3100));
+    REQUIRE(monitor.cutoff());
+    // The radio going quiet lets the cell relax upwards. It is still empty.
+    for (int i = 0; i < 10; i++) monitor.apply(sample(4000));
+    CHECK(monitor.cutoff());
+}
+
+// Three things ask for the rails to drop and all three take the same road. The
+// order matters more than the entry: the radio and the panel are parked first,
+// and the wake pin is armed only once the button is actually up.
+
+TEST_CASE("shutdown: a short press is not a shutdown, a long one is") {
+    ShutdownSequencer seq;
+    uint32_t t = 0;
+    seq.tick(t, false);  // the button starts up: the hold is armed
+
+    for (t = 10; t < 500; t += 10) seq.tick(t, true);
+    seq.tick(t, false);
+    CHECK(seq.phase() == ShutdownPhase::Running);
+    CHECK(seq.reason() == ShutdownReason::None);
+
+    for (t = 1000; t < 1000 + kLongPressMs + 100; t += 10) seq.tick(t, true);
+    CHECK(seq.phase() == ShutdownPhase::Parking);
+    CHECK(seq.reason() == ShutdownReason::LongPress);
+}
+
+TEST_CASE("shutdown: the wake pin waits for the button to come up") {
+    ShutdownSequencer seq;
+    uint32_t t = 0;
+    seq.tick(t, false);
+    for (t = 10; t <= 10 + kLongPressMs; t += 10) seq.tick(t, true);
+    REQUIRE(seq.phase() == ShutdownPhase::Parking);
+
+    // The panel needs its full refresh before the rails may go.
+    for (; t < 10 + kLongPressMs + kParkMs; t += 10) seq.tick(t, true);
+    CHECK(seq.phase() == ShutdownPhase::Parking);
+
+    // Parked, but the finger is still on the button: a level-sensed wake pin
+    // armed now brings the device straight back up.
+    for (; t < 30000; t += 10) seq.tick(t, true);
+    CHECK(seq.phase() == ShutdownPhase::AwaitRelease);
+    CHECK_FALSE(seq.ready_to_power_off());
+
+    const uint32_t released = t;
+    for (; t < released + kReleaseSettleMs; t += 10) seq.tick(t, false);
+    CHECK_FALSE(seq.ready_to_power_off());
+    seq.tick(t + kReleaseSettleMs, false);
+    CHECK(seq.phase() == ShutdownPhase::Off);
+    CHECK(seq.ready_to_power_off());
+}
+
+TEST_CASE("shutdown: a device woken by the button does not switch itself off again") {
+    // SYSTEM OFF is left by a press, so the first thing the sequencer ever sees
+    // is a button that is already down. Counting that as a hold powers the
+    // device off before the panel has drawn a single frame.
+    ShutdownSequencer seq;
+    for (uint32_t t = 0; t < 10000; t += 10) seq.tick(t, true);
+    CHECK(seq.phase() == ShutdownPhase::Running);
+
+    // Once it has been released, the next hold counts.
+    uint32_t t = 10000;
+    seq.tick(t, false);
+    for (; t <= 10000 + kLongPressMs + 10; t += 10) seq.tick(t, true);
+    CHECK(seq.phase() == ShutdownPhase::Parking);
+}
+
+TEST_CASE("shutdown: low battery and the link take the same road as the button") {
+    for (const ShutdownReason reason : {ShutdownReason::LowBattery, ShutdownReason::LinkRequest}) {
+        ShutdownSequencer seq;
+        seq.request(reason, 0);
+        CHECK(seq.phase() == ShutdownPhase::Parking);
+        CHECK(seq.reason() == reason);
+        CHECK(seq.going_down());
+
+        uint32_t t = 0;
+        for (; t < kParkMs + kReleaseSettleMs + 100; t += 10) seq.tick(t, false);
+        CHECK(seq.ready_to_power_off());
+    }
+}
+
+TEST_CASE("shutdown: nothing cancels a shutdown once it has started") {
+    ShutdownSequencer seq;
+    seq.request(ShutdownReason::LowBattery, 0);
+    seq.request(ShutdownReason::LinkRequest, 10);
+    CHECK(seq.reason() == ShutdownReason::LowBattery);
+
+    for (uint32_t t = 0; t < 20000; t += 10) seq.tick(t, false);
+    CHECK(seq.phase() == ShutdownPhase::Off);
+    // Even a fresh press cannot bring it back.
+    seq.tick(20000, true);
+    CHECK(seq.phase() == ShutdownPhase::Off);
+}
+
+TEST_CASE("shutdown: the hold is readable while it fills up") {
+    ShutdownSequencer seq;
+    seq.tick(0, false);
+    CHECK(seq.held_ms(0) == 0);
+    seq.tick(100, true);
+    seq.tick(600, true);
+    CHECK(seq.held_ms(600) == 500);
+    seq.tick(700, false);
+    CHECK(seq.held_ms(700) == 0);
+}
+
+// Which reset the device came out of. Seven causes, one register, and the nRF52
+// latches them: after a watchdog bite that was followed by a soft reset, both
+// bits are set and only one of the two is the diagnosis.
+
+TEST_CASE("reset: a fault cause outranks the benign one that came with it") {
+    CHECK(classify(ResetCause::Watchdog | ResetCause::Software) == ResetReason::Watchdog);
+    CHECK(classify(ResetCause::Lockup | ResetCause::Pin) == ResetReason::Lockup);
+    CHECK(classify(ResetCause::Brownout | ResetCause::PowerOn) == ResetReason::Brownout);
+    CHECK(classify(ResetCause::Watchdog | ResetCause::Lockup) == ResetReason::Watchdog);
+}
+
+TEST_CASE("reset: every cause the silicon can raise has one name") {
+    CHECK(classify(ResetCause::None) == ResetReason::Unknown);
+    CHECK(classify(ResetCause::PowerOn) == ResetReason::PowerOn);
+    CHECK(classify(ResetCause::Pin) == ResetReason::Pin);
+    CHECK(classify(ResetCause::Brownout) == ResetReason::Brownout);
+    CHECK(classify(ResetCause::Software) == ResetReason::Software);
+    CHECK(classify(ResetCause::Watchdog) == ResetReason::Watchdog);
+    CHECK(classify(ResetCause::Lockup) == ResetReason::Lockup);
+    CHECK(classify(ResetCause::LowPowerWake) == ResetReason::LowPowerWake);
+    CHECK(classify(ResetCause::Debug) == ResetReason::Debug);
+
+    // A reason with no name reaches the panel as a blank, which is the one
+    // outcome a self-test page must never produce.
+    for (uint8_t i = 0; i <= static_cast<uint8_t>(ResetReason::Debug); i++) {
+        const char* name = to_string(static_cast<ResetReason>(i));
+        CHECK(name[0] != '\0');
+    }
 }

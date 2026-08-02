@@ -48,6 +48,13 @@ class Rf {
     virtual Status begin() = 0;
     virtual Status arm(const RfPlan& plan) = 0;
     virtual void abort() = 0;
+
+    // Put the transceiver in its lowest-power state until the next begin().
+    // Called on the way to SYSTEM OFF: the receiver is armed through most of
+    // every second by design, so a radio left in RX is what flattens the pack.
+    // Virtual-with-default, so an executor that has nothing to sleep stays
+    // valid; the SX1262 executor overrides it with SetSleep (0x84).
+    virtual void sleep() {}
 };
 
 }  // namespace skyblip::hal
