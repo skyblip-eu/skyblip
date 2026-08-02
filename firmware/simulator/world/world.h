@@ -22,7 +22,7 @@ struct VirtualAircraft {
     int32_t climb_e8{0};
     // Where in the second this aircraft transmits, and on which M-band channel.
     // Below zero it picks its own instant per second the way a conforming
-    // transmitter does; pinned, it is the knob that proves our dwell map.
+    // transmitter does. Pinned, it is the knob that proves our dwell map.
     int phase_ms{-1};
     int slot{-1};
     uint32_t transmissions{0};

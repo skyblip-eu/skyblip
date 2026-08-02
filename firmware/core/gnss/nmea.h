@@ -1,4 +1,4 @@
-// core/gnss/nmea.h — GNSS NMEA-0183 line parser (L76K: GPS/GLONASS/BeiDou/QZSS).
+// core/gnss/nmea.h: GNSS NMEA-0183 line parser (L76K: GPS/GLONASS/BeiDou/QZSS).
 #ifndef SKYBLIP_CORE_GNSS_NMEA_H
 #define SKYBLIP_CORE_GNSS_NMEA_H
 

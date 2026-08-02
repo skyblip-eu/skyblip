@@ -153,7 +153,7 @@ int main(int argc, char** argv) {
         usleep(50 * 1000);
     }
     const bus::State& st = s.product().state();
-    std::printf("\nbye — traffic=%d rx=%u failures=%d\n", st.traffic.count(), st.rx_ok,
+    std::printf("\nbye: traffic=%d rx=%u failures=%d\n", st.traffic.count(), st.rx_ok,
                 s.world().failures());
     return 0;
 }

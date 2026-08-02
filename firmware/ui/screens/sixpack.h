@@ -1,4 +1,4 @@
-// ui/screens/sixpack.h — the classic six-pack instrument panel, drawn from the
+// ui/screens/sixpack.h: the classic six-pack instrument panel, drawn from the
 // GNSS-derived own-ship state: airspeed, attitude, altimeter over turn
 // coordinator, heading, vertical speed.
 #ifndef SKYBLIP_UI_SCREENS_SIXPACK_H

@@ -115,7 +115,7 @@
 	/*
 	 * E-paper SPI (SSD1681): SCK P0.31, MOSI P0.29, MISO P1.07.
 	 *
-	 * P1.07 is a placeholder MISO — the panel is write-only. It is P1.07 and
+	 * P1.07 is a placeholder MISO: the panel is write-only. It is P1.07 and
 	 * not P0.07 on purpose: P0.07 belongs to the external flash (IO2/WP#, see
 	 * board.c), and Meshtastic's t-echo-plus variant.h:113 picks P1.07 for the
 	 * same reason.
@@ -306,7 +306,7 @@ zephyr_udc0: &usbd {
  *
  * No `prefix` and no `checksum` on purpose: the binding defaults both off
  * (dts/bindings/retention/zephyr,retention.yaml), so a one-byte
- * retention_write() puts exactly 0x57 in the register — which is what the
+ * retention_write() puts exactly 0x57 in the register, which is what the
  * bootloader compares against.
  */
 &gpregret1 {
@@ -326,7 +326,7 @@ zephyr_udc0: &usbd {
  * The drag-and-drop write window is USER_FLASH_START..USER_FLASH_END =
  * 0x1000..0xEA000 (Adafruit_nRF52_Bootloader src/usb/uf2/uf2cfg.h:25-26 with
  * DFU_APP_DATA_RESERVED = 10*4096, Makefile:139). Everything a .uf2 must carry
- * — MCUboot and slot0 — therefore lives strictly below 0xEA000, and NVS lives
+ * (MCUboot and slot0) therefore lives strictly below 0xEA000, and NVS lives
  * above it inside the 40 KB the bootloader reserves for application data.
  *
  * The secondary slot is NOT here: it is on the external SPI NOR part (&ext_flash
@@ -339,7 +339,7 @@ zephyr_udc0: &usbd {
 		#size-cells = <1>;
 
 		/* MBR (4 KB) + SoftDevice S140 6.1.1 (148 KB). Factory-programmed,
-		 * never linked against, never enabled — Zephyr's own BLE controller
+		 * never linked against, never enabled: Zephyr's own BLE controller
 		 * drives the radio. Declared only so nothing can allocate over it. */
 		softdevice_partition: partition@0 {
 			label = "softdevice";

@@ -1,4 +1,4 @@
-// core/util/format.h — tiny, allocation-free number/string formatting into a
+// core/util/format.h: tiny, allocation-free number/string formatting into a
 #ifndef SKYBLIP_CORE_UTIL_FORMAT_H
 #define SKYBLIP_CORE_UTIL_FORMAT_H
 

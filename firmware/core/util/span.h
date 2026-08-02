@@ -1,4 +1,4 @@
-// core/util/span.h — a minimal non-owning view (std::span is C++20; we are C++17).
+// core/util/span.h: a minimal non-owning view (std::span is C++20, we are C++17).
 #ifndef SKYBLIP_CORE_UTIL_SPAN_H
 #define SKYBLIP_CORE_UTIL_SPAN_H
 

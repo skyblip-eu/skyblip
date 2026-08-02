@@ -1,4 +1,4 @@
-// boards/lilygo/t_echo_plus/board.c — bring up the gated peripheral rails.
+// boards/lilygo/t_echo_plus/board.c: bring up the gated peripheral rails.
 //
 // This lives at BOARD level, not in the application, because MCUboot needs it
 // too. `boards/CMakeLists.txt` does add_subdirectory(${BOARD_DIR}) for every

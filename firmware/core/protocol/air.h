@@ -1,4 +1,4 @@
-// core/protocol/air.h — one M-band dwell, two systems: ADS-L 4 SRD-860 issue 2
+// core/protocol/air.h: one M-band dwell, two systems: ADS-L 4 SRD-860 issue 2
 // §C.2 and the FLARM-generation wire this project calls ALP-TAS. Both Manchester
 // their frames behind a 32-bit sync word, and the two sync words agree on their
 // first 18 chips, so a receiver armed with 16 of those chips detects either one

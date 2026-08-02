@@ -48,7 +48,7 @@ hal::RfMode RadioService::mode_for(const timing::SlotPlan& plan) {
     return plan.band == timing::Band::O ? hal::RfMode::RxOband : hal::RfMode::RxMband;
 }
 
-// The M band carries two systems past one sync window; the O band carries the
+// The M band carries two systems past one sync window. The O band carries the
 // ground station's uplink and nothing else.
 void RadioService::listen_for(timing::Band band, hal::RfPlan& plan) {
     if (band == timing::Band::O) {

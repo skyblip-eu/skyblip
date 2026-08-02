@@ -1,4 +1,4 @@
-// core/protocol/adsl.h — ADS-L 4 SRD-860 Issue 2 iConspicuity (position) packet.
+// core/protocol/adsl.h: ADS-L 4 SRD-860 Issue 2 iConspicuity (position) packet.
 #ifndef SKYBLIP_CORE_PROTOCOL_ADSL_H
 #define SKYBLIP_CORE_PROTOCOL_ADSL_H
 
@@ -129,7 +129,7 @@ struct __attribute__((packed)) AdslPacket {
     // Three fields carry an explicit "invalid" code, and the spec is emphatic
     // that it means UNAVAILABLE, not out-of-range: an over-range value "shall be
     // encoded" as the limit (ADS-L 4 SRD860 issue 2, G.1.7 / G.1.8 / G.1.9). The
-    // setters below honour that; the set_*_invalid() calls are how a shell says
+    // setters below honour that. The set_*_invalid() calls are how a shell says
     // it genuinely does not know.
     static constexpr uint16_t kSpeedInvalidCode = 0xFF;   // G.1.8, 8 bits
     static constexpr uint16_t kClimbInvalidCode = 0x1FF;  // G.1.9, 9 bits
@@ -141,7 +141,7 @@ struct __attribute__((packed)) AdslPacket {
     bool has_speed() const { return Position[6] != kSpeedInvalidCode; }
     void set_speed_invalid() { Position[6] = kSpeedInvalidCode; }
 
-    int32_t alt_m() const;  // [m] HAE (WGS-84 ellipsoid, G.1.7 — NOT pressure)
+    int32_t alt_m() const;  // [m] HAE (WGS-84 ellipsoid, G.1.7: NOT pressure)
     void set_alt_m(int32_t alt);
     bool alt_invalid() const { return (Position[8] & 0x3F) == 0x3F && Position[7] == 0xFF; }
     void set_alt_invalid() {

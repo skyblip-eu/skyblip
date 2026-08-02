@@ -1,4 +1,4 @@
-// ui/input/button.h — debounced button, as pure logic.
+// ui/input/button.h: debounced button, as pure logic.
 //
 // A mechanical contact bounces for a few milliseconds on both edges, so a raw
 // GPIO poll turns one press into several. This takes sampled levels in and emits
@@ -14,7 +14,7 @@ namespace skyblip::ui {
 
 class Button {
    public:
-    // A contact settles well inside this; a human cannot press twice within it.
+    // A contact settles well inside this. A human cannot press twice within it.
     static constexpr uint32_t kDebounceMs = 30;
 
     // Feed one sample. Returns true exactly once per debounced press, on the

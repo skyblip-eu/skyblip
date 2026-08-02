@@ -1,6 +1,6 @@
-// core/traffic/link.h — what a frame's RSSI says about the transmitter once the
+// core/traffic/link.h: what a frame's RSSI says about the transmitter once the
 // range the two GNSS receivers agree on is taken back out of it. Comparing raw
-// RSSI across emitters compares their distances; comparing implied e.r.p.
+// RSSI across emitters compares their distances. Comparing implied e.r.p.
 // compares their radios.
 #ifndef SKYBLIP_CORE_TRAFFIC_LINK_H
 #define SKYBLIP_CORE_TRAFFIC_LINK_H

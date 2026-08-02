@@ -73,7 +73,7 @@ KEEPALIVE void simulator_add_aircraft(int north_m, int east_m, int up_m, int spe
                                      system_of(alptas));
 }
 // phase_ms/slot below zero let the aircraft pick its own instant, as a
-// conforming transmitter does; pinned, they put a burst where the dwell map
+// conforming transmitter does. Pinned, they put a burst where the dwell map
 // says we should or should not hear it.
 KEEPALIVE void simulator_add_aircraft_at(int north_m, int east_m, int up_m, int speed_mps,
                                          int track_deg, int phase_ms, int slot, int alptas) {

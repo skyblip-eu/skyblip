@@ -91,13 +91,13 @@ $(WEB_OUT): $(WEB_OBJ)
 	  -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8 \
 	  -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=0 \
 	  -o $(WEB_OUT)
-	@echo "built $(WEB_DIST)/ — serve it with: make -C ../simulator dev"
+	@echo "built $(WEB_DIST)/, serve it with: make -C ../simulator dev"
 
 $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# ---- dev loop ---------------------------------------------------------------
+# dev loop
 # C++ has no hot-module-reload: a change always means a recompile. These make
 # the loop automatic instead of manual.
 #
@@ -109,7 +109,7 @@ WATCH ?= test
 WATCH_SRC := core ui hal hardware runtime products simulator test
 
 watch:
-	@echo "watching (target: $(WATCH)) — Ctrl-C to stop"
+	@echo "watching (target: $(WATCH)), Ctrl-C to stop"
 	@if command -v watchexec >/dev/null 2>&1; then \
 	  watchexec -e cpp,h,html --debounce 400ms -- $(MAKE) --no-print-directory $(WATCH); \
 	else \

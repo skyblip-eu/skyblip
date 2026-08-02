@@ -34,7 +34,7 @@ struct AirRecord {
 
 // The 868 MHz channel between the modelled radio and everything else flying.
 // A frame exists at an instant, on a frequency, for as long as it takes to send
-// it; whether the radio hears it is decided by where the radio was tuned when
+// it. Whether the radio hears it is decided by where the radio was tuned when
 // the burst started, never by who queued it. Every burst is logged, heard or
 // not, which is what makes slot timing falsifiable instead of assumed.
 class Air {

@@ -1,4 +1,4 @@
-// core/util/varint.h — ADS-L "variable-range" field codecs: UnsVR/SignVR range
+// core/util/varint.h: ADS-L "variable-range" field codecs: UnsVR/SignVR range
 #ifndef SKYBLIP_CORE_UTIL_VARINT_H
 #define SKYBLIP_CORE_UTIL_VARINT_H
 

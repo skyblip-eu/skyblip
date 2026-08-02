@@ -1,4 +1,4 @@
-// hardware/parts/sx1262/sx1262.h — the SX1262 radio driver, written ONCE and shared
+// hardware/parts/sx1262/sx1262.h: the SX1262 radio driver, written ONCE and shared
 #ifndef SKYBLIP_HARDWARE_PARTS_SX1262_H
 #define SKYBLIP_HARDWARE_PARTS_SX1262_H
 
@@ -96,7 +96,7 @@ constexpr uint16_t kIrqTxDone = 0x0001;
 constexpr uint16_t kIrqRxDone = 0x0002;
 constexpr uint16_t kIrqCrcErr = 0x0040;
 constexpr uint16_t kIrqTimeout = 0x0200;
-// §C.2 puts 16 chips of preamble before the sync word; eight of them are enough
+// §C.2 puts 16 chips of preamble before the sync word. Eight of them are enough
 // for the detector to declare a preamble.
 constexpr uint16_t kPreambleChips = 16;
 constexpr uint8_t kPreambleDetect8Chips = 0x04;

@@ -29,7 +29,7 @@ class ConfigService {
     // lives here instead: an upload is only accepted inside a window that a
     // physical button press opened, while the device is positively on the
     // ground. Rogue firmware is stopped separately, by MCUboot's signature
-    // check; this stops a stranger in range wasting the secondary slot.
+    // check. This stops a stranger in range wasting the secondary slot.
     bool upload_allowed() const { return upload_window_open_ && on_ground(); }
     void close_upload_window() { upload_window_open_ = false; }
 

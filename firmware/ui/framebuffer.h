@@ -1,4 +1,4 @@
-// ui/framebuffer.h — 1-bit 200x200 framebuffer + minimal drawing primitives.
+// ui/framebuffer.h: 1-bit 200x200 framebuffer + minimal drawing primitives.
 #ifndef SKYBLIP_UI_FRAMEBUFFER_H
 #define SKYBLIP_UI_FRAMEBUFFER_H
 

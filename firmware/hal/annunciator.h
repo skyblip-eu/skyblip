@@ -1,4 +1,4 @@
-// hal/annunciator.h — capability port: buzzer + vibration motor (T-Echo Plus).
+// hal/annunciator.h: capability port: buzzer + vibration motor (T-Echo Plus).
 #ifndef SKYBLIP_HAL_ANNUNCIATOR_H
 #define SKYBLIP_HAL_ANNUNCIATOR_H
 

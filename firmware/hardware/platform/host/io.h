@@ -14,7 +14,7 @@ struct Chips {
     models::L76k gnss;
 };
 
-// The virtual wiring. A board hands over its pin map once; from then on a pin
+// The virtual wiring. A board hands over its pin map once. From then on a pin
 // number reaches the part model that owns it, exactly as a trace would.
 class Gpio : public io::Gpio {
    public:

@@ -1,4 +1,4 @@
-// core/util/json_min.h — a tiny, allocation-free reader/writer for FLAT JSON
+// core/util/json_min.h: a tiny, allocation-free reader/writer for FLAT JSON
 #ifndef SKYBLIP_CORE_UTIL_JSON_MIN_H
 #define SKYBLIP_CORE_UTIL_JSON_MIN_H
 
