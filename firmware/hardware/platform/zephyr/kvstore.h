@@ -3,7 +3,7 @@
 #if defined(__ZEPHYR__)
 
 #include <zephyr/drivers/flash.h>  // flash_pages_info, flash_get_page_info_by_offs
-// NVS moved to the KVSS subsystem in Zephyr 4.4; zephyr/fs/nvs.h is now a
+// NVS moved to the KVSS subsystem in Zephyr 4.4. zephyr/fs/nvs.h is now a
 // deprecated shim that warns. The API is identical - same nvs_fs, same nvs_mount
 // / nvs_read / nvs_write / nvs_delete - so this is a relocation, not a redesign.
 #include <zephyr/kvss/nvs.h>
@@ -17,7 +17,7 @@ class KvStore : public hal::KvStore {
    public:
     // Mount NVS on the DT-defined `storage_partition`. Returns Ok on success.
     Status begin() {
-        // FIXED_PARTITION_* are __DEPRECATED_MACRO aliases in Zephyr 4.4; the
+        // FIXED_PARTITION_* are __DEPRECATED_MACRO aliases in Zephyr 4.4, and the
         // PARTITION_* spellings are the same macros under the intended names.
         fs_.flash_device = PARTITION_DEVICE(storage_partition);
         if (!device_is_ready(fs_.flash_device)) return Status::Down;

@@ -1,10 +1,10 @@
-# west.yml — the workspace manifest. From a fresh checkout:
+# west.yml: the workspace manifest. From a fresh checkout:
 #
 #   west init -l firmware      # (points west at this manifest)
 #   west update                # fetches Zephyr + all default modules
 #   west build -b t_echo_plus firmware/products/skyblip_go --sysbuild
 #
-# `import: true` pulls Zephyr's own manifest → hal_nordic, hal_espressif (for the
+# `import: true` pulls Zephyr's own manifest -> hal_nordic, hal_espressif (for the
 # future skyPost/ESP32-S3 target), mcuboot, cmsis, etc. Pinned to a release for
 # reproducible CI; bump deliberately.
 manifest:

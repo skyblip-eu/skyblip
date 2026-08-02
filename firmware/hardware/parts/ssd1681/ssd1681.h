@@ -38,7 +38,7 @@ class Ssd1681 : public hal::Display {
     io::Spi& spi_;
     io::Gpio& gpio_;
     int dc_, rst_, busy_, backlight_;
-    // INFO: fc 01aug25 the glass image; rewritten into bank 0x26 each present so
+    // INFO: fc 01aug25 the glass image, rewritten into bank 0x26 each present so
     // fast refreshes diff against the truth across deep sleep and panel lots
     uint8_t shadow_[ui::Framebuffer::kBytes]{};
     bool glass_known_{false};

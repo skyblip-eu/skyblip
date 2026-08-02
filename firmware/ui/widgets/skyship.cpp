@@ -27,7 +27,7 @@ namespace {
 // Apply:   python3 skyship/apply.py --origin 5 skyship/skyship.txt
 // Retrace: python3 skyship/trace.py 30 --plan <plan-view>.png
 //
-// One bit per pixel, LSB = leftmost column; the art beside each word is the
+// One bit per pixel, LSB = leftmost column. The art beside each word is the
 // table. kGlyphOriginRow is the HOT SPOT: the row that lands on the plot origin,
 // i.e. where the aircraft actually is. It is NOT the bounding-box centre -
 // bbox-centring this shape dragged the wing 4 px forward, drawing a target
@@ -69,7 +69,7 @@ constexpr Ownship kDefaultOwnship{kGlyphW, kGlyphH, kGlyphOriginRow, kOwnshipRow
 }  // namespace
 
 // s.w is EVEN, so the fuselage straddles the pixel pair (cx-1|cx) and the sprite
-// is exactly centred; the hot-spot row is laid on cy, which puts the aircraft's
+// is exactly centred. The hot-spot row is laid on cy, which puts the aircraft's
 // position on the plot origin itself, not half a pixel off it.
 void draw_skyship(Framebuffer& fb, int cx, int cy) {
     const Ownship& s = kDefaultOwnship;

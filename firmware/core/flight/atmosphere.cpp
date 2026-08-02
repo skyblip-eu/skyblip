@@ -43,7 +43,7 @@ int32_t pressure_to_alt_cm(uint32_t pa) {
     const uint32_t frac = off % kStepPa;
     if (frac == 0) return kAltCm[i];
 
-    // Table descends with pressure, so the step is negative; interpolate on it.
+    // Table descends with pressure, so the step is negative. Interpolate on it.
     const int32_t span = kAltCm[i + 1] - kAltCm[i];
     return kAltCm[i] + static_cast<int32_t>((static_cast<int64_t>(span) * frac) / kStepPa);
 }

@@ -89,7 +89,7 @@ TEST_CASE("comms: unknown flight-state refuses, and airborne latches") {
     CHECK(cs.flight_state() == FlightState::Ground);
 }
 
-TEST_CASE("comms: confirm re-checks the gate — becoming airborne cancels apply") {
+TEST_CASE("comms: confirm re-checks the gate, becoming airborne cancels apply") {
     platform::host::Link link;
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);

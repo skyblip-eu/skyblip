@@ -1,8 +1,8 @@
-// hardware/parts/l76k/model.h — a model of the L76K GNSS receiver at the io::Uart
+// hardware/parts/l76k/model.h: a model of the L76K GNSS receiver at the io::Uart
 // seam, so the REAL parser runs against it unchanged: it emits genuine NMEA-0183
 // $GPRMC/$GPGGA sentences (production formatters + nmea_finish checksum).
-// Nothing is stubbed at the state level — moving the aircraft here exercises the
-// whole chain: NMEA → parser → own-ship state → screens/alarms/protocol.
+// Nothing is stubbed at the state level: moving the aircraft here exercises the
+// whole chain: NMEA -> parser -> own-ship state -> screens/alarms/protocol.
 #ifndef SKYBLIP_HARDWARE_MODEL_L76K_H
 #define SKYBLIP_HARDWARE_MODEL_L76K_H
 
@@ -17,7 +17,7 @@ namespace skyblip::models {
 
 class L76k : public io::Uart {
    public:
-    // ---- modelled receiver state (driven by the caller) ---------------------
+    // Modelled receiver state, driven by the caller.
     bool fix{true};
     uint8_t sats{9};
     int32_t lat_1e7{485000000};  // 48.5 N
@@ -28,7 +28,6 @@ class L76k : public io::Uart {
     int32_t climb_mps_e1{0};  // tenths of m/s, applied to alt over time
     uint32_t utc_sod{12 * 3600 + 34 * 60 + 56};
 
-    // ---- io::Uart ----------------------------------------------------------
     size_t write(const uint8_t*, size_t len) override { return len; }  // no uplink
     size_t read(uint8_t* data, size_t cap) override {
         size_t n = pending_.size() < cap ? pending_.size() : cap;

@@ -1,3 +1,7 @@
+// Settings survive a power cycle, so every way a stored blob can be wrong is a way
+// the device can come up misconfigured: corrupted, written by an older firmware,
+// or patched by a client sending a value out of range. Each one falls back or
+// refuses whole. A partly applied patch is the outcome none of these allow.
 #include <cstring>
 #include <string>
 
@@ -42,7 +46,7 @@ TEST_CASE("settings: wrong version blob is Unsupported (migrate/default)") {
     uint8_t blob[128];
     to_blob(s, blob, sizeof(blob));
     blob[0] = 99;  // bogus version
-    // recompute crc so it isn't a CRC failure — simulate a real older version
+    // recompute crc so it isn't a CRC failure: simulate a real older version
     // (here we just confirm version mismatch is caught before trusting payload)
     Settings out;
     Status st = from_blob(blob, blob_size(), out);
@@ -75,7 +79,7 @@ TEST_CASE("settings: apply_json rejects out-of-range atomically") {
     CHECK(s.aircraft_type == before);  // unchanged (atomic)
 }
 
-TEST_CASE("json_min: reader parses ints, bools, strings; writer emits them") {
+TEST_CASE("json_min: the reader parses ints, bools and strings, the writer emits them") {
     const char* j = "{\"a\":42,\"b\":true,\"c\":\"hi\",\"d\":-7}";
     json::Reader r(j, static_cast<int>(strlen(j)));
     long v;

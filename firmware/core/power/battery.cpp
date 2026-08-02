@@ -11,7 +11,7 @@ struct Point {
 
 // INFO: fc 09mar26 both curves are the textbook shape for a single Li-ion cell,
 // not this pack measured on this board. They are right to a few percent in the
-// middle and worst at the ends, which is where a pilot cares; replace them with a
+// middle and worst at the ends, which is where a pilot cares. Replace them with a
 // discharge log from a unit when there is one, the shape of the table does not
 // change.
 //

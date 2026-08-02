@@ -14,7 +14,7 @@ namespace skyblip::platform::zephyr {
 
 // The radio executor on silicon: its own thread, above every other application
 // thread, waking on an armed absolute deadline. Nothing on this thread writes
-// flash or touches the BLE stack — a deferred internal-flash write blocks for
+// flash or touches the BLE stack: a deferred internal-flash write blocks for
 // milliseconds, which is more than the whole guard budget.
 class Rf : public hal::Rf {
    public:

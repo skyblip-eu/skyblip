@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>skyBlip Go — device simulator</title>
+<title>skyBlip Go: device simulator</title>
 <style>
   :root { --bg:#1a1d21; --panel:#0e1013; --line:#333; --txt:#d7dbe0; --dim:#93a0ad; --accent:#7fd1ff; }
   body { background:var(--bg); color:var(--txt); font:14px/1.45 system-ui,sans-serif;
@@ -45,7 +45,7 @@
   .key.prog  { bottom:110px; background:linear-gradient(90deg,#b9bcc0,#8d9296); }
   .key.side:active { transform:translateX(2px); box-shadow:inset 2px 0 4px #00000033; }
   /* The two LEDs, side by side, middle of the right edge. Only the left one is
-     ours; the right one is wired to the charger. */
+     ours. The right one is wired to the charger. */
   .leds { position:absolute; right:10px; top:50%; transform:translateY(-50%);
           display:flex; gap:6px; }
   .led { width:8px; height:8px; border-radius:50%; background:#c6c8c3;
@@ -96,22 +96,22 @@
 </style>
 </head>
 <body>
-  <h1>skyBlip&nbsp;Go — device simulator <span>· real firmware, simulated sensors</span></h1>
+  <h1>skyBlip&nbsp;Go: device simulator <span>· real firmware, simulated sensors</span></h1>
 
   <div class="layout">
     <!-- ---------------- the device ---------------- -->
     <div class="device">
       <div class="case">
         <canvas id="epd" width="200" height="200"></canvas>
-        <button class="key touch" title="capacitive pad on the top edge, P0.11 — repaint the panel"
+        <button class="key touch" title="capacitive pad on the top edge, P0.11: repaint the panel"
                 onclick="SIM.touch()"></button>
-        <button class="key side reset" title="RESET (button 1), P0.18 = nRESET — reboot"
+        <button class="key side reset" title="RESET (button 1), P0.18 = nRESET: reboot"
                 onclick="SIM.reset()"></button>
-        <button class="key side prog" title="button 2, P1.10 — next page"
+        <button class="key side prog" title="button 2, P1.10: next page"
                 onclick="SIM.button()"></button>
         <div class="leds">
-          <span class="led red" id="led_alarm" title="the LED we drive — lit on a traffic alarm"></span>
-          <span class="led amber" id="led_charge" title="charge state — the charger drives this one, not the MCU"></span>
+          <span class="led red" id="led_alarm" title="the LED we drive: lit on a traffic alarm"></span>
+          <span class="led amber" id="led_charge" title="charge state: the charger drives this one, not the MCU"></span>
         </div>
       </div>
       <div class="keymap">
@@ -123,7 +123,7 @@
         <button onclick="SIM.backlight()">Backlight</button>
         <button onclick="SIM.power()">Power</button>
       </div>
-      <div class="hint" id="pagehint">page: –</div>
+      <div class="hint" id="pagehint">page: -</div>
     </div>
 
     <div style="display:flex; flex-direction:column; gap:14px; max-width:420px;">
@@ -160,7 +160,7 @@
         <div class="row" style="margin-bottom:8px;">
           <button id="extbtn" onclick="SIM.toggleExternalPower()">USB power: OFF</button>
         </div>
-        <div class="hint">Sliders feed a simulated L76K that emits real NMEA; the
+        <div class="hint">Sliders feed a simulated L76K that emits real NMEA. The
           production parser decodes it. Airmass is the weather the BME280 sits in;
           QNH is the subscale the device is set to. The cell slider is the
           divider's millivolts: plug USB in and the same voltage reads a lower
@@ -172,13 +172,13 @@
         <h2>Scenario</h2>
         <div class="row">
           <select id="scenario" onchange="SIM.loadScenario(this.value)">
-            <option value="">— none (free flight) —</option>
+            <option value="">- none (free flight) -</option>
             <option value="../../../scenarios/head_on.json">head-on converging glider</option>
             <option value="../../../scenarios/gnss_loss.json">fix lost then regained</option>
             <option value="../../../scenarios/mixed_traffic.json">ADS-L and ALP-TAS neighbours</option>
           </select>
         </div>
-        <div class="hint" id="modehint">mode: dev — every control visible</div>
+        <div class="hint" id="modehint">mode: dev, every control visible</div>
       </div>
 
       <!-- ---------------- traffic ---------------- -->
@@ -207,7 +207,7 @@
 
       <!-- ---------------- the 868 band ---------------- -->
       <div class="panel">
-        <h2>868 MHz band — one second</h2>
+        <h2>868 MHz band (one second)</h2>
         <canvas id="band" width="1000" height="96"></canvas>
         <div class="legend">
           <span><b class="tx">TX</b> own burst</span>
@@ -222,12 +222,12 @@
           <button onclick="SIM.addAt(900)">+ at 900 ms (868.4)</button>
           <button onclick="SIM.addAt(100)">+ at 100 ms (slot 1 tail, RX only)</button>
         </div>
-        <div class="tape" id="tape">—</div>
+        <div class="tape" id="tape">-</div>
         <div class="hint">Every burst on the air, heard or not, with the frame
           decoded the way a receiver decodes it. A burst outside the dwell the
           firmware armed reads DEAF: that is a slot-map bug, visible. The upper
           channel's dwell runs 800..1200, so the strip's head is its tail and we
-          still listen there; between the dashed lines, 450..1000, is where our
+          still listen there. Between the dashed lines, 450..1000, is where our
           own bursts go.</div>
       </div>
 
@@ -235,19 +235,19 @@
       <div class="panel">
         <h2>Decoded by the firmware</h2>
         <div class="tele">
-          <div>Fix</div><div id="t_fix">–</div>
-          <div>Sats</div><div id="t_sats">–</div>
-          <div>Position</div><div id="t_pos">–</div>
-          <div>Altitude</div><div id="t_alt">–</div>
-          <div>Speed</div><div id="t_spd">–</div>
-          <div>Track</div><div id="t_trk">–</div>
-          <div>Vert speed</div><div id="t_vs">–</div>
-          <div>Static pressure</div><div id="t_baro">–</div>
-          <div>Battery</div><div id="t_bat">–</div>
-          <div>Traffic</div><div id="t_tfc">–</div>
-          <div>RX ok / bad</div><div id="t_rx">–</div>
-          <div>TX ok / busy</div><div id="t_tx">–</div>
-          <div>Dwell</div><div id="t_dwell">–</div>
+          <div>Fix</div><div id="t_fix">-</div>
+          <div>Sats</div><div id="t_sats">-</div>
+          <div>Position</div><div id="t_pos">-</div>
+          <div>Altitude</div><div id="t_alt">-</div>
+          <div>Speed</div><div id="t_spd">-</div>
+          <div>Track</div><div id="t_trk">-</div>
+          <div>Vert speed</div><div id="t_vs">-</div>
+          <div>Static pressure</div><div id="t_baro">-</div>
+          <div>Battery</div><div id="t_bat">-</div>
+          <div>Traffic</div><div id="t_tfc">-</div>
+          <div>RX ok / bad</div><div id="t_rx">-</div>
+          <div>TX ok / busy</div><div id="t_tx">-</div>
+          <div>Dwell</div><div id="t_dwell">-</div>
           <div>Alarm</div><div><span id="t_alarm" class="alarm a0">none</span></div>
         </div>
       </div>
@@ -342,7 +342,7 @@ Module.onRuntimeInitialized = () => {
   SIM.speed = v => { f.setSpeed(+v); $('spd_o').textContent = v + ' kt'; };
   SIM.track = v => { f.setTrack(+v); $('trk_o').textContent = String(v).padStart(3,'0') + '°'; };
   SIM.climb = v => { f.setClimb(+v); $('clb_o').textContent = (v/10).toFixed(1) + ' m/s'; };
-  // Sliders are in tenths of a hectopascal; the firmware speaks pascals.
+  // Sliders are in tenths of a hectopascal, the firmware speaks pascals.
   const HPA_E1_TO_PA = 10;
   SIM.airmass = v => { f.setAirmass(v * HPA_E1_TO_PA); $('air_o').textContent = (v/10).toFixed(1) + ' hPa'; };
   SIM.qnh = v => { f.setQnh(v * HPA_E1_TO_PA); $('qnh_o').textContent = (v/10).toFixed(1) + ' hPa'; };
@@ -377,8 +377,8 @@ Module.onRuntimeInitialized = () => {
       panel.style.display = mode === 'dev' ? '' : 'none';
     }
     $('modehint').textContent = mode === 'dev'
-      ? 'mode: dev — every control visible'
-      : 'mode: ' + mode + ' — controls hidden, the scenario is driving';
+      ? 'mode: dev, every control visible'
+      : 'mode: ' + mode + ', controls hidden, the scenario is driving';
   };
   SIM.loadScenario = async url => {
     if (!url) { location.reload(); return; }
@@ -395,8 +395,8 @@ Module.onRuntimeInitialized = () => {
   const bandCanvas = $('band'), band = bandCanvas.getContext('2d');
   const EVENT = ['tx', 'rx', 'deaf', 'coll'];
   const EVENT_COLOR = {tx:'#7fd1ff', rx:'#8fe08f', deaf:'#ff9b9b', coll:'#ffd591'};
-  const DWELL = ['uplink RX · 869.525', 'retune O→M', 'slot 0 · 868.200',
-                 'hop', 'slot 1 · 868.400', 'retune M→O'];
+  const DWELL = ['uplink RX · 869.525', 'retune O->M', 'slot 0 · 868.200',
+                 'hop', 'slot 1 · 868.400', 'retune M->O'];
 
   // Slot 1 wraps: 0..200 is the tail of the slot that opened at 800. The dashed
   // line at 450 is where our own bursts may start.
@@ -408,10 +408,10 @@ Module.onRuntimeInitialized = () => {
     band.fillStyle = '#16202a'; band.fillRect(ms(400), 0, ms(400), 30);
     band.fillStyle = '#1b2733'; band.fillRect(ms(800), 0, ms(200), 30);
     band.fillStyle = '#7d8894'; band.font = '12px system-ui';
-    band.fillText('slot 1 cont. — RX only', 6, 19);
-    band.fillText('uplink 205-395 — O-band', ms(208), 19);
-    band.fillText('slot 0 — 868.200', ms(408), 19);
-    band.fillText('slot 1 — 868.400 →', ms(808), 19);
+    band.fillText('slot 1 cont., RX only', 6, 19);
+    band.fillText('uplink 205-395, O-band', ms(208), 19);
+    band.fillText('slot 0: 868.200', ms(408), 19);
+    band.fillText('slot 1: 868.400 ->', ms(808), 19);
     band.strokeStyle = '#46525e';
     for (const t of [200, 205, 395, 400, 800]) {
       band.beginPath(); band.moveTo(ms(t), 0); band.lineTo(ms(t), 96); band.stroke();
@@ -439,7 +439,7 @@ Module.onRuntimeInitialized = () => {
     const n = f.airCount(), out = [];
     for (let i = Math.max(0, n - 12); i < n; i++)
       out.push('<span class="' + EVENT[f.airEvent(i)] + '">' + f.airLine(i) + '</span>');
-    $('tape').innerHTML = out.join('\n') || '—';
+    $('tape').innerHTML = out.join('\n') || '-';
   }
 
   // Slot edges are 5 ms wide: stepping a whole animation frame at once would
@@ -463,7 +463,7 @@ Module.onRuntimeInitialized = () => {
     }
     ctx.putImageData(img, 0, 0);
     canvas.className = (f.powered() ? '' : 'off ') + (f.blOn() ? 'bl' : '');
-    // Only the left LED is the firmware's; the right one follows the charger,
+    // Only the left LED is the firmware's. The right one follows the charger,
     // which on this board is USB power minus a full cell.
     $('led_alarm').className = 'led red' + (f.alarm() ? ' on' : '');
     $('led_charge').className = 'led amber' + (f.batteryCharging() ? ' on' : '');
@@ -485,11 +485,11 @@ Module.onRuntimeInitialized = () => {
     $('t_tfc').textContent  = f.traffic() + ' target(s)';
     $('t_rx').textContent   = f.rxOk() + ' / ' + f.rxBad();
     $('t_tx').textContent   = f.txOk() + ' / ' + f.txBusy();
-    $('t_dwell').textContent = DWELL[f.slotState()] || '–';
+    $('t_dwell').textContent = DWELL[f.slotState()] || '-';
     drawBand();
     drawTape();
     if (document.body.dataset.mode === 'training')
-      $('modehint').textContent = 'mode: training — expectations failed: ' + f.failures();
+      $('modehint').textContent = 'mode: training, expectations failed: ' + f.failures();
     const lvl = f.alarm();
     const el = $('t_alarm');
     el.textContent = ALARM[lvl] || lvl;

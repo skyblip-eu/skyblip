@@ -12,7 +12,7 @@ namespace skyblip::platform::zephyr {
 
 // The cell, read through the board's divider. Zephyr's voltage-divider driver
 // owns the ADC and the ratio (the resistors are a devicetree fact, not a
-// constant in code); we own what the millivolts mean, in core/power.
+// constant in code). We own what the millivolts mean, in core/power.
 //
 // INFO: fc 09mar26 the T-Echo family exposes no charger status pin - SoftRF's
 // nRF52 port says the same ("the T-Echo has no ext_power_pin") - so the only

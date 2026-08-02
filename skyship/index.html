@@ -32,7 +32,7 @@
   input[type=file] { color:var(--grey); }
 </style>
 
-<h1>skyShip editor <span>&mdash; the ownship symbol &middot; firmware/ui/widgets/skyship.cpp : kOwnshipRows[]</span></h1>
+<h1>skyShip editor <span>(the ownship symbol &middot; firmware/ui/widgets/skyship.cpp : kOwnshipRows[])</span></h1>
 
 <div class="row">
   <div class="panel">
@@ -41,10 +41,10 @@
       <label><input type="checkbox" id="gridlines" checked> grid</label>
       <button data-rows="-1">&minus; row</button><button data-rows="1">+ row</button>
       <button data-cols="-1">&minus; col</button><button data-cols="1">+ col</button>
-      <button data-wing="-2" title="scale the wing rows only; fuselage, prop and tail keep their width">&minus; wing span</button><button data-wing="2">+ wing span</button>
-      <button id="toeven" title="convert to even width: straddle the screen centre point (99|100) instead of sitting half a pixel off it">&rarr; even</button>
+      <button data-wing="-2" title="scale the wing rows only, fuselage, prop and tail keep their width">&minus; wing span</button><button data-wing="2">+ wing span</button>
+      <button id="toeven" title="convert to even width: straddle the screen centre point (99|100) instead of sitting half a pixel off it">-> even</button>
       <button id="trim" title="drop blank rows/columns at the edges: they offset the centring">trim</button>
-      <label title="the aircraft's POSITION on the glyph; this row sits on the plot origin">hot spot row <input id="origin" type="number" min="0" style="width:3.5em"></label>
+      <label title="the aircraft's POSITION on the glyph, the row that sits on the plot origin">hot spot row <input id="origin" type="number" min="0" style="width:3.5em"></label>
       <button id="clear">clear</button>
     </div>
     <canvas id="grid"></canvas>
@@ -55,7 +55,7 @@
   </div>
 
   <div class="panel">
-    <h2>on screen &mdash; 200&times;200, 2&times;</h2>
+    <h2>on screen (200&times;200, 2&times;)</h2>
     <canvas id="screen" width="400" height="400"></canvas>
     <div id="stats" class="dim" style="margin-top:10px"></div>
     <div id="checks"></div>
@@ -68,7 +68,7 @@
   </div>
 
   <div class="panel">
-    <h2>C++ &mdash; paste into skyship.cpp</h2>
+    <h2>C++: paste into skyship.cpp</h2>
     <div class="bar">
       <button id="copy">copy</button>
       <button id="copyart">copy art only</button>
@@ -81,7 +81,7 @@
 
 <script>
 const PRESETS = {
-  skyship: { label: "skyShip — current (24x16)", art: `...........##...........
+  skyship: { label: "skyShip: current (24x16)", art: `...........##...........
 ........########........
 ..........####..........
 ..........####..........
@@ -132,7 +132,7 @@ function drawGrid() {
     // would trace a shape that disagrees with trace.py and with the IoU below.
     // Fitting by width alone would make it 24*172/232 = 17.8 rows tall and the
     // canvas would clip the nose and tail. So scale by whichever axis binds: the
-    // leftover margin IS the signal — it shows how much span the 24 px sprite
+    // leftover margin IS the signal: it shows how much span the 24 px sprite
     // borrows from proportion to stay legible at 1 bit (see skyship.cpp).
     const s = Math.min(W() * CELL / under.naturalWidth, H() * CELL / under.naturalHeight);
     const gw = under.naturalWidth * s, gh = under.naturalHeight * s;
@@ -176,7 +176,7 @@ function drawScreen() {                            // exactly what draw_radar() 
   // Placed by the HOT SPOT, exactly as draw_ownship() does: the row holding the
   // aircraft's position lands on the origin. Bbox-centring instead would put a
   // long-tailed aeroplane's wing several px forward and skew every bearing.
-  // even width straddles the 99|100 centre point; the hot-spot row sits on 99
+  // even width straddles the 99|100 centre point. The hot-spot row sits on 99
   const x0 = 100 - (W() >> 1), y0 = 99 - origin();
   for (let r = 0; r < H(); r++) for (let c = 0; c < W(); c++)
     if (g[r][c]) sx.fillRect(x0 + c, y0 + r, 1, 1);
@@ -216,13 +216,13 @@ function checks() {
     const n = (g[r-1]?.[c] || 0) + (g[r+1]?.[c] || 0) + (g[r][c-1] || 0) + (g[r][c+1] || 0);
     if (!n) loose++;
   }
-  if (W() % 2) out.push(`<li class="warn">odd width (${W()}) &mdash; the axis lands half a pixel off the screen centre; even width straddles the 99|100 point exactly</li>`);
+  if (W() % 2) out.push(`<li class="warn">odd width (${W()}): the axis lands half a pixel off the screen centre, even width straddles the 99|100 point exactly</li>`);
   let asym = 0;
   for (let r = 0; r < H(); r++) for (let c = 0; c < W(); c++) if (g[r][c] !== g[r][W()-1-c]) asym++;
   if (asym) out.push(`<li class="warn">${asym} px not mirrored</li>`);
-  if (loose) out.push(`<li class="warn">${loose} loose px (no neighbour) &mdash; reads as a traffic dot</li>`);
+  if (loose) out.push(`<li class="warn">${loose} loose px (no neighbour): reads as a traffic dot</li>`);
   if (rows.some((v, i) => v === 0 && rows.slice(0, i).some(x => x) && rows.slice(i).some(x => x)))
-    out.push(`<li class="warn">blank row inside the glyph &mdash; tail will look detached</li>`);
+    out.push(`<li class="warn">blank row inside the glyph: tail will look detached</li>`);
   // on an even grid the spine is a PAIR of pixels, never one
   const spine = g.map(r => W() % 2 ? r[cx] : (r[cx - 1] && r[cx])).filter(v => v).length;
   if (spine < H()) out.push(`<li class="warn">centreline broken on ${H() - spine} row(s)</li>`);
@@ -293,9 +293,9 @@ function drawDiff() {
     `IoU <b>${f.iou.toFixed(3)}</b> &middot; ` +
     `<span style="color:#8DA3B8">missing ${(f.missing * 100).toFixed(0)}%</span> &middot; ` +
     `<span style="color:#FF4F1F">extra ${(f.extra * 100).toFixed(0)}%</span><br>` +
-    `<span class="dim">shape only &mdash; the stretch normalises aspect away, so watch ` +
+    `<span class="dim">shape only: the stretch normalises aspect away, so watch ` +
     `span/length (${(W() / H()).toFixed(2)}) separately. Anything the outline does ` +
-    `not draw scores as “extra”.</span>`;
+    `not draw scores as "extra".</span>`;
 }
 
 function redraw() {
@@ -305,7 +305,6 @@ function redraw() {
   window.skyship = { art: art(), cpp: cpp, w: W(), h: H() };
 }
 
-// ---- input ------------------------------------------------------------------
 let painting = null;
 gridC.addEventListener("pointerdown", e => {
   const r = Math.floor(e.offsetY / CELL), c = Math.floor(e.offsetX / CELL);
@@ -389,7 +388,7 @@ $("toeven").onclick = () => {
 $("clear").onclick = () => { g = g.map(r => r.map(() => 0)); redraw(); };
 $("sym").onchange = $("gridlines").onchange = $("ghost").onchange = redraw;
 $("origin").oninput = redraw;
-$("preset").innerHTML = '<option value="">load&hellip;</option>' +
+$("preset").innerHTML = '<option value="">load...</option>' +
   Object.entries(PRESETS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
 $("preset").onchange = e => {
   const p = PRESETS[e.target.value];

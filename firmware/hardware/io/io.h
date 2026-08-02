@@ -25,7 +25,7 @@ struct PinRole {
 
 // What a board tells its platform about its own wiring. The silicon platform
 // ignores it (the pins are already in the devicetree and in the drivers' own
-// arguments); the host platform uses it to route a pin to the part model that
+// arguments). The host platform uses it to route a pin to the part model that
 // owns it.
 struct PinMap {
     const PinRole* roles;

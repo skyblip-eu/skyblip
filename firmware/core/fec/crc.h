@@ -1,4 +1,4 @@
-// core/fec/crc.h — checksum / CRC primitives.
+// core/fec/crc.h: checksum / CRC primitives.
 #ifndef SKYBLIP_CORE_FEC_CRC_H
 #define SKYBLIP_CORE_FEC_CRC_H
 

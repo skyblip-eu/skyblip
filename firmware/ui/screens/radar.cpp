@@ -14,7 +14,7 @@ namespace {
 //   kFar  = 100  the pixel just after it (right, and below)
 //
 // A feature at distance d from the centre therefore occupies kNear-(d-1) on one
-// side and kFar+(d-1) on the other; a feature ON the centre is a PAIR of
+// side and kFar+(d-1) on the other. A feature ON the centre is a PAIR of
 // pixels, never one. That makes the own ship exactly centred (its fuselage
 // straddles 99|100), the rings exactly concentric with it, and every target
 // offset measured from the same point in both directions.

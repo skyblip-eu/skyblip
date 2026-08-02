@@ -1,4 +1,6 @@
-// core/util/bitcount.h — popcount helpers for FEC syndrome work; uses the
+// core/util/bitcount.h: popcount over a byte, a word or a buffer, for counting
+// the bits a syndrome disagrees on. Compiler builtins, so a target with a
+// popcount instruction uses it.
 #ifndef SKYBLIP_CORE_UTIL_BITCOUNT_H
 #define SKYBLIP_CORE_UTIL_BITCOUNT_H
 

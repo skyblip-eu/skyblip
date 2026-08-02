@@ -17,7 +17,7 @@ using skyblip::messages::RxFrame;
 
 namespace {
 
-// skyBlip companion service (random 128-bit base; align with the app spec).
+// skyBlip companion service (random 128-bit base, align with the app spec).
 //   service   6e40-0001-...  NMEA notify   6e40-0002-...  config r/w/notify 6e40-0003-...
 #define SKB_UUID(v) BT_UUID_128_ENCODE(0x6e400000 | (v), 0xb5a3, 0xf393, 0xe0a9, 0xe50e24dcca9e)
 static struct bt_uuid_128 svc_uuid = BT_UUID_INIT_128(SKB_UUID(0x0001));

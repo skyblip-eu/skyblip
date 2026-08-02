@@ -1,4 +1,4 @@
-// hal/link.h — capability port: OUTBOUND bytes to a companion link (BLE/USB/TCP)
+// hal/link.h: capability port: OUTBOUND bytes to a companion link (BLE/USB/TCP)
 #ifndef SKYBLIP_HAL_LINK_H
 #define SKYBLIP_HAL_LINK_H
 

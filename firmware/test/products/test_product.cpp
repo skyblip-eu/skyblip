@@ -1,5 +1,5 @@
-// The acceptance invariant on the host: the real product — board, services,
-// drivers — links and runs on the host platform with zero framework code. If any
+// The acceptance invariant on the host: the real product (board, services,
+// drivers) links and runs on the host platform with zero framework code. If any
 // of it leaks a Zephyr include, this stops compiling.
 #include "core/flight/atmosphere.h"
 #include "doctest/doctest.h"
@@ -118,7 +118,7 @@ TEST_CASE("product: the e-paper refreshes on change, not on cadence") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     rig.run(0, 5000);
-    // The boot frame, presented full; the sky then stays static, so nothing
+    // The boot frame, presented full. The sky then stays static, so nothing
     // else reaches the glass.
     CHECK(rig.platform.chips().epd.present_count == 1);
     CHECK(rig.platform.chips().epd.last_full);

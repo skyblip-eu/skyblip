@@ -1,4 +1,4 @@
-// core/protocol/adsl_uplink.h — ADS-L Traffic Uplink (O-band HDR, 869.525 GMSK
+// core/protocol/adsl_uplink.h: ADS-L Traffic Uplink (O-band HDR, 869.525 GMSK
 #ifndef SKYBLIP_CORE_PROTOCOL_ADSL_UPLINK_H
 #define SKYBLIP_CORE_PROTOCOL_ADSL_UPLINK_H
 

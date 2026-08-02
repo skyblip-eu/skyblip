@@ -35,7 +35,7 @@ struct ScenarioAircraft {
     double speed_mps{30};
     double track_deg{270};
     // Where in the second this aircraft transmits and on which M-band channel.
-    // Left alone it behaves like a conforming transmitter; pinned, it is how a
+    // Left alone it behaves like a conforming transmitter. Pinned, it is how a
     // slot-timing bug becomes a committed fixture.
     int phase_ms{-1};
     int slot{-1};

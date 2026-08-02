@@ -1,3 +1,8 @@
+// The diagnostic page, where the discipline is what it refuses to state. An
+// emitter that cannot be modelled shows its range and no verdict, no fix means no
+// range at all, and the header counts every emitter heard rather than the handful
+// of rows that fit. A page that quietly lists five of nine is a page that says the
+// sky is emptier than it is.
 #include "doctest/doctest.h"
 #include "ui/framebuffer.h"
 #include "ui/screens/signal.h"

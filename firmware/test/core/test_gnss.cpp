@@ -1,3 +1,7 @@
+// The only door position gets in through. Everything downstream (the alarm, the
+// radar, what we transmit about ourselves) is this parser's output, so a sentence
+// that fails its checksum must leave the fix untouched rather than half-applied,
+// and a sentence arriving one byte at a time must reconstruct exactly.
 #include <cstdlib>  // std::abs
 #include <cstring>
 

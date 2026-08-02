@@ -1,4 +1,4 @@
-// core/protocol/alptas.h — ALP-TAS air-frame codec, 2024 protocol (message type 2).
+// core/protocol/alptas.h: ALP-TAS air-frame codec, 2024 protocol (message type 2).
 #ifndef SKYBLIP_CORE_PROTOCOL_ALPTAS_H
 #define SKYBLIP_CORE_PROTOCOL_ALPTAS_H
 

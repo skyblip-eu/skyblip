@@ -94,7 +94,7 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
         return;
     }
 
-    // "dfu" opens an upload window; the image itself then travels over MCUmgr
+    // "dfu" opens an upload window. The image itself then travels over MCUmgr
     // /SMP, not over this channel. "apply" swaps an image already staged in the
     // secondary slot. "recovery" reboots into the factory drag-and-drop
     // bootloader. All three take the same route: refuse in flight, then wait for

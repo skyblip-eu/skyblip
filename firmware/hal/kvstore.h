@@ -1,4 +1,4 @@
-// hal/kvstore.h — capability port: durable key/value blob storage (config
+// hal/kvstore.h: capability port: durable key/value blob storage (config
 #ifndef SKYBLIP_HAL_KVSTORE_H
 #define SKYBLIP_HAL_KVSTORE_H
 

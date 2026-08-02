@@ -36,7 +36,7 @@ serve:
 # loop automatic. Watches the page AND the firmware sources the WASM is built
 # from, because a change in either is a change to what the page shows.
 watch:
-	@echo "watching — Ctrl-C to stop"
+	@echo "watching: Ctrl-C to stop"
 	@if command -v watchexec >/dev/null 2>&1; then \
 	  watchexec -w . -w $(FIRMWARE) -e cpp,h,html --ignore '**/build/**' --debounce 400ms -- \
 	    $(MAKE) --no-print-directory build; \

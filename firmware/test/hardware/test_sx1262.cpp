@@ -11,7 +11,7 @@ using namespace skyblip::parts;
 
 static Sx1262 make(models::Sx1262& f) { return Sx1262(f, f, f.busy_pin, f.reset_pin, f.dio1_pin); }
 
-TEST_CASE("radio: begin configures the TCXO (DIO3) and RF switch (DIO2) — T-Echo wiring") {
+TEST_CASE("radio: begin configures the TCXO (DIO3) and RF switch (DIO2) for T-Echo wiring") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     CHECK(r.begin() == Status::Ok);
@@ -153,7 +153,7 @@ TEST_CASE("radio: what was written to the buffer is what goes on air") {
     CHECK_FALSE(chip.take_tx(out, len));
 }
 
-// The dwell hands the radio a sync window and a length; without them programmed
+// The dwell hands the radio a sync window and a length. Without them programmed
 // the chip frames nothing, so this is where the shared-window trick either
 // reaches the hardware or quietly does not.
 TEST_CASE("radio: configure programs the sync window and the fixed read length") {

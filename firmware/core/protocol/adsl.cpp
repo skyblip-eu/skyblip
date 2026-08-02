@@ -80,7 +80,7 @@ void AdslPacket::set_track_c9(uint16_t w) {
 // air, depending on where the packet happened to land on the stack. So copy
 // through an aligned local instead: 40 bytes of stack and two 20-byte copies per
 // packet, against a few frames per second. GCC catches this as
-// -Waddress-of-packed-member; clang does not, so do not rely on the compiler.
+// -Waddress-of-packed-member. Clang does not, so do not rely on the compiler.
 void AdslPacket::scramble() {
     uint32_t w[5];
     __builtin_memcpy(w, Byte, sizeof(w));

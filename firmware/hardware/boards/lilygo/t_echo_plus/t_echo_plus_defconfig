@@ -10,7 +10,7 @@ CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL=y
 
 # Link into the `zephyr,code-partition` chosen in the board devicetree rather
 # than at flash base 0. Without this, CONFIG_FLASH_LOAD_OFFSET defaults to 0
-# (Kconfig.zephyr:133) and both the ELF and the generated .uf2 target 0x0 —
+# (Kconfig.zephyr:133) and both the ELF and the generated .uf2 target 0x0:
 # which would overwrite the factory MBR + SoftDevice. The upstream promicro_
 # nrf52840 uf2 variant sets this explicitly for the same reason; the Adafruit
 # feather uf2 variant forgets to, and is wrong.

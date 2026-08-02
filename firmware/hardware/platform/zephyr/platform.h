@@ -103,7 +103,7 @@ class Platform {
     const struct device* radio_spi_dev_{DEVICE_DT_GET(DT_ALIAS(radio_spi))};
     const struct device* epd_spi_dev_{DEVICE_DT_GET(DT_ALIAS(epd_spi))};
     const struct device* gnss_uart_dev_{DEVICE_DT_GET(DT_ALIAS(gnss_uart))};
-    // Both candidate barometer addresses are declared; whichever part is fitted
+    // Both candidate barometer addresses are declared. Whichever part is fitted
     // becomes ready, the other never does.
     const struct device* baro76_dev_{DEVICE_DT_GET(DT_NODELABEL(bme280_76))};
     const struct device* baro77_dev_{DEVICE_DT_GET(DT_NODELABEL(bme280_77))};

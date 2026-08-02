@@ -1,6 +1,6 @@
-// hal/dfu.h — capability port: the firmware-update actions. core/ decides WHEN
+// hal/dfu.h: capability port: the firmware-update actions. core/ decides WHEN
 // (core/comms/config.cpp gates every one of these on positive-ground plus an
-// on-screen confirmation); the adapter decides HOW.
+// on-screen confirmation). The adapter decides HOW.
 //
 // confirm() and enter_recovery() are virtual-with-default rather than pure so a
 // board or a test double that only cares about triggering a swap stays valid.
@@ -19,7 +19,7 @@ class Dfu {
     virtual void trigger() = 0;
 
     // Declare the running image good, cancelling the pending auto-revert. Must
-    // be called by the application only once it is demonstrably working —
+    // be called by the application only once it is demonstrably working:
     // calling it unconditionally at startup throws away the rollback guarantee,
     // which is the whole point of an A/B layout.
     virtual void confirm() {}

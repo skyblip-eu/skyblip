@@ -40,7 +40,7 @@ constexpr int kSlot1Wrap = kSlot1End - 1000;
 constexpr int kDirectStart = 450;
 constexpr int kDirectEnd = 1000;
 // Both band edges get the same guard: slot 1 ends at 200, uplink RX starts at
-// 205; the uplink dwell ends at 395, M-band opens at 400. The O->M edge is the
+// 205. The uplink dwell ends at 395, M-band opens at 400. The O->M edge is the
 // safety-critical one - traffic is on air there and the radio has to be tuned,
 // not tuning.
 constexpr int kJitterGuardMs = 5;

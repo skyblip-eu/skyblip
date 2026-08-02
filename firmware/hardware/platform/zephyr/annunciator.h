@@ -24,7 +24,7 @@ class Annunciator : public hal::Annunciator {
 
     void alarm(uint8_t level, uint8_t volume) override {
         if (level == 0 || volume == 0) return silence();
-        // Higher level → higher pitch; volume → duty cycle.
+        // Higher level -> higher pitch, volume -> duty cycle.
         uint32_t period = PWM_HZ(2000 + level * 400);
         pwm_set_dt(&buzzer_, period, period / (5 - (volume > 3 ? 3 : volume)));
     }

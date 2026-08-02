@@ -1,4 +1,4 @@
-// core/power/battery.h — what a cell's terminal voltage means, on charge and off.
+// core/power/battery.h: what a cell's terminal voltage means, on charge and off.
 #ifndef SKYBLIP_CORE_POWER_BATTERY_H
 #define SKYBLIP_CORE_POWER_BATTERY_H
 

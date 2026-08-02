@@ -1,3 +1,8 @@
+// Harness, not a test: the impairment the protocol suites run their frames
+// through. Bit errors and burst errors are injected here so the codecs can be
+// measured against a channel that misbehaves on demand, deterministically, with no
+// radio in the room. Nothing below the services is mocked, so this models the air
+// rather than the parts.
 #include "test/support/rf_channel.h"
 
 namespace skyblip::models {

@@ -1,4 +1,4 @@
-// core/protocol/nmea_out.h — ALP-TAS (FLARM-wire-compatible) NMEA output for
+// core/protocol/nmea_out.h: ALP-TAS (FLARM-wire-compatible) NMEA output for
 #ifndef SKYBLIP_CORE_PROTOCOL_NMEA_OUT_H
 #define SKYBLIP_CORE_PROTOCOL_NMEA_OUT_H
 

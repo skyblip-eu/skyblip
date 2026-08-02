@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://skyblip.eu/schemas/scenario.v1.schema.json",
   "title": "skyBlip simulator scenario (v1)",
-  "description": "One scenario drives the browser simulator, the terminal simulator and the host regression suite. Consumed by firmware/sim/world; authored by skyship-editor.",
+  "description": "One scenario drives the browser simulator, the terminal simulator and the host regression suite. Parsed and replayed by firmware/simulator/world.",
   "type": "object",
   "properties": {
     "name": {"type": "string"},

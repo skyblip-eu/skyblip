@@ -1,4 +1,4 @@
-// core/fec/reed_solomon.h — Reed–Solomon RS(255,223) over GF(2^8).
+// core/fec/reed_solomon.h: Reed-Solomon RS(255,223) over GF(2^8).
 #ifndef SKYBLIP_CORE_FEC_REED_SOLOMON_H
 #define SKYBLIP_CORE_FEC_REED_SOLOMON_H
 

@@ -1,8 +1,8 @@
 # Host unit-test + simulator build. Depends on nothing but a C++ compiler.
 #
 #   make test        build + run all host doctest suites
-#   make simulator   terminal simulator          (alias: make sim)
-#   make browser     compile the WASM the browser page drives (alias: make web)
+#   make simulator   terminal simulator
+#   make browser     compile the WASM the browser page drives
 #   make watch       incremental rebuild on save (WATCH=browser|simulator|test)
 #
 # The page itself and its dev server live in ../simulator: `make -C ../simulator
@@ -58,7 +58,7 @@ WEB_CXXFLAGS := -std=c++17 -O2 -I. -Ivendor -fno-exceptions -fno-rtti -MMD -MP
 # Single line: a `\`-continuation here injects a space that breaks the arg.
 WEB_EXPORTS := _simulator_setup,_simulator_step,_simulator_button,_simulator_touch,_simulator_backlight,_simulator_power,_simulator_set_range,_simulator_set_fix,_simulator_set_pps,_simulator_load_scenario,_simulator_mode,_simulator_capabilities,_simulator_failures,_simulator_set_sats,_simulator_set_alt,_simulator_set_speed,_simulator_set_track,_simulator_set_climb,_simulator_set_qnh,_simulator_set_airmass,_simulator_set_battery_mv,_simulator_set_external_power,_simulator_set_position,_simulator_add_aircraft,_simulator_add_threat,_simulator_clear_traffic,_simulator_aircraft_count,_simulator_fb,_simulator_fb_w,_simulator_fb_h,_simulator_fb_stride,_simulator_backlight_on,_simulator_powered,_simulator_page,_simulator_fix_valid,_simulator_sats,_simulator_lat_1e7,_simulator_lon_1e7,_simulator_alt_m,_simulator_pressure_pa,_simulator_battery_mv,_simulator_battery_percent,_simulator_battery_charging,_simulator_speed_q,_simulator_track_c9,_simulator_climb_e8,_simulator_traffic_count,_simulator_alarm_level,_simulator_vibro_ms,_simulator_rx_ok,_simulator_rx_bad,_simulator_tx_ok,_simulator_tx_busy,_simulator_slot_state,_simulator_dwell_freq,_simulator_air_count,_simulator_air_phase_ms,_simulator_air_event,_simulator_air_freq_khz,_simulator_air_rssi,_simulator_air_line,_simulator_air_deaf,_simulator_air_collisions,_simulator_add_aircraft_at,_main
 
-.PHONY: test all clean simulator sim browser web watch
+.PHONY: test all clean simulator browser watch
 all: test
 
 test: $(BIN)
@@ -70,8 +70,6 @@ $(BIN): $(OBJ)
 simulator: $(SIMULATOR_BIN)
 	@echo "run: ./$(SIMULATOR_BIN)"
 
-sim: simulator
-
 $(SIMULATOR_BIN): $(SIMULATOR_OBJ)
 	$(CXX) $(CXXFLAGS) $(SIMULATOR_OBJ) -o $@ $(LDFLAGS)
 
@@ -81,8 +79,6 @@ browser:
 	@command -v $(EMCC) >/dev/null 2>&1 || { \
 	  echo "emcc not found. Install Emscripten, then: make browser"; exit 1; }
 	@$(MAKE) --no-print-directory $(WEB_OUT)
-
-web: browser
 
 $(WEB_BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
@@ -95,13 +91,13 @@ $(WEB_OUT): $(WEB_OBJ)
 	  -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8 \
 	  -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=0 \
 	  -o $(WEB_OUT)
-	@echo "built $(WEB_DIST)/ — serve it with: make -C ../simulator dev"
+	@echo "built $(WEB_DIST)/, serve it with: make -C ../simulator dev"
 
 $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# ---- dev loop ---------------------------------------------------------------
+# dev loop
 # C++ has no hot-module-reload: a change always means a recompile. These make
 # the loop automatic instead of manual.
 #
@@ -113,7 +109,7 @@ WATCH ?= test
 WATCH_SRC := core ui hal hardware runtime products simulator test
 
 watch:
-	@echo "watching (target: $(WATCH)) — Ctrl-C to stop"
+	@echo "watching (target: $(WATCH)), Ctrl-C to stop"
 	@if command -v watchexec >/dev/null 2>&1; then \
 	  watchexec -e cpp,h,html --debounce 400ms -- $(MAKE) --no-print-directory $(WATCH); \
 	else \

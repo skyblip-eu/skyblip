@@ -1,4 +1,7 @@
-// core/settings/settings.h — the plain, versioned config struct + defaults +
+// core/settings/settings.h: the config struct a pilot can change, its defaults,
+// and the two framings it survives in: a versioned CRC blob for flash, JSON for
+// the companion link. Validation is one function, so no path can store a value
+// another path would refuse.
 #ifndef SKYBLIP_CORE_SETTINGS_SETTINGS_H
 #define SKYBLIP_CORE_SETTINGS_SETTINGS_H
 

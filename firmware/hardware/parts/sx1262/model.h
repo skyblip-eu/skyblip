@@ -1,4 +1,4 @@
-// hardware/parts/sx1262/model.h — a behavioural SX1262 model at the SPI/GPIO seam, so
+// hardware/parts/sx1262/model.h: a behavioural SX1262 model at the SPI/GPIO seam, so
 // the REAL parts::Sx1262 runs against it unchanged: it answers opcodes, raises
 // DIO1 on Rx/Tx-done, and can be stuck busy or made to report a CRC error.
 #ifndef SKYBLIP_HARDWARE_MODEL_SX1262_H

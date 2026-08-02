@@ -1,4 +1,4 @@
-// hardware/boards/lilygo/t_echo_plus/pins.h — LilyGO T-Echo Plus (nRF52840) pin map.
+// hardware/boards/lilygo/t_echo_plus/pins.h: LilyGO T-Echo Plus (nRF52840) pin map.
 #ifndef SKYBLIP_HARDWARE_BOARDS_T_ECHO_PLUS_PINS_H
 #define SKYBLIP_HARDWARE_BOARDS_T_ECHO_PLUS_PINS_H
 
@@ -48,7 +48,7 @@ constexpr int kTouch = kPinNum(0, 11);    // capacitive touch pad
 constexpr int kBuzzer = kPinNum(0, 6);  // piezo buzzer
 constexpr int kVibro = kPinNum(0, 8);   // DRV haptic / vibration motor enable
 
-// PIN_POWER_EN gates the radio, the e-paper and the external flash; it is
+// PIN_POWER_EN gates the radio, the e-paper and the external flash. It is
 // asserted in board.c so MCUboot sees the rails up too.
 constexpr int kIoPwr = kPinNum(0, 12);          // PIN_POWER_EN (radio + eink + peripherals)
 constexpr int k3v3Pwr = kPinNum(0, 13);         // aux 3V3 rail (REV_2 boards; harmless to assert)

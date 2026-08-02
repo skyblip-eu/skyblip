@@ -1,4 +1,4 @@
-// core/util/intmath.h — fixed-point integer trig & distance. Fixed-point keeps
+// core/util/intmath.h: fixed-point integer trig & distance. Fixed-point keeps
 #ifndef SKYBLIP_CORE_UTIL_INTMATH_H
 #define SKYBLIP_CORE_UTIL_INTMATH_H
 

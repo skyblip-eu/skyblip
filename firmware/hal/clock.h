@@ -1,4 +1,4 @@
-// hal/clock.h — capability port: a monotonic clock core/ can read.
+// hal/clock.h: capability port: a monotonic clock core/ can read.
 #ifndef SKYBLIP_HAL_CLOCK_H
 #define SKYBLIP_HAL_CLOCK_H
 

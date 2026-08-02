@@ -1,8 +1,8 @@
-// core/flight/atmosphere.h — the standard atmosphere, as integer math.
+// core/flight/atmosphere.h: the standard atmosphere, as integer math.
 //
 // Pressure is the only altitude source that is datum-free in a useful way: a
-// RATE derived from it needs no agreement with anyone. That is what this is for
-// — vertical speed. It is deliberately NOT used for the altitude skyBlip
+// RATE derived from it needs no agreement with anyone. That is what this is for:
+// vertical speed. It is deliberately NOT used for the altitude skyBlip
 // broadcasts, because the collision alarm compares RELATIVE altitude against
 // other aircraft (core/traffic/alarm.h, +/-300 m window), so every participant
 // must share one datum, and which datum that is belongs to the ADS-L spec, not
@@ -22,7 +22,7 @@ constexpr uint32_t kIsaSeaLevelPa = 101325;
 // at 1 m resolution a 0.5 m/s climb would quantise to nothing.
 //
 // Clamped to the table's range (26000..110000 Pa, about -698..+10108 m), which
-// also covers the ISA troposphere limit — the formula below is only valid to
+// also covers the ISA troposphere limit: the formula below is only valid to
 // 11 km (22632 Pa) anyway.
 int32_t pressure_to_alt_cm(uint32_t pa);
 
