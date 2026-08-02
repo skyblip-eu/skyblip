@@ -2,6 +2,12 @@
 // and the two framings it survives in: a versioned CRC blob for flash, JSON for
 // the companion link. Validation is one function, so no path can store a value
 // another path would refuse.
+//
+// Every field here has a reader outside this module. A page that accepts a
+// setting the firmware ignores is worse than one that does not offer it, so a
+// field that loses its last reader leaves the struct, the JSON and the schema
+// together, and the blob layout is versioned so a device that stored the old
+// one still comes back up as itself.
 #ifndef SKYBLIP_CORE_SETTINGS_SETTINGS_H
 #define SKYBLIP_CORE_SETTINGS_SETTINGS_H
 
@@ -14,23 +20,29 @@ namespace skyblip::settings {
 
 enum class Units : uint8_t { Metric = 0, Imperial = 1 };
 
+constexpr size_t kCallsignCap = 10;
+
 struct Settings {
     uint8_t version{kCurrentVersion};
     uint32_t device_addr{0};
     uint8_t addr_table{0};
     uint8_t aircraft_type{4};
-    uint8_t region{0};
     bool alarm_enabled{true};
     uint8_t alarm_volume{3};
     bool stealth{false};
     Units units{Units::Metric};
-    uint8_t rotation{0};
     uint8_t page_mask{0x0F};
-    bool power_save{false};
-    char callsign[10]{0};
+    char callsign[kCallsignCap]{0};
 
+    // The companion-link contract, which is what schemas/config.v1.schema.json
+    // pins. It moves when a key changes meaning, not when the flash layout does.
     static constexpr uint8_t kCurrentVersion = 1;
 };
+
+// The flash framing, which is a different thing from the contract above: it
+// moves whenever the struct's bytes move. Version 1 carried region, rotation and
+// power_save between aircraft_type and callsign; from_blob still reads it.
+constexpr uint8_t kBlobVersion = 2;
 
 Settings defaults(uint32_t addr = 0);
 
@@ -43,6 +55,6 @@ Status from_blob(const uint8_t* in, size_t len, Settings& out);
 int to_json(const Settings& s, char* buf, int cap);
 Status apply_json(Settings& s, const char* json, int len);
 
-}
+}  // namespace skyblip::settings
 
 #endif

@@ -1,6 +1,7 @@
 #ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_SCREEN_H
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_SCREEN_H
 
+#include "core/gnss/first_fix.h"
 #include "runtime/service.h"
 #include "ui/framebuffer.h"
 #include "ui/screens/radar.h"
@@ -34,6 +35,10 @@ class ScreenService : public runtime::Service {
         dirty_ = true;
     }
 
+    // The receiver's first solution, and how long own-ship state has been
+    // steady since. The transmit policy reads settled(); nothing else does yet.
+    const gnss::FirstFix& first_fix() const { return fix_watch_; }
+
     Page page() const { return page_; }
     int32_t range_m() const { return range_m_; }
     bool backlight() const { return backlight_; }
@@ -44,6 +49,7 @@ class ScreenService : public runtime::Service {
 
    private:
     void render();
+    void annunciate_first_fix(uint32_t now_ms);
     bool decide_full(uint32_t now_ms, bool quiet) const;
     void note_presented(hal::Refresh mode, uint32_t now_ms);
 
@@ -51,6 +57,16 @@ class ScreenService : public runtime::Service {
     int32_t climb_fpm() const {
         return (static_cast<int32_t>(context_.state.own.climb_e8) * 19685) / (8 * 100);
     }
+
+    // A fix is worth one chirp, not an alarm: the lowest tone step, briefly, and
+    // no haptics at all - the motor is reserved for traffic that escalated, so a
+    // pilot who feels it knows what it means without looking.
+    static constexpr uint32_t kFirstFixToneMs = 250;
+    static constexpr uint8_t kFirstFixToneLevel = 1;
+
+    gnss::FirstFix fix_watch_{};
+    uint32_t tone_since_ms_{0};
+    bool tone_on_{false};
 
     ui::Framebuffer fb_{};
     ui::Framebuffer presented_{};

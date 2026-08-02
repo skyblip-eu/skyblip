@@ -50,6 +50,28 @@ void ConfigService::ack(bool ok, const char* reason) {
     reply(buf);
 }
 
+const char* ConfigService::flight_name(FlightState fs) {
+    switch (fs) {
+        case FlightState::Ground: return "ground";
+        case FlightState::Airborne: return "airborne";
+        case FlightState::Unknown: break;
+    }
+    return "unknown";
+}
+
+void ConfigService::send_status() {
+    char buf[192];
+    json::Writer w(buf, sizeof(buf));
+    w.kv_str("cmd", "status");
+    w.kv_int("addr", static_cast<long>(settings_.device_addr));
+    w.kv_str("callsign", settings_.callsign);
+    w.kv_str("reset", power::to_string(reset_reason_));
+    w.kv_str("flight", flight_name(flight_));
+    w.kv_bool("upload", upload_allowed());
+    w.finish();
+    reply(buf);
+}
+
 void ConfigService::on_rx(const messages::RxFrame& frame) {
     if (frame.endpoint != messages::Endpoint::Config) return;
     const char* data = reinterpret_cast<const char*>(frame.data.data());
@@ -70,6 +92,11 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
         w.kv_str("_settings", body);
         w.finish();
         reply(buf);
+        return;
+    }
+
+    if (std::strcmp(cmd, "status") == 0) {
+        send_status();
         return;
     }
 
@@ -97,8 +124,8 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
     // "dfu" opens an upload window. The image itself then travels over MCUmgr
     // /SMP, not over this channel. "apply" swaps an image already staged in the
     // secondary slot. "recovery" reboots into the factory drag-and-drop
-    // bootloader. All three take the same route: refuse in flight, then wait for
-    // a button press.
+    // bootloader. "power_off" asks the shutdown sequencer for the rails. All
+    // four take the same route: refuse in flight, then wait for a button press.
     Pending requested = Pending::None;
     const char* reason = nullptr;
     if (std::strcmp(cmd, "dfu") == 0) {
@@ -110,6 +137,9 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
     } else if (std::strcmp(cmd, "recovery") == 0) {
         requested = Pending::Recovery;
         reason = "confirm_recovery";
+    } else if (std::strcmp(cmd, "power_off") == 0) {
+        requested = Pending::PowerOff;
+        reason = "confirm_power_off";
     }
 
     if (requested != Pending::None) {
@@ -163,6 +193,11 @@ void ConfigService::confirm() {
         upload_window_open_ = false;
         ack(true, "recovery");
         if (dfu_) dfu_->enter_recovery();
+    } else if (pending_ == Pending::PowerOff) {
+        pending_ = Pending::None;
+        upload_window_open_ = false;
+        power_off_requested_ = true;
+        ack(true, "power_off");
     }
 }
 

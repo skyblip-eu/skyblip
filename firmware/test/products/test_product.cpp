@@ -166,7 +166,7 @@ TEST_CASE("product: page_mask disables pages so the button skips them") {
 
 TEST_CASE("product: persisted settings are loaded on setup") {
     Rig rig;
-    settings::Settings s = settings::defaults(0x111111);
+    settings::Settings s = settings::defaults(0x223344);
     s.alarm_volume = 1;
     uint8_t blob[64];
     settings::to_blob(s, blob, sizeof(blob));
@@ -174,7 +174,7 @@ TEST_CASE("product: persisted settings are loaded on setup") {
 
     REQUIRE(rig.setup() == Status::Ok);
     CHECK(rig.state().settings.alarm_volume == 1);
-    CHECK(rig.state().settings.device_addr == 0x111111);
+    CHECK(rig.state().settings.device_addr == 0x223344);
 }
 
 TEST_CASE("product: barometric pressure drives vertical speed") {
@@ -405,4 +405,74 @@ TEST_CASE("product: the reset reason is read once at boot and kept") {
     CHECK(fresh.product.reset_reason() == power::ResetReason::PowerOn);
     // Two different boots must not paint the same page.
     CHECK(fresh.product.boot_page().count_black() != rig.product.boot_page().count_black());
+}
+
+// F5. The device said nothing when the receiver finally solved, and it
+// transmitted the first solution it got. Both are wrong on the bench and in the
+// air: a cold receiver's first fixes walk, and the pilot is left guessing.
+TEST_CASE("product: the first fix is announced once, then own-ship settles before it flies") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.run(0, 500);
+    CHECK_FALSE(rig.product.screen().first_fix().ever_fixed());
+    CHECK(int(rig.platform.annunciator().level()) == 0);
+
+    rig.push_fix(1000, 1);
+    rig.run(550, 700);
+    CHECK(rig.product.screen().first_fix().ever_fixed());
+    CHECK(int(rig.platform.annunciator().level()) == 1);  // the chirp, at the lowest step
+    // The motor stays out of it: haptics mean traffic that escalated.
+    CHECK(rig.platform.annunciator().vibro_ms() == 0);
+
+    // It is short and it stops by itself, so nothing has to remember to silence
+    // it before the first traffic contact arrives.
+    rig.run(750, 2000);
+    CHECK(int(rig.platform.annunciator().level()) == 0);
+
+    // Nothing is worth transmitting yet, and 20 s later it is.
+    const gnss::FirstFix& fix = rig.product.screen().first_fix();
+    CHECK_FALSE(fix.settled(2000));
+    CHECK_FALSE(fix.settled(fix.fix_since_ms() + gnss::kFirstFixSettleMs - 1));
+    CHECK(fix.settled(fix.fix_since_ms() + gnss::kFirstFixSettleMs));
+
+    // A second acquisition is not a first one: no second chirp, and the shorter
+    // wait applies.
+    gnss::GnssFix lost{};
+    lost.valid = false;
+    rig.product.bus().gnss.push(lost);
+    rig.run(2050, 2200);
+    CHECK_FALSE(fix.settled(2200));
+    rig.push_fix(1000, 2);
+    rig.run(2250, 2400);
+    CHECK(int(rig.platform.annunciator().level()) == 0);
+    CHECK(fix.settled(fix.fix_since_ms() + gnss::kRefixSettleMs));
+}
+
+// B4 + the low-battery warning: two things the status page is the only reader
+// of. Both are drawn from the state the services publish, so this is the wiring
+// test - ui/screens/status.cpp owns what they look like.
+TEST_CASE("product: the status page carries the device's name and a cell that is low") {
+    auto status_ink = [](const char* callsign, uint16_t millivolts, bool on_cable = false) {
+        Rig rig;
+        REQUIRE(rig.setup() == Status::Ok);
+        rig.platform.battery().millivolts = millivolts;
+        rig.platform.battery().external_power = on_cable;
+        for (int i = 0; callsign[i] != 0 && i < 9; i++)
+            rig.state().settings.callsign[i] = callsign[i];
+        uint32_t t = 100;
+        rig.press(t);  // radar -> six-pack
+        rig.press(t);  // -> status
+        rig.run(t, t + 4000);
+        REQUIRE(rig.product.screen().page() == go::Page::Status);
+        return rig.product.screen().framebuffer().count_black();
+    };
+
+    const int plain = status_ink("", 4050);
+    CHECK(status_ink("D-KXYZ", 4050) > plain);
+    // 3.45 V is under core/power's warning threshold: the row says LOW rather
+    // than leaving a pilot to read the number and know what it means. The same
+    // cell on the cable is charging, and nothing on a charger is low.
+    const int low = status_ink("", 3450);
+    CHECK(low != plain);
+    CHECK(status_ink("", 3450, /*on_cable=*/true) != low);
 }

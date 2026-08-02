@@ -2,6 +2,7 @@
 #define SKYBLIP_CORE_COMMS_CONFIG_H
 
 #include "core/messages/messages.h"
+#include "core/power/reset_reason.h"
 #include "core/settings/settings.h"
 #include "hal/dfu.h"
 #include "hal/link.h"
@@ -10,7 +11,7 @@ namespace skyblip::comms {
 
 enum class FlightState : uint8_t { Ground, Airborne, Unknown };
 
-enum class Pending : uint8_t { None, Set, Dfu, Apply, Recovery };
+enum class Pending : uint8_t { None, Set, Dfu, Apply, Recovery, PowerOff };
 
 class ConfigService {
    public:
@@ -44,18 +45,33 @@ class ConfigService {
     bool settings_dirty() const { return dirty_; }
     void clear_dirty() { dirty_ = false; }
 
+    // Why the device came up. Read once at boot by the shell, reported here so
+    // a watchdog bite in the field is diagnosable without the panel in hand.
+    void set_reset_reason(power::ResetReason reason) { reset_reason_ = reason; }
+    power::ResetReason reset_reason() const { return reset_reason_; }
+
+    // Latched by a confirmed "power_off". The shell owns the sequencer, so this
+    // is where the request waits for it: core/power::ShutdownSequencer::request
+    // with ShutdownReason::LinkRequest.
+    bool power_off_requested() const { return power_off_requested_; }
+    void clear_power_off_request() { power_off_requested_ = false; }
+
     const char* pending_json() const { return pending_buf_; }
 
    private:
     void reply(const char* json);
     void ack(bool ok, const char* reason);
+    void send_status();
+    static const char* flight_name(FlightState fs);
     bool on_ground() const { return flight_ == FlightState::Ground; }
 
     hal::Link& link_;
     settings::Settings& settings_;
     hal::Dfu* dfu_;
     FlightState flight_{FlightState::Unknown};
+    power::ResetReason reset_reason_{power::ResetReason::Unknown};
     bool airborne_latched_{false};
+    bool power_off_requested_{false};
     Pending pending_{Pending::None};
     bool dirty_{false};
     bool upload_window_open_{false};

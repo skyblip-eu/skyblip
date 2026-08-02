@@ -2,6 +2,7 @@
 
 #include "core/fec/crc.h"
 #include "core/fec/scramble.h"
+#include "core/settings/address.h"
 #include "core/util/bitcount.h"
 #include "core/util/varint.h"
 
@@ -329,11 +330,23 @@ void AdslPacket::set_integrity_from_hdop_e2(uint16_t hdop_e2) {
     VelAccuracy = velocity_accuracy_code(HorizAccuracy);
 }
 
+// Stealth, in a protocol that has no stealth bit. FLARM's wire format carries
+// one and SoftRF sets it while zeroing the vertical rate
+// (oss/SoftRF-lyusupov .../src/protocol/radio/Legacy.cpp:300, 308-309). ADS-L
+// handles privacy through the address table instead - tables 0 to 4 are
+// self-minted, unregistered identities - and through the G.1.9 code that says
+// the vertical rate is unavailable rather than zero. Zero would claim level
+// flight, which is the one thing a pilot who asked for stealth is hiding. What
+// this does not buy is anonymity over time: the address itself is still
+// constant, and rotating it is a separate piece of work.
+constexpr uint8_t kAnonymousAddrTable = 0;
+
 void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
               uint8_t aircraft_cat, bool stealth) {
     p.init(0x02);
-    p.set_address(addr);
-    p.set_addr_table(addr_table);
+    const uint8_t table = stealth ? kAnonymousAddrTable : addr_table;
+    p.set_address(settings::safe_air_address(addr, table));
+    p.set_addr_table(table);
     p.TimeStamp = static_cast<uint8_t>((own.utc % 15) * 4);
     p.FlightState = own.flight_state;
     p.AcftCat = aircraft_cat;
@@ -358,13 +371,12 @@ void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8
     // Vertical rate needs two samples over a window, so it arrives later than the
     // fix and has its own validity. Encoding 0 before then would claim level
     // flight (G.1.9).
-    if (own.climb_valid)
+    if (own.climb_valid && !stealth)
         p.set_climb_e8(own.climb_e8);
     else
         p.set_climb_invalid();
 
     p.set_track_c9(own.track_c9);
-    (void)stealth;
 }
 
 }

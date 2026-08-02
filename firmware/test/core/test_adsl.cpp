@@ -274,6 +274,63 @@ TEST_CASE("adsl: from_own marks what own-ship does not know") {
     CHECK(p.climb_e8() == 16);
 }
 
+// B4. Stealth is a real setting in this domain and ADS-L has no bit for it:
+// SoftRF forces the transmitted vertical speed to zero and sets the FLARM
+// stealth bit (oss/SoftRF-lyusupov .../src/protocol/radio/Legacy.cpp:300,
+// 308-309). Zero is a lie - it claims level flight - so ours says "unavailable"
+// with the code G.1.9 provides, and drops the address table to an anonymous one.
+TEST_CASE("adsl: stealth withholds the climb rate and claims no registered identity") {
+    skyblip::messages::OwnState own{};
+    own.fix_valid = true;
+    own.climb_valid = true;
+    own.lat_1e7 = 485000000;
+    own.lon_1e7 = 85000000;
+    own.alt_m = 1500;
+    own.speed_q = 200;
+    own.climb_e8 = 24;
+    own.hdop_e2 = 90;
+
+    AdslPacket open{};
+    from_own(open, own, 0x3C0A11, 5, 4, /*stealth=*/false);
+    CHECK(open.has_climb());
+    CHECK(open.climb_e8() == 24);
+    CHECK(int(open.addr_table()) == 5);
+    CHECK(open.address() == 0x3C0A11u);
+
+    AdslPacket hidden{};
+    from_own(hidden, own, 0x3C0A11, 5, 4, /*stealth=*/true);
+    CHECK_FALSE(hidden.has_climb());
+    CHECK(int(hidden.addr_table()) == 0);
+
+    // Everything a collision alarm needs is still transmitted: stealth hides the
+    // climb and the registry, never the aircraft.
+    CHECK(hidden.alt_m() == 1500);
+    CHECK(hidden.has_speed());
+    CHECK(hidden.lat_1e7() == open.lat_1e7());
+    CHECK(int(hidden.HorizAccuracy) == int(open.HorizAccuracy));
+}
+
+// F4. The address goes on the air here, and the shell hands us the chip id
+// straight from hwinfo, so this is the last place that can move it.
+TEST_CASE("adsl: a self-minted address is moved off a crowded prefix on its way out") {
+    skyblip::messages::OwnState own{};
+    own.fix_valid = true;
+
+    AdslPacket anonymous{};
+    from_own(anonymous, own, 0xDD1234, 0, 4, false);
+    CHECK(anonymous.address() == 0xED1234u);
+
+    // An address that was issued to the aircraft is transmitted as issued,
+    // whatever prefix it carries: it is not ours to move.
+    AdslPacket icao{};
+    from_own(icao, own, 0xDD1234, 5, 4, false);
+    CHECK(icao.address() == 0xDD1234u);
+
+    AdslPacket flarm{};
+    from_own(flarm, own, 0x111111, 6, 4, false);
+    CHECK(flarm.address() == 0x111111u);
+}
+
 // Every field of the Integrity block has a zero code meaning "unknown / no fix"
 // (G.1.10 to G.1.15), so an untouched block is not neutral: it tells a receiver
 // we claim no integrity at all, and receivers are entitled to weight us

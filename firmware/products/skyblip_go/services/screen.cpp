@@ -3,13 +3,37 @@
 #include <cstring>
 
 #include "core/flight/atmosphere.h"
+#include "core/power/cutoff.h"
 #include "core/protocol/nmea_out.h"
 #include "core/util/units.h"
 #include "ui/widgets/wordmark.h"
 
 namespace skyblip::go {
 
+// SoftRF plays a six-note jingle on the very first fix
+// (oss/SoftRF-lyusupov .../src/platform/nRF52.cpp:2767-2787); the moshe-braner
+// fork adds a two-tone confirmation and then waits before it transmits. This is
+// the confirmation half. It runs before the display checks below because a
+// device with no panel fitted still owes the pilot the answer.
+void ScreenService::annunciate_first_fix(uint32_t now_ms) {
+    const bool quiet = context_.state.alarm_level == 0;
+    if (fix_watch_.take_acquired()) {
+        dirty_ = true;
+        if (!context_.state.settings.alarm_enabled || !quiet) return;
+        context_.roles.annunciator.alarm(kFirstFixToneLevel, context_.state.settings.alarm_volume);
+        tone_since_ms_ = now_ms;
+        tone_on_ = true;
+        return;
+    }
+    if (!tone_on_ || now_ms - tone_since_ms_ < kFirstFixToneMs) return;
+    tone_on_ = false;
+    if (quiet) context_.roles.annunciator.silence();
+}
+
 void ScreenService::tick(uint32_t now_ms) {
+    fix_watch_.update(context_.state.own.fix_valid, now_ms);
+    annunciate_first_fix(now_ms);
+
     messages::ButtonEvent press{};
     while (context_.bus.input.pop(press)) next_page();
 
@@ -156,6 +180,7 @@ void ScreenService::render() {
         default: {
             ui::StatusSnapshot snap;
             snap.device_addr = settings.device_addr;
+            snap.callsign = settings.callsign;
             snap.fix_valid = own.fix_valid;
             snap.utc_valid = own.utc_valid;
             snap.pps_locked = context_.state.clock.pps_locked;
@@ -173,6 +198,12 @@ void ScreenService::render() {
             snap.battery_mv = context_.state.battery.millivolts;
             snap.battery_percent = context_.state.battery.percent;
             snap.charging = context_.state.battery.charging;
+            // The acting side of this threshold is core/power's CutoffMonitor,
+            // which debounces before it takes the device down. The page only
+            // reports, and the gauge behind it is already a median of three.
+            snap.battery_low = context_.state.battery.valid &&
+                               !context_.state.battery.external_power &&
+                               context_.state.battery.millivolts < power::kLowWarnMv;
             snap.pressure_pa = context_.state.pressure_pa;
             snap.qnh_pa = context_.state.qnh_pa;
             if (context_.state.baro_active) {

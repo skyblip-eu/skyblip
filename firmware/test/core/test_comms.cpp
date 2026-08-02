@@ -158,6 +158,73 @@ TEST_CASE("comms: recovery refused in flight") {
     CHECK(dfu.recovery == 0);
 }
 
+// The third way a device is asked to go dark (core/power/shutdown.h:
+// ShutdownReason::LinkRequest). The button and the cutoff already had callers;
+// this is the companion link's, behind the same gate as dfu and recovery.
+TEST_CASE("comms: power_off is confirmed on the device, then latched for the sequencer") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+
+    cs.on_rx(frame("{\"cmd\":\"power_off\"}"));
+    CHECK(cs.pending() == Pending::PowerOff);
+    CHECK_FALSE(cs.power_off_requested());  // a remote request alone turns nothing off
+    CHECK(link.last().bytes.find("confirm_power_off") != std::string::npos);
+
+    cs.confirm();
+    CHECK(cs.pending() == Pending::None);
+    CHECK(cs.power_off_requested());
+    CHECK(link.last().bytes.find("\"ack\":true") != std::string::npos);
+
+    cs.clear_power_off_request();
+    CHECK_FALSE(cs.power_off_requested());
+}
+
+TEST_CASE("comms: power_off refused in flight") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Airborne);
+    cs.on_rx(frame("{\"cmd\":\"power_off\"}"));
+    CHECK(cs.pending() == Pending::None);
+    CHECK_FALSE(cs.power_off_requested());
+    CHECK(link.last().bytes.find("in_flight") != std::string::npos);
+
+    // And a confirmation that arrives after takeoff does not turn it off either.
+    cs.set_flight_state(FlightState::Ground);
+    cs.on_rx(frame("{\"cmd\":\"power_off\"}"));
+    REQUIRE(cs.pending() == Pending::PowerOff);
+    cs.set_flight_state(FlightState::Airborne);
+    cs.confirm();
+    CHECK_FALSE(cs.power_off_requested());
+}
+
+// D5: the reset reason was read at boot and shown on the self-test page, and a
+// device in a field with a phone next to it has no self-test page in view.
+TEST_CASE("comms: status reports why the device came up") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(0xAA55);
+    std::memcpy(s.callsign, "D-KXYZ", 7);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+    cs.set_reset_reason(power::ResetReason::Watchdog);
+
+    cs.on_rx(frame("{\"cmd\":\"status\"}"));
+    REQUIRE(link.sent.size() == 1);
+    const std::string body = link.last().bytes;
+    CHECK(body.find("\"cmd\":\"status\"") != std::string::npos);
+    CHECK(body.find("\"reset\":\"WATCHDOG\"") != std::string::npos);
+    CHECK(body.find("\"flight\":\"ground\"") != std::string::npos);
+    CHECK(body.find("D-KXYZ") != std::string::npos);
+
+    // Unknown until the shell says otherwise, and never a stale answer.
+    platform::host::Link fresh_link;
+    ConfigService fresh(fresh_link, s);
+    fresh.on_rx(frame("{\"cmd\":\"status\"}"));
+    CHECK(fresh_link.last().bytes.find("\"reset\":\"UNKNOWN\"") != std::string::npos);
+}
+
 // Fail closed: takeoff must revoke an authorisation granted on the ground, or a
 // long upload could still be running when the aircraft leaves.
 TEST_CASE("comms: takeoff closes an open upload window and it stays latched") {
