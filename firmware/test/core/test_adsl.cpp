@@ -248,7 +248,7 @@ TEST_CASE("adsl: from_own marks what own-ship does not know") {
     skyblip::messages::OwnState own{};
     own.lat_1e7 = 485000000;
     own.lon_1e7 = 85000000;
-    own.alt_m = 1500;
+    own.alt_m = 1500;  // HAE: what G.1.7 transmits
     own.speed_q = 200;
     own.climb_e8 = 16;
 
@@ -272,4 +272,111 @@ TEST_CASE("adsl: from_own marks what own-ship does not know") {
     from_own(p, own, 0xABCDEF, 6, 4, false);
     CHECK(p.has_climb());
     CHECK(p.climb_e8() == 16);
+}
+
+// Every field of the Integrity block has a zero code meaning "unknown / no fix"
+// (G.1.10 to G.1.15), so an untouched block is not neutral: it tells a receiver
+// we claim no integrity at all, and receivers are entitled to weight us
+// accordingly. Without a fix that is the truthful answer; with one it is not.
+TEST_CASE("adsl: from_own claims integrity from the receiver's DOP") {
+    skyblip::messages::OwnState own{};
+    own.lat_1e7 = 485000000;
+    own.lon_1e7 = 85000000;
+    own.alt_m = 1500;
+    own.speed_q = 200;
+    own.hdop_e2 = 90;
+
+    AdslPacket p{};
+    from_own(p, own, 0xABCDEF, 6, 4, false);
+    CHECK(int(p.SourceIntegrity) == 0);
+    CHECK(int(p.NavigIntegrity) == 0);
+    CHECK(int(p.HorizAccuracy) == 0);
+    CHECK(int(p.VertAccuracy) == 0);
+    CHECK(int(p.VelAccuracy) == 0);
+
+    // HDOP 0.9 with a fix: 1.8 m horizontal, 2.7 m vertical.
+    own.fix_valid = true;
+    from_own(p, own, 0xABCDEF, 6, 4, false);
+    CHECK(int(p.SourceIntegrity) == AdslPacket::kSourceIntegrity1e3);
+    CHECK(int(p.DesignAssurance) == AdslPacket::kDesignAssuranceNone);
+    CHECK(int(p.NavigIntegrity) == 12);  // Rc < 7.5 m
+    CHECK(int(p.HorizAccuracy) == 7);    // HFOM < 3 m
+    CHECK(int(p.VertAccuracy) == 3);     // VFOM < 10 m
+    CHECK(int(p.VelAccuracy) == 3);      // < 1 m/s
+
+    // A receiver that reports no HDOP is not a receiver reporting a good one.
+    own.hdop_e2 = 0;
+    from_own(p, own, 0xABCDEF, 6, 4, false);
+    CHECK(int(p.SourceIntegrity) == 0);
+    CHECK(int(p.HorizAccuracy) == 0);
+}
+
+// G.1.13 NACp boundaries, in metres of horizontal figure of merit: 7 is under
+// 3 m, 6 under 10 m, 5 under 30 m, 4 under 0.05 NM (92.6 m), and 0 is 0.5 NM or
+// worse, which is the same code as "no fix".
+TEST_CASE("adsl: horizontal accuracy code sits on the G.1.13 boundaries") {
+    CHECK(int(AdslPacket::horizontal_accuracy_code(299)) == 7);
+    CHECK(int(AdslPacket::horizontal_accuracy_code(300)) == 6);
+    CHECK(int(AdslPacket::horizontal_accuracy_code(999)) == 6);
+    CHECK(int(AdslPacket::horizontal_accuracy_code(1000)) == 5);
+    CHECK(int(AdslPacket::horizontal_accuracy_code(2999)) == 5);
+    CHECK(int(AdslPacket::horizontal_accuracy_code(3000)) == 4);
+    CHECK(int(AdslPacket::horizontal_accuracy_code(9259)) == 4);
+    CHECK(int(AdslPacket::horizontal_accuracy_code(9260)) == 3);
+    CHECK(int(AdslPacket::horizontal_accuracy_code(92600)) == 0);
+}
+
+// G.1.14 GVA: 3 under 10 m, 2 under 45 m, 1 under 150 m, 0 beyond.
+TEST_CASE("adsl: vertical accuracy code sits on the G.1.14 boundaries") {
+    CHECK(int(AdslPacket::vertical_accuracy_code(999)) == 3);
+    CHECK(int(AdslPacket::vertical_accuracy_code(1000)) == 2);
+    CHECK(int(AdslPacket::vertical_accuracy_code(4499)) == 2);
+    CHECK(int(AdslPacket::vertical_accuracy_code(4500)) == 1);
+    CHECK(int(AdslPacket::vertical_accuracy_code(14999)) == 1);
+    CHECK(int(AdslPacket::vertical_accuracy_code(15000)) == 0);
+}
+
+// G.1.12 NIC: the containment radius. Without RAIM or a protection level the
+// radius we claim is the DOP-derived accuracy itself, and SourceIntegrity is
+// what says how much that claim is worth.
+TEST_CASE("adsl: navigation integrity code sits on the G.1.12 boundaries") {
+    CHECK(int(AdslPacket::navigation_integrity_code(749)) == 12);
+    CHECK(int(AdslPacket::navigation_integrity_code(750)) == 11);
+    CHECK(int(AdslPacket::navigation_integrity_code(2499)) == 11);
+    CHECK(int(AdslPacket::navigation_integrity_code(2500)) == 10);
+    CHECK(int(AdslPacket::navigation_integrity_code(7499)) == 10);
+    CHECK(int(AdslPacket::navigation_integrity_code(7500)) == 9);
+    CHECK(int(AdslPacket::navigation_integrity_code(3703000)) == 1);
+}
+
+// A degrading fix walks the codes down together, and a hopeless one claims
+// nothing rather than claiming a number nobody should act on.
+TEST_CASE("adsl: a degrading HDOP walks the accuracy claim down") {
+    skyblip::messages::OwnState own{};
+    own.fix_valid = true;
+    AdslPacket p{};
+
+    own.hdop_e2 = 200;  // 4.0 m horizontal, 6.0 m vertical
+    from_own(p, own, 1, 6, 4, false);
+    CHECK(int(p.HorizAccuracy) == 6);
+    CHECK(int(p.VertAccuracy) == 3);
+    CHECK(int(p.VelAccuracy) == 2);
+
+    own.hdop_e2 = 800;  // 16 m horizontal, 24 m vertical
+    from_own(p, own, 1, 6, 4, false);
+    CHECK(int(p.HorizAccuracy) == 5);
+    CHECK(int(p.VertAccuracy) == 2);
+    CHECK(int(p.VelAccuracy) == 1);
+    CHECK(int(p.NavigIntegrity) == 11);  // Rc 7.5 to 25 m
+
+    own.hdop_e2 = 9999;  // 200 m horizontal, 300 m vertical
+    from_own(p, own, 1, 6, 4, false);
+    CHECK(int(p.HorizAccuracy) == 2);  // 0.1 to 0.3 NM
+    CHECK(int(p.VertAccuracy) == 0);   // beyond 150 m: no claim at all
+    CHECK(int(p.VelAccuracy) == 0);
+
+    own.hdop_e2 = 60000;  // 1200 m: beyond 0.5 NM, the same code as no fix
+    from_own(p, own, 1, 6, 4, false);
+    CHECK(int(p.HorizAccuracy) == 0);
+    CHECK(int(p.NavigIntegrity) == 6);  // Rc 0.6 to 1 NM, still a bounded claim
 }

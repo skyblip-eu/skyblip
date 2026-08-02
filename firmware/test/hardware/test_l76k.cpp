@@ -1,12 +1,26 @@
 // L76K GNSS driver tests against models/l76k.h. The driver owns the UART and the
 // NMEA parser, so what these pin down is the seam a shell depends on: a fix is
-// reported exactly once, and a silent receiver never reports one at all (the DFU
-// health gate treats that as "cannot talk to its own peripherals").
+// reported exactly once, a silent receiver never reports one at all (the DFU
+// health gate treats that as "cannot talk to its own peripherals"), and the
+// receiver is configured rather than left on the factory defaults it boots with.
+#include "core/timing/transmit.h"
 #include "doctest/doctest.h"
 #include "hardware/parts/l76k/l76k.h"
 #include "hardware/parts/l76k/model.h"
 
 using namespace skyblip;
+
+namespace {
+// One service call and one drain per 10 ms runtime tick, which is how the board
+// polls this part.
+void run(parts::L76k& driver, models::L76k& chip, uint32_t from_ms, uint32_t to_ms) {
+    for (uint32_t t = from_ms; t <= to_ms; t += 10) {
+        chip.tick(t);
+        driver.service(t);
+        driver.poll();
+    }
+}
+}
 
 TEST_CASE("l76k: a new fix is reported exactly once") {
     models::L76k chip;
@@ -50,4 +64,103 @@ TEST_CASE("l76k: losing the fix is reported like any other update") {
     chip.tick(2000);
     CHECK(gnss.poll());
     CHECK_FALSE(gnss.fix().valid);
+}
+
+// The receiver boots with pedestrian smoothing, a factory sentence set and 1 Hz.
+// SoftRF sends exactly three commands to this part 250 ms apart
+// (oss/SoftRF-lyusupov .../src/driver/GNSS.cpp:1029-1057); the fourth, the fix
+// rate, is ours. The model validates the NMEA checksum before applying anything,
+// so a driver that miscomputes one configures nothing.
+TEST_CASE("l76k: bring-up configures constellations, sentences, dynamic model and rate") {
+    models::L76k chip;
+    chip.solution_period_ms = models::L76k::kFactoryPeriodMs;
+    parts::L76k gnss(chip);
+
+    run(gnss, chip, 0, 1000);
+
+    CHECK(chip.commands_seen == parts::L76k::kCommandCount);
+    CHECK(chip.commands_rejected == 0);
+    CHECK(chip.constellations == 7);  // GPS + GLONASS + BeiDou
+    CHECK(chip.sentence_set_applied);
+    CHECK(chip.aviation_dynamic_model());
+    CHECK(chip.solution_period_ms == parts::L76k::kFixPeriodMs);
+}
+
+// G.1.16 will not transmit a solution older than 500 ms, and the direct slot runs
+// to a full second after it. A receiver left at 1 Hz therefore has roughly half
+// its solutions refused, which on the bench looks like an intermittent
+// transmitter. The configured period has to leave margin under that limit.
+TEST_CASE("l76k: the configured fix rate clears the staleness rule") {
+    CHECK(parts::L76k::kFixPeriodMs * 2 <= timing::Transmitter::kFixAgeMaxMs);
+    CHECK(models::L76k::kFactoryPeriodMs > timing::Transmitter::kFixAgeMaxMs);
+
+    models::L76k chip;
+    chip.solution_period_ms = models::L76k::kFactoryPeriodMs;
+    parts::L76k gnss(chip);
+    run(gnss, chip, 0, 1000);
+
+    uint32_t fixes = 0;
+    for (uint32_t t = 1010; t <= 3010; t += 10) {
+        chip.tick(t);
+        gnss.service(t);
+        if (gnss.poll()) fixes++;
+    }
+    CHECK(fixes >= 2000 / parts::L76k::kFixPeriodMs);
+}
+
+// Nothing acknowledges a $PCAS sentence, so the driver treats the receiver's own
+// cadence as the acknowledgement. A receiver that hears every command and obeys
+// none is a degraded capability, not a working one on silent defaults.
+TEST_CASE("l76k: a receiver that never obeys is reported degraded, not assumed good") {
+    models::L76k chip;
+    chip.accepts_commands = false;
+    chip.solution_period_ms = models::L76k::kFactoryPeriodMs;
+    parts::L76k gnss(chip);
+
+    run(gnss, chip, 0, 30000);
+
+    CHECK(chip.commands_seen ==
+          parts::L76k::kCommandCount * uint32_t(parts::L76k::kMaxConfigAttempts));
+    CHECK(gnss.degraded());
+    CHECK_FALSE(gnss.configured());
+    CHECK(gnss.updates() > 0);  // it is talking, just not listening
+}
+
+TEST_CASE("l76k: a receiver that obeys is reported configured") {
+    models::L76k chip;
+    chip.solution_period_ms = models::L76k::kFactoryPeriodMs;
+    parts::L76k gnss(chip);
+    CHECK(gnss.config_state() == parts::L76k::Config::Idle);
+
+    run(gnss, chip, 0, 10000);
+
+    CHECK(gnss.configured());
+    CHECK_FALSE(gnss.degraded());
+}
+
+// The burst is late relative to the PPS edge whose second it describes: SoftRF
+// carries 135 ms for RMC on this chip (oss/SoftRF-lyusupov
+// .../src/driver/GNSS.cpp:1072-1078) and subtracts it from the arrival time
+// (.../src/driver/RF.cpp:236-260). The part stamps the number onto the fix so
+// whoever timestamps it can take it off again.
+TEST_CASE("l76k: the fix carries the part's burst-to-PPS latency") {
+    models::L76k chip;
+    parts::L76k gnss(chip);
+    chip.tick(0);
+    chip.tick(1000);
+    REQUIRE(gnss.poll());
+
+    CHECK(gnss.fix().pps_latency_ms == parts::L76k::kPpsLatencyMs);
+    CHECK(gnss::fix_instant_ms(gnss.fix(), 1000) == 1000 - parts::L76k::kPpsLatencyMs);
+}
+
+// The devicetree pins the UART and nothing in the build compares the two numbers,
+// so the driver states the baud it expects. One GGA plus one RMC is about 150
+// bytes; at 10 bits a byte that is 156 ms of line time, which has to fit inside
+// one solution period with room to spare.
+TEST_CASE("l76k: the configured rate fits the baud the devicetree pins") {
+    constexpr uint32_t kBurstBytes = 150;
+    constexpr uint32_t kBurstMs = kBurstBytes * 10 * 1000 / parts::L76k::kBaudRate;
+    CHECK(parts::L76k::kBaudRate == 9600);
+    CHECK(kBurstMs < parts::L76k::kFixPeriodMs);
 }

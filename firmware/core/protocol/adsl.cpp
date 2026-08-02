@@ -263,6 +263,72 @@ void to_obs(const AdslPacket& p, uint32_t rx_utc, uint16_t rx_ms, int8_t rssi_db
     out.valid_pos = true;
 }
 
+// ADS-L 4 SRD860 issue 2 G.1.13, NACp. Code 0 is "unknown or HFOM >= 0.5 NM".
+uint8_t AdslPacket::horizontal_accuracy_code(uint32_t hfom_cm) {
+    static constexpr uint32_t kLimitCm[] = {300, 1000, 3000, 9260, 18520, 55560, 92600};
+    for (int i = 0; i < 7; i++)
+        if (hfom_cm < kLimitCm[i]) return static_cast<uint8_t>(7 - i);
+    return 0;
+}
+
+// G.1.14, GVA. 3 = VFOM < 10 m, 2 = < 45 m, 1 = < 150 m, 0 = unknown or worse.
+uint8_t AdslPacket::vertical_accuracy_code(uint32_t vfom_cm) {
+    if (vfom_cm < 1000) return 3;
+    if (vfom_cm < 4500) return 2;
+    if (vfom_cm < 15000) return 1;
+    return 0;
+}
+
+// G.1.15, NACv. A GNSS-only velocity is as good as the position fix behind it,
+// which is the relation the reference encoder uses verbatim
+// (oss/SoftRF-moshe-braner .../libraries/OGN/ads-l.h:453).
+uint8_t AdslPacket::velocity_accuracy_code(uint8_t horizontal_code) {
+    return horizontal_code >= 4 ? static_cast<uint8_t>(horizontal_code - 4) : 0;
+}
+
+// G.1.12, NIC: the containment radius Rc the position is claimed to lie within.
+// 12 = Rc < 7.5 m, 11 = < 25 m, 10 = < 75 m, 9 = < 0.1 NM, down to 1.
+uint8_t AdslPacket::navigation_integrity_code(uint32_t containment_cm) {
+    static constexpr uint32_t kLimitCm[] = {750,    2500,   7500,   18520,   37040,  111120,
+                                            185200, 370400, 740800, 1481600, 3703000};
+    for (int i = 0; i < 11; i++)
+        if (containment_cm < kLimitCm[i]) return static_cast<uint8_t>(12 - i);
+    return 1;
+}
+
+void AdslPacket::set_integrity_unknown() {
+    SourceIntegrity = 0;
+    DesignAssurance = 0;
+    NavigIntegrity = 0;
+    HorizAccuracy = 0;
+    VertAccuracy = 0;
+    VelAccuracy = 0;
+}
+
+void AdslPacket::set_integrity_from_hdop_e2(uint16_t hdop_e2) {
+    if (hdop_e2 == 0) {
+        set_integrity_unknown();
+        return;
+    }
+    // We only ask the receiver for GGA and RMC, so there is no VDOP to read and
+    // HDOP stands in for it. The vertical figure is the larger of the two per
+    // unit of DOP, so the substitution does not flatter the claim.
+    const uint32_t hfom_cm = hdop_e2 * kHorizontalErrorPerDopCm / 100;
+    const uint32_t vfom_cm = hdop_e2 * kVerticalErrorPerDopCm / 100;
+
+    // No RAIM and no protection level from this receiver, so the containment
+    // radius we claim is the accuracy itself, and SourceIntegrity says how much
+    // that claim is worth: 1e-3 per flight hour, the honest figure for an
+    // unaugmented, unmonitored GNSS. DesignAssurance stays 0 because this
+    // firmware carries no design assurance credit.
+    SourceIntegrity = kSourceIntegrity1e3;
+    DesignAssurance = kDesignAssuranceNone;
+    NavigIntegrity = navigation_integrity_code(hfom_cm);
+    HorizAccuracy = horizontal_accuracy_code(hfom_cm);
+    VertAccuracy = vertical_accuracy_code(vfom_cm);
+    VelAccuracy = velocity_accuracy_code(HorizAccuracy);
+}
+
 void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
               uint8_t aircraft_cat, bool stealth) {
     p.init(0x02);
@@ -282,9 +348,11 @@ void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8
     if (own.fix_valid) {
         p.set_alt_m(own.alt_m);
         p.set_speed_q(own.speed_q);
+        p.set_integrity_from_hdop_e2(own.hdop_e2);
     } else {
         p.set_alt_invalid();
         p.set_speed_invalid();
+        p.set_integrity_unknown();
     }
 
     // Vertical rate needs two samples over a window, so it arrives later than the

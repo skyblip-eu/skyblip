@@ -21,6 +21,28 @@ long parse_long(const char* s, int len) {
 }
 int d2(const char* s) { return (s[0] - '0') * 10 + (s[1] - '0'); }
 
+// Rounded, not truncated: "46.9" is 47 m of geoid separation, not 46.
+bool parse_scaled(const char* s, long scale, long& out) {
+    if (!s || !s[0]) return false;
+    bool neg = false;
+    if (*s == '-' || *s == '+') neg = *s++ == '-';
+    if (*s < '0' || *s > '9') return false;
+    long whole = 0;
+    while (*s >= '0' && *s <= '9') whole = whole * 10 + (*s++ - '0');
+    long value = whole * scale * 10;
+    if (*s == '.') {
+        s++;
+        long place = scale * 10;
+        while (*s >= '0' && *s <= '9' && place > 0) {
+            place /= 10;
+            value += (*s++ - '0') * place;
+        }
+    }
+    value = (value + 5) / 10;
+    out = neg ? -value : value;
+    return true;
+}
+
 uint32_t to_epoch(int y, int mon, int day, int hh, int mm, int ss) {
     y -= mon <= 2;
     int era = (y >= 0 ? y : y - 399) / 400;
@@ -157,17 +179,26 @@ bool NmeaParser::apply_gga(const char* f[], int nf) {
     if (nf < 10) return false;
     fix_.fix_quality = static_cast<uint8_t>(parse_long(f[6], 2));
     fix_.sats = static_cast<uint8_t>(parse_long(f[7], 2));
-    if (f[9][0]) {
-        long ip = 0;
-        const char* s = f[9];
-        bool neg = false;
-        if (*s == '-') {
-            neg = true;
-            s++;
-        }
-        while (*s >= '0' && *s <= '9') ip = ip * 10 + (*s++ - '0');
-        fix_.alt_m = static_cast<int32_t>(neg ? -ip : ip);
+
+    long hdop_e2 = 0;
+    fix_.hdop_e2 = parse_scaled(f[8], 100, hdop_e2) && hdop_e2 > 0 && hdop_e2 <= 0xFFFF
+                       ? static_cast<uint16_t>(hdop_e2)
+                       : 0;
+
+    long separation_m = 0;
+    fix_.geoid_separation_measured = nf > 11 && parse_scaled(f[11], 1, separation_m) &&
+                                     separation_m != 0 && separation_m > -200 && separation_m < 200;
+    fix_.geoid_separation_m = fix_.geoid_separation_measured ? static_cast<int32_t>(separation_m)
+                                                             : kDefaultGeoidSeparationM;
+
+    long msl_m = 0;
+    fix_.alt_msl_valid = parse_scaled(f[9], 1, msl_m);
+    fix_.alt_hae_valid = fix_.alt_msl_valid;
+    if (fix_.alt_msl_valid) {
+        fix_.alt_msl_m = static_cast<int32_t>(msl_m);
+        fix_.alt_m = fix_.alt_msl_m + fix_.geoid_separation_m;
     }
+
     fix_.updates++;
     return true;
 }

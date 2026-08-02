@@ -33,10 +33,13 @@ void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
     own.lat_1e7 = f.lat_1e7;
     own.lon_1e7 = f.lon_1e7;
     own.alt_m = f.alt_m;
+    own.alt_msl_m = f.alt_msl_m;
+    own.geoid_separation_measured = f.geoid_separation_measured;
     own.speed_q = f.speed_q;
     own.track_c9 = f.track_c9;
+    own.hdop_e2 = f.hdop_e2;
     own.utc = f.utc;
-    own.fix_ms = now_ms;
+    own.fix_ms = gnss::fix_instant_ms(f, now_ms);
     own.sats = f.sats;
     own.aircraft_cat = context_.state.settings.aircraft_type;
     own.flight_state = flight_state_from(own.speed_q, own.flight_state, f.valid);

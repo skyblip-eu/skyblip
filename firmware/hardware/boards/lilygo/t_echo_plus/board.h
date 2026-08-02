@@ -75,8 +75,10 @@ class TEchoPlus {
         messages::RxFrame frame;
         while (platform_.link().pop_rx(frame)) bus_.link_rx.push(frame);
 
-        if (hal::has(capabilities_, hal::Capability::Gnss) && gnss_.poll())
-            bus_.gnss.push(gnss_.fix());
+        if (hal::has(capabilities_, hal::Capability::Gnss)) {
+            gnss_.service(now_ms);
+            if (gnss_.poll()) bus_.gnss.push(gnss_.fix());
+        }
 
         if (hal::has(capabilities_, hal::Capability::Baro) &&
             now_ms - last_baro_ms_ >= runtime::kBaroPeriodMs) {

@@ -157,6 +157,26 @@ struct __attribute__((packed)) AdslPacket {
     uint16_t track_c9() const;  // 9-bit cordic (512 == 360 deg)
     void set_track_c9(uint16_t w);
 
+    // The Integrity[2] block, G.1.10 to G.1.15. Every one of these fields has a
+    // zero code that means "unknown / no fix", so leaving the block at its
+    // initialised value is not a neutral act: it tells a receiver we claim
+    // nothing. What we can honestly claim comes out of the receiver's DOP.
+    static constexpr uint8_t kSourceIntegrity1e3 = 1;
+    static constexpr uint8_t kDesignAssuranceNone = 0;
+    // Metres of position error per unit of DOP, the figure OGN uses to turn DOP
+    // into an accuracy claim (oss/nrf52-ogn-tracker src/ogn.h:1589-1591:
+    // setHorAcc(HDOP*2), setVerAcc(VDOP*3), both DOP in tenths).
+    static constexpr uint32_t kHorizontalErrorPerDopCm = 200;
+    static constexpr uint32_t kVerticalErrorPerDopCm = 300;
+
+    static uint8_t horizontal_accuracy_code(uint32_t hfom_cm);
+    static uint8_t vertical_accuracy_code(uint32_t vfom_cm);
+    static uint8_t velocity_accuracy_code(uint8_t horizontal_code);
+    static uint8_t navigation_integrity_code(uint32_t containment_cm);
+
+    void set_integrity_unknown();
+    void set_integrity_from_hdop_e2(uint16_t hdop_e2);
+
     void write_climb_code(uint16_t w);
 
     void scramble();
