@@ -52,13 +52,22 @@ class Sx1262 {
 
     RadioMode mode() const { return mode_; }
     uint32_t reinit_count() const { return reinit_count_; }
+    // A transmission the chip's own SetTx timeout had to end. Never silent.
+    uint32_t tx_recovery_count() const { return tx_recovery_count_; }
 
    private:
     Status wait_busy_low(uint32_t max_spins = 100000);
     void cmd(uint8_t opcode, const uint8_t* params, size_t n);
     void cmd_read(uint8_t opcode, uint8_t* out, size_t n);
     void write_register(uint16_t addr, const uint8_t* data, size_t n);
+    void hold_reset_low();
+    Status enter_standby();
+    void configure_modulation(const MbandConfig& cfg);
+    void configure_power();
+    void configure_irq();
     void configure_frame(const MbandConfig& cfg);
+    uint32_t tx_timeout_ticks(uint8_t len) const;
+    void recover_tx();
     Status reinit();
 
     io::Spi& spi_;
@@ -69,6 +78,7 @@ class Sx1262 {
     bool configured_{false};
     uint32_t ms_since_rx_{0};
     uint32_t reinit_count_{0};
+    uint32_t tx_recovery_count_{0};
 };
 
 namespace sx {
@@ -77,11 +87,16 @@ constexpr uint8_t kSetDio3AsTcxoCtrl = 0x97;
 constexpr uint8_t kSetDio2AsRfSwitch = 0x9D;
 constexpr uint8_t kCalibrate = 0x89;
 constexpr uint8_t kTcxoVolt1v8 = 0x02;  // DIO3 TCXO 1.8 V (T-Echo Plus)
+constexpr uint8_t kCalibrateImage = 0x98;
 constexpr uint8_t kSetTx = 0x83;
 constexpr uint8_t kSetRx = 0x82;
 constexpr uint8_t kSetRfFrequency = 0x86;
 constexpr uint8_t kSetPacketType = 0x8A;
+constexpr uint8_t kSetModulationParams = 0x8B;
 constexpr uint8_t kSetPacketParams = 0x8C;
+constexpr uint8_t kSetPaConfig = 0x95;
+constexpr uint8_t kSetTxParams = 0x8E;
+constexpr uint8_t kSetDioIrqParams = 0x08;
 constexpr uint8_t kWriteRegister = 0x0D;
 constexpr uint16_t kSyncWordRegister = 0x06C0;  // DS 13.4.9, 8 bytes
 constexpr uint8_t kWriteBuffer = 0x0E;
@@ -96,6 +111,39 @@ constexpr uint16_t kIrqTxDone = 0x0001;
 constexpr uint16_t kIrqRxDone = 0x0002;
 constexpr uint16_t kIrqCrcErr = 0x0040;
 constexpr uint16_t kIrqTimeout = 0x0200;
+// INFO: wr 02aug26 DS 13.3.1: IrqMask is 0x0000 out of reset and gates the whole
+// IRQ status register, so an unmasked bit is a bit GetIrqStatus never reports.
+constexpr uint16_t kIrqMask = kIrqTxDone | kIrqRxDone | kIrqCrcErr | kIrqTimeout;
+
+constexpr uint32_t kXtalHz = 32000000;
+// DS 13.4.6 GFSK modulation params: pulse shape and RX bandwidth are table
+// indices. 0x0A is the 234.3 kHz double-sideband entry.
+constexpr uint8_t kPulseShapeNone = 0x00;
+constexpr uint8_t kRxBandwidth234kHz = 0x0A;
+
+// DS 13.1.14 SetPaConfig for the SX1262 high-power PA. This is also the write
+// that raises the over-current protection to 140 mA.
+constexpr uint8_t kPaConfigHighPower[4] = {0x04, 0x07, 0x00, 0x01};
+constexpr uint8_t kRampTime200Us = 0x04;
+// INFO: wr 02aug26 ERC 70-03 annex 1 band h1.4 / EN 300 220: 868.0-868.6 MHz is
+// 25 mW e.r.p., which is 14 dBm. The ceiling, not a chip default.
+constexpr int8_t kSrd868ErpLimitDbm = 14;
+
+// DS 13.1.12 CalibrateImage, the 863-870 MHz band pair.
+constexpr uint8_t kImageBand863to870[2] = {0xD7, 0xDB};
+
+// DS 13.4.1: the SetTx timeout counts 15.625 us steps, 24 bits wide. 0 disables
+// it, which is a PA that stays keyed when TxDone never arrives.
+constexpr uint32_t kTimeoutStepNs = 15625;
+constexpr uint32_t kTimeoutTicksMax = 0xFFFFFF;
+constexpr uint32_t kTxGuardUs = 25000;
+
+// INFO: wr 02aug26 DS 8.1: NRESET must be held low >= 100 us. io::Gpio has no
+// delay primitive, so the pulse is a bounded spin on BUSY sized against the
+// slowest credible cost of one such read on nRF52840 at 64 MHz.
+constexpr uint32_t kResetLowUs = 100;
+constexpr uint32_t kResetSpinNsFloor = 125;
+constexpr uint32_t kResetLowSpins = kResetLowUs * 1000u / kResetSpinNsFloor;
 // §C.2 puts 16 chips of preamble before the sync word. Eight of them are enough
 // for the detector to declare a preamble.
 constexpr uint16_t kPreambleChips = 16;

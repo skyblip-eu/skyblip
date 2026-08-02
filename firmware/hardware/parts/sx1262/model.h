@@ -14,12 +14,36 @@ namespace skyblip::models {
 
 class Sx1262 : public io::Spi, public io::Gpio {
    public:
+    // What this chip refuses to do, and why. The model is the datasheet's half
+    // of the contract: the driver either honours it or lands here.
+    enum class Fault : uint8_t {
+        None,
+        ShortReset,
+        ConfigOutsideStandby,
+        TxWithoutPower,
+        FrameWithoutModulation,
+        ImageCalibrationTooEarly,
+    };
+
     void set(int pin, bool level) override {
-        if (pin == reset_pin && level) reset_pulses++;
+        if (pin != reset_pin) return;
+        if (!level) {
+            reset_low = true;
+            reset_low_spins = 0;
+            return;
+        }
+        if (!reset_low) return;
+        reset_low = false;
+        if (reset_low_spins < parts::sx::kResetLowSpins) note_fault(Fault::ShortReset);
+        reset_pulses++;
+        power_on_reset();
     }
     bool get(int pin) override {
-        if (pin == busy_pin) return busy_stuck;
-        if (pin == dio1_pin) return irq_flags != 0;
+        if (pin == busy_pin) {
+            if (reset_low) reset_low_spins++;
+            return busy_stuck;
+        }
+        if (pin == dio1_pin) return (irq_flags & dio1_mask) != 0;
         return false;
     }
     void mode_output(int) override {}
@@ -68,6 +92,8 @@ class Sx1262 : public io::Spi, public io::Gpio {
 
     bool receive_air(const uint8_t* chips, uint8_t chip_len, bool crc_error = false,
                      int8_t rssi = -80) {
+        // A modem still on its reset defaults does not frame 100 kbps GFSK.
+        if (!modulation_set) return false;
         if (sync_bits == 0 || payload_bytes == 0) return false;
         uint8_t payload[255];
         const uint8_t n =
@@ -84,6 +110,14 @@ class Sx1262 : public io::Spi, public io::Gpio {
         irq_flags = crc_error ? parts::sx::kIrqCrcErr : parts::sx::kIrqRxDone;
     }
     void signal_tx_done() { irq_flags = parts::sx::kIrqTxDone; }
+
+    // The chip's own SetTx timeout running out. A SetTx issued with timeout 0
+    // has nothing to run out, which is the PA left keyed for ever.
+    bool expire_tx() {
+        if (tx_timeout_ticks == 0) return false;
+        irq_flags = parts::sx::kIrqTimeout;
+        return true;
+    }
 
     // What the world needs to know to be an honest channel: where this radio is
     // tuned, whether it is listening, and what it just put on the air.
@@ -115,22 +149,97 @@ class Sx1262 : public io::Spi, public io::Gpio {
     uint8_t payload_bytes{0};
     uint16_t irq_flags{0};
     int reset_pulses{0};
+    bool reset_low{false};
+    uint32_t reset_low_spins{0};
+    bool standby{false};
+    bool tcxo_powered{false};
+    bool calibrated{false};
+    bool image_calibrated{false};
+    uint8_t image_band[2]{};
+    uint8_t modulation[8]{};
+    bool modulation_set{false};
+    uint32_t bitrate{0};
+    uint32_t fdev_hz{0};
+    uint8_t pulse_shape{0xFF};
+    uint8_t rx_bandwidth{0xFF};
+    uint8_t pa_config[4]{};
+    bool pa_set{false};
+    bool tx_power_set{false};
+    int8_t tx_power_dbm{0};
+    uint8_t ramp_time{0xFF};
+    uint16_t irq_mask{0};
+    uint16_t dio1_mask{0};
+    uint32_t tx_timeout_ticks{0};
+    Fault fault{Fault::None};
+    uint32_t faults{0};
     std::vector<uint8_t> cmds_seen;
+
+    // Where an opcode sits in the order it was actually issued, -1 if never.
+    int cmd_order(uint8_t opcode) const {
+        for (size_t i = 0; i < cmds_seen.size(); i++)
+            if (cmds_seen[i] == opcode) return static_cast<int>(i);
+        return -1;
+    }
 
    private:
     static bool bit_at(const uint8_t* bytes, int index) {
         return ((bytes[index >> 3] >> (7 - (index & 7))) & 1u) != 0;
     }
 
+    void note_fault(Fault f) {
+        if (fault == Fault::None) fault = f;
+        faults++;
+    }
+
+    // NRESET returns every block to its reset default, including the IRQ mask
+    // and the modem: everything the driver programmed is gone.
+    void power_on_reset() {
+        standby = true;
+        tcxo_powered = calibrated = image_calibrated = false;
+        modulation_set = pa_set = tx_power_set = false;
+        irq_mask = dio1_mask = 0;
+        irq_flags = 0;
+        receiving = false;
+        tx_timeout_ticks = 0;
+    }
+
+    // DS 13.1: these are accepted in standby only. Issued on a chip that is
+    // still receiving, they are silently dropped on silicon.
+    static bool standby_only(uint8_t opcode) {
+        return opcode == parts::sx::kSetPacketType || opcode == parts::sx::kSetRfFrequency ||
+               opcode == parts::sx::kSetModulationParams || opcode == parts::sx::kSetPacketParams ||
+               opcode == parts::sx::kSetPaConfig || opcode == parts::sx::kSetTxParams ||
+               opcode == parts::sx::kWriteRegister || opcode == parts::sx::kCalibrate ||
+               opcode == parts::sx::kCalibrateImage;
+    }
+
     uint8_t process(uint8_t in) {
         if (seq_ == 0) {
             opcode_ = in;
             cmds_seen.push_back(in);
+            if (standby_only(in) && !standby) note_fault(Fault::ConfigOutsideStandby);
             if (opcode_ == parts::sx::kClearIrqStatus) irq_flags = 0;
-            if (opcode_ == parts::sx::kSetRx) receiving = true;
+            if (opcode_ == parts::sx::kSetStandby) standby = true;
+            if (opcode_ == parts::sx::kSetDio3AsTcxoCtrl) tcxo_powered = true;
+            if (opcode_ == parts::sx::kCalibrate) calibrated = true;
+            if (opcode_ == parts::sx::kCalibrateImage) {
+                if (!tcxo_powered || !calibrated) note_fault(Fault::ImageCalibrationTooEarly);
+                image_calibrated = true;
+            }
+            if (opcode_ == parts::sx::kSetRx) {
+                if (!modulation_set) note_fault(Fault::FrameWithoutModulation);
+                receiving = true;
+                standby = false;
+            }
             if (opcode_ == parts::sx::kSetTx) {
                 receiving = false;
-                tx_pending = true;
+                standby = false;
+                tx_timeout_ticks = 0;
+                if (!tx_power_set) {
+                    note_fault(Fault::TxWithoutPower);
+                } else {
+                    tx_pending = true;
+                }
             }
             if (opcode_ == parts::sx::kWriteBuffer) tx_buf_.clear();
             if (opcode_ == parts::sx::kWriteRegister) reg_addr_ = 0;
@@ -153,6 +262,49 @@ class Sx1262 : public io::Spi, public io::Gpio {
                 sync[addr - parts::sx::kSyncWordRegister] = in;
             return 0;
         }
+        if (opcode_ == parts::sx::kSetModulationParams) {
+            if (seq_ >= 1 && seq_ <= 8) modulation[seq_ - 1] = in;
+            if (seq_ == 8) {
+                const uint32_t br = (static_cast<uint32_t>(modulation[0]) << 16) |
+                                    (static_cast<uint32_t>(modulation[1]) << 8) | modulation[2];
+                const uint32_t dev = (static_cast<uint32_t>(modulation[5]) << 16) |
+                                     (static_cast<uint32_t>(modulation[6]) << 8) | modulation[7];
+                bitrate = br ? static_cast<uint32_t>(32ULL * 32000000ULL / br) : 0;
+                fdev_hz = static_cast<uint32_t>((static_cast<uint64_t>(dev) * 32000000ULL) >> 25);
+                pulse_shape = modulation[3];
+                rx_bandwidth = modulation[4];
+                modulation_set = br != 0;
+            }
+            return 0;
+        }
+        if (opcode_ == parts::sx::kSetPaConfig) {
+            if (seq_ >= 1 && seq_ <= 4) pa_config[seq_ - 1] = in;
+            if (seq_ == 4) pa_set = true;
+            return 0;
+        }
+        if (opcode_ == parts::sx::kSetTxParams) {
+            if (seq_ == 1) tx_power_dbm = static_cast<int8_t>(in);
+            if (seq_ == 2) {
+                ramp_time = in;
+                tx_power_set = pa_set;
+            }
+            return 0;
+        }
+        if (opcode_ == parts::sx::kSetDioIrqParams) {
+            if (seq_ == 1) irq_mask = in;
+            if (seq_ == 2) irq_mask = static_cast<uint16_t>((irq_mask << 8) | in);
+            if (seq_ == 3) dio1_mask = in;
+            if (seq_ == 4) dio1_mask = static_cast<uint16_t>((dio1_mask << 8) | in);
+            return 0;
+        }
+        if (opcode_ == parts::sx::kCalibrateImage) {
+            if (seq_ >= 1 && seq_ <= 2) image_band[seq_ - 1] = in;
+            return 0;
+        }
+        if (opcode_ == parts::sx::kSetTx) {
+            if (seq_ >= 1 && seq_ <= 3) tx_timeout_ticks = (tx_timeout_ticks << 8) | in;
+            return 0;
+        }
         if (opcode_ == parts::sx::kSetPacketParams) {
             if (seq_ == 4) sync_bits = in;
             if (seq_ == 7) payload_bytes = in;
@@ -165,9 +317,10 @@ class Sx1262 : public io::Spi, public io::Gpio {
             return 0;
         }
         switch (opcode_) {
+            // DS 13.3.1: the status register only ever shows unmasked bits.
             case parts::sx::kGetIrqStatus:
-                if (seq_ == 2) return static_cast<uint8_t>(irq_flags >> 8);
-                if (seq_ == 3) return static_cast<uint8_t>(irq_flags);
+                if (seq_ == 2) return static_cast<uint8_t>((irq_flags & irq_mask) >> 8);
+                if (seq_ == 3) return static_cast<uint8_t>(irq_flags & irq_mask);
                 return 0;
             case parts::sx::kGetRxBufferStatus:
                 if (seq_ == 2) return rx_len_;

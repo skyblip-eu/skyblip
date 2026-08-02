@@ -1,5 +1,6 @@
 # build outputs
 firmware/build/
+firmware/build-*/
 .pio/
 *.o
 *.elf

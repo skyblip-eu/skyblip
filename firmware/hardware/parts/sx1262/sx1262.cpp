@@ -30,15 +30,29 @@ void Sx1262::cmd_read(uint8_t opcode, uint8_t* out, size_t n) {
     spi_.select(false);
 }
 
+// The only delay this driver can spend: io::Gpio offers no sleep, so the pulse
+// is counted in BUSY reads, each one a virtual call the compiler cannot fold.
+void Sx1262::hold_reset_low() {
+    for (uint32_t i = 0; i < sx::kResetLowSpins; i++) (void)gpio_.get(busy_);
+}
+
+Status Sx1262::enter_standby() {
+    uint8_t stby = 0;  // STDBY_RC
+    cmd(sx::kSetStandby, &stby, 1);
+    if (wait_busy_low() != Status::Ok) return Status::Timeout;
+    mode_ = RadioMode::Standby;
+    return Status::Ok;
+}
+
 Status Sx1262::begin() {
     gpio_.mode_output(reset_);
-    gpio_.set(reset_, false);
-    gpio_.set(reset_, true);
     gpio_.mode_input(busy_, false);
     gpio_.mode_input(dio1_, false);
+    gpio_.set(reset_, false);
+    hold_reset_low();
+    gpio_.set(reset_, true);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
-    uint8_t stby = 0;
-    cmd(sx::kSetStandby, &stby, 1);
+    if (enter_standby() != Status::Ok) return Status::Timeout;
 
     // T-Echo (Plus) hardware wiring: DIO2 is the RF/antenna switch and DIO3
     // powers the TCXO at 1.8 V. Without the TCXO control the radio has no clock
@@ -52,7 +66,12 @@ Status Sx1262::begin() {
     uint8_t calib = 0x7F;  // calibrate all blocks after switching to the TCXO
     cmd(sx::kCalibrate, &calib, 1);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
+    // INFO: wr 02aug26 DS 13.1.12: image rejection is calibrated per band and
+    // only once the TCXO clock the calibration runs on is the chip's clock.
+    cmd(sx::kCalibrateImage, sx::kImageBand863to870, sizeof(sx::kImageBand863to870));
+    if (wait_busy_low() != Status::Ok) return Status::Timeout;
 
+    configured_ = false;
     mode_ = RadioMode::Standby;
     return Status::Ok;
 }
@@ -64,6 +83,40 @@ void Sx1262::write_register(uint16_t addr, const uint8_t* data, size_t n) {
     spi_.transfer(head, nullptr, sizeof(head));
     spi_.transfer(data, nullptr, n);
     spi_.select(false);
+}
+
+// DS 13.4.6 SetModulationParams, GFSK, in the datasheet's order: bit rate,
+// pulse shape, RX bandwidth, frequency deviation.
+void Sx1262::configure_modulation(const MbandConfig& cfg) {
+    const uint32_t bitrate = cfg.bitrate != 0 ? cfg.bitrate : 100000u;
+    const uint32_t br = static_cast<uint32_t>(32ULL * sx::kXtalHz / bitrate);
+    const uint32_t fdev =
+        static_cast<uint32_t>((static_cast<uint64_t>(cfg.fdev_hz) << 25) / sx::kXtalHz);
+    uint8_t params[8];
+    params[0] = static_cast<uint8_t>(br >> 16);
+    params[1] = static_cast<uint8_t>(br >> 8);
+    params[2] = static_cast<uint8_t>(br);
+    params[3] = sx::kPulseShapeNone;
+    params[4] = sx::kRxBandwidth234kHz;
+    params[5] = static_cast<uint8_t>(fdev >> 16);
+    params[6] = static_cast<uint8_t>(fdev >> 8);
+    params[7] = static_cast<uint8_t>(fdev);
+    cmd(sx::kSetModulationParams, params, sizeof(params));
+}
+
+void Sx1262::configure_power() {
+    cmd(sx::kSetPaConfig, sx::kPaConfigHighPower, sizeof(sx::kPaConfigHighPower));
+    uint8_t params[2] = {static_cast<uint8_t>(sx::kSrd868ErpLimitDbm), sx::kRampTime200Us};
+    cmd(sx::kSetTxParams, params, sizeof(params));
+}
+
+// DS 13.3.1 SetDioIrqParams: the global mask, then one mask per DIO. DIO1 is the
+// only interrupt line wired on this board.
+void Sx1262::configure_irq() {
+    const uint8_t hi = static_cast<uint8_t>(sx::kIrqMask >> 8);
+    const uint8_t lo = static_cast<uint8_t>(sx::kIrqMask);
+    uint8_t params[8] = {hi, lo, hi, lo, 0, 0, 0, 0};
+    cmd(sx::kSetDioIrqParams, params, sizeof(params));
 }
 
 void Sx1262::configure_frame(const MbandConfig& cfg) {
@@ -83,7 +136,12 @@ void Sx1262::configure_frame(const MbandConfig& cfg) {
     cmd(sx::kSetPacketParams, params, sizeof(params));
 }
 
+// INFO: wr 02aug26 DS 13.1: SetPacketType and SetRfFrequency are standby-only
+// commands, and the previous dwell leaves the chip in continuous RX. Bracket the
+// whole sequence and hand the caller back the mode it had.
 Status Sx1262::configure_mband(const MbandConfig& cfg) {
+    const RadioMode was = mode_;
+    if (was != RadioMode::Standby && enter_standby() != Status::Ok) return Status::Timeout;
     cfg_ = cfg;
     uint8_t gfsk = 0x00;
     cmd(sx::kSetPacketType, &gfsk, 1);
@@ -91,10 +149,25 @@ Status Sx1262::configure_mband(const MbandConfig& cfg) {
     uint8_t f[4] = {static_cast<uint8_t>(frf >> 24), static_cast<uint8_t>(frf >> 16),
                     static_cast<uint8_t>(frf >> 8), static_cast<uint8_t>(frf)};
     cmd(sx::kSetRfFrequency, f, 4);
+    configure_power();
+    configure_modulation(cfg);
     configure_frame(cfg);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
     configured_ = true;
+    if (was == RadioMode::Rx) return start_receive();
     return Status::Ok;
+}
+
+// Preamble, sync window and payload at the configured bit rate, plus the margin
+// SoftRF uses to decide a burst is never going to end (almic.cpp:510).
+uint32_t Sx1262::tx_timeout_ticks(uint8_t len) const {
+    const uint32_t bitrate = cfg_.bitrate != 0 ? cfg_.bitrate : 100000u;
+    const uint32_t bits = sx::kPreambleChips + cfg_.sync_bits + static_cast<uint32_t>(len) * 8u;
+    const uint32_t air_us =
+        static_cast<uint32_t>(static_cast<uint64_t>(bits) * 1000000ULL / bitrate);
+    const uint64_t ticks =
+        (static_cast<uint64_t>(air_us) + sx::kTxGuardUs) * 1000ULL / sx::kTimeoutStepNs;
+    return ticks > sx::kTimeoutTicksMax ? sx::kTimeoutTicksMax : static_cast<uint32_t>(ticks);
 }
 
 Status Sx1262::transmit(const uint8_t* data, uint8_t len) {
@@ -107,7 +180,10 @@ Status Sx1262::transmit(const uint8_t* data, uint8_t len) {
     spi_.transfer(&offs, nullptr, 1);
     spi_.transfer(data, nullptr, len);
     spi_.select(false);
-    uint8_t timeout[3] = {0, 0, 0};
+    configure_irq();
+    const uint32_t ticks = tx_timeout_ticks(len);
+    uint8_t timeout[3] = {static_cast<uint8_t>(ticks >> 16), static_cast<uint8_t>(ticks >> 8),
+                          static_cast<uint8_t>(ticks)};
     cmd(sx::kSetTx, timeout, 3);
     mode_ = RadioMode::Tx;
     return Status::Ok;
@@ -116,6 +192,7 @@ Status Sx1262::transmit(const uint8_t* data, uint8_t len) {
 Status Sx1262::start_receive() {
     if (!configured_) return Status::Invalid;
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
+    configure_irq();
     uint8_t cont[3] = {0xFF, 0xFF, 0xFF};
     cmd(sx::kSetRx, cont, 3);
     mode_ = RadioMode::Rx;
@@ -154,6 +231,7 @@ RadioEvent Sx1262::poll(uint8_t* rx_buf, uint8_t cap) {
     }
     if (flags & sx::kIrqTimeout) {
         ev.type = RadioEventType::Timeout;
+        if (mode_ == RadioMode::Tx) recover_tx();
         return ev;
     }
     if (flags & sx::kIrqRxDone) {
@@ -180,6 +258,14 @@ RadioEvent Sx1262::poll(uint8_t* rx_buf, uint8_t cap) {
         ms_since_rx_ = 0;
     }
     return ev;
+}
+
+// The PA is keyed until something unkeys it. The chip's own SetTx timeout is
+// what notices; this is what puts the radio back where the dwell expects it.
+void Sx1262::recover_tx() {
+    tx_recovery_count_++;
+    enter_standby();
+    start_receive();
 }
 
 Status Sx1262::reinit() {
