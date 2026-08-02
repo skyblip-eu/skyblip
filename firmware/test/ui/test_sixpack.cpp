@@ -1,3 +1,8 @@
+// The panel a pilot already knows how to read, so these check it against that
+// habit rather than against pixels: the altimeter as a three-pointer, the card as
+// a compass, the attitude dial banking with the turn and pitching with climb. Each
+// needle has to follow its own datum. Two dials driven by the same value is a
+// panel that looks right and lies.
 #include "doctest/doctest.h"
 #include "ui/framebuffer.h"
 #include "ui/screens/sixpack.h"

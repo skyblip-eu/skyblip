@@ -1,3 +1,9 @@
+// The drawing stack end to end, from a pixel to what reaches the glass. The radar
+// cases are the load-bearing ones: on a 200-pixel span there is no centre pixel,
+// so own-ship sits on the 99|100 boundary and every ring and bearing is measured
+// from there. Half a pixel of drift is half a pixel of parallax on every target.
+// The status cases pin the units a pilot reads first, and the widest position on
+// earth still fitting its row.
 #include "doctest/doctest.h"
 #include "hardware/parts/ssd1681/model.h"
 #include "hardware/parts/ssd1681/ssd1681.h"

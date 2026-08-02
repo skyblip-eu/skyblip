@@ -1,5 +1,5 @@
 // What is on the 868 MHz air, and when. Every burst in these tests is a real
-// scrambled ADS-L frame put on the channel at an absolute instant; the radio
+// scrambled ADS-L frame put on the channel at an absolute instant. The radio
 // hears it only if the firmware had the receiver tuned there at that moment.
 // A slot-map regression shows up as DEAF records, not as a missing feature.
 #include <cstring>

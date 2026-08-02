@@ -1,7 +1,7 @@
 // The e-paper refresh policy, tested through the screen service against the
 // real SSD1681 driver and its model. The policy under test: refresh only when
 // the pixels changed, fast (flicker-free) by default, and schedule the flashing
-// full refresh around the traffic picture — never during an alarm, opportunistically
+// full refresh around the traffic picture: never during an alarm, opportunistically
 // once the sky has been quiet, forced only at the hard ceiling.
 #include "doctest/doctest.h"
 #include "hardware/parts/ssd1681/model.h"
@@ -126,7 +126,7 @@ TEST_CASE("screen policy: an owed full is paid unprovoked once the sky stays emp
     CHECK(rig.screen.fasts_since_full() >= 5);
     rig.alarm(0);
 
-    // The screen goes static, so nothing would present on its own; after
+    // The screen goes static, so nothing would present on its own. After
     // kSkyEmptyBeforeFullMs of quiet the wash lands anyway.
     const int before = rig.chip.present_count;
     rig.run_seconds(t, go::ScreenService::kSkyEmptyBeforeFullMs / 1000 + 2);

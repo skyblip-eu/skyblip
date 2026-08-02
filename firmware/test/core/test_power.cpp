@@ -1,3 +1,8 @@
+// One terminal voltage, two meanings: on the cable the charger holds the cell
+// above its own resting voltage, so the same reading is a far emptier cell. These
+// pin down that the gauge says which curve it read, never walks the wrong way, and
+// ignores the sag of a 22 dBm burst. A percentage that jumps when the radio keys
+// is a gauge a pilot stops believing.
 #include "core/power/battery.h"
 #include "doctest/doctest.h"
 

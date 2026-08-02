@@ -1,3 +1,8 @@
+// One radio, one second, two bands: the dwell map decides what the receiver can
+// hear and when it is allowed to speak. These pin down both halves. A dwell that
+// runs past its edge or a burst that starts too late to finish inside the direct
+// slot transmits into someone else's window, and a device that keeps transmitting
+// once UTC is gone does it blind. Without a clock the answer is listen only.
 #include "core/timing/slot.h"
 #include "core/timing/transmit.h"
 #include "doctest/doctest.h"
@@ -98,7 +103,7 @@ TEST_CASE("timing: TX only in M-band direct slots when clock is anchored") {
     CHECK(p.band == Band::O);
 }
 
-TEST_CASE("timing: PPS lost within holdover — still receiving, no slotted TX") {
+TEST_CASE("timing: PPS lost within holdover, still receiving, no slotted TX") {
     Scheduler s;
     ClockState c{true, false, 5000};
     SlotPlan p = s.plan(500, c);
@@ -106,7 +111,7 @@ TEST_CASE("timing: PPS lost within holdover — still receiving, no slotted TX")
     CHECK_FALSE(p.tx_allowed);
 }
 
-TEST_CASE("timing: past holdover or no UTC — listen only, fail closed") {
+TEST_CASE("timing: past holdover or no UTC, listen only, fail closed") {
     Scheduler s;
     ClockState past{true, false, kPpsHoldoverMs + 1};
     CHECK(s.plan(500, past).listen_only);
@@ -188,7 +193,7 @@ TEST_CASE("transmit: two devices do not pick the same instant every second") {
 }
 
 // §C.2.5: traffic alternates between the two M-band channels.
-// The second dwell hears traffic past 1000 ms; the direct slot ends there, so
+// The second dwell hears traffic past 1000 ms. The direct slot ends there, so
 // our own burst never does.
 TEST_CASE("transmit: the burst completes inside the direct slot, tail or no tail") {
     Transmitter t = airborne_transmitter();

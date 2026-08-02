@@ -31,7 +31,7 @@ TEST_CASE("l76k: a new fix is reported exactly once") {
 }
 
 TEST_CASE("l76k: a wired but silent receiver never reports a fix") {
-    models::L76k chip;  // never ticked — powered, connected, saying nothing
+    models::L76k chip;  // never ticked: powered, connected, saying nothing
     parts::L76k gnss(chip);
     for (uint32_t t = 0; t <= 5000; t += 100) CHECK_FALSE(gnss.poll());
     CHECK(gnss.updates() == 0);

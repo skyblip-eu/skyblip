@@ -1,3 +1,8 @@
+// The integer arithmetic the rest of the firmware trusts without checking: fixed
+// point instead of floats, a CORDIC sine, an integer square root, the variable
+// resolution codecs ADS-L packs its fields into. Every one is a silent failure
+// mode. A varint that rounds the wrong way or an iatan2 that is a quadrant out
+// reaches the pilot as a target in the wrong place, with nothing logged.
 #include <cstdlib>  // std::abs
 #include <cstring>
 #include <string>
@@ -16,7 +21,7 @@ TEST_CASE("units: feet<->metres round-trip is close") {
     for (int ft = -1000; ft <= 40000; ft += 137) {
         Metres m = to_metres(Feet(ft));
         Feet back = to_feet(m);
-        // integer double-conversion truncation; a few feet is physically moot
+        // integer double-conversion truncation. A few feet is physically moot
         CHECK(std::abs(back.v - ft) <= 5 + std::abs(ft) / 6000);
     }
 }
@@ -55,7 +60,7 @@ TEST_CASE("fifo: bounded ring behaviour") {
 }
 
 TEST_CASE("varint: UnsVR encode/decode round-trip (within representable range)") {
-    // Bits=6 range encoding is representable up to ~956; below that the coarsest
+    // Bits=6 range encoding is representable up to ~956. Below that the coarsest
     // quantization step is 8.
     for (uint16_t v = 0; v < 900; v += 7) {
         uint16_t enc = uns_vr_encode<uint16_t, 6>(v);

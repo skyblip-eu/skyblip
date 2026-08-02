@@ -1,8 +1,8 @@
 // SSD1681 e-paper driver tests against models/ssd1681.h. Verifies the init
-// sequence, the framebuffer→RAM polarity (fb 1=black → panel 0=black), the
+// sequence, the framebuffer to RAM polarity (fb 1=black becomes panel 0=black), the
 // two-bank differential contract (previous image in 0x26, new in 0x24), the
 // non-blocking present/ready cycle, deep sleep between refreshes and the
-// hung-BUSY recovery — all on the host, no panel required.
+// hung-BUSY recovery, all on the host, no panel required.
 #include "doctest/doctest.h"
 #include "hardware/parts/ssd1681/model.h"
 #include "hardware/parts/ssd1681/ssd1681.h"
@@ -14,7 +14,7 @@ namespace {
 
 parts::Ssd1681 make(models::Ssd1681& f) { return parts::Ssd1681(f, f, f.dc, f.rst, f.busy); }
 
-// Drives the present → ready cycle to completion, as the screen service would
+// Drives the present to ready cycle to completion, as the screen service would
 // across ticks.
 void settle(parts::Ssd1681& d, uint32_t issued_ms) {
     CHECK_FALSE(d.ready(issued_ms));
@@ -45,7 +45,7 @@ TEST_CASE("epd: present() writes a full framebuffer with correct black/white pol
     d.present(fb, hal::Refresh::Full, 0);
 
     CHECK(f.ram.size() == ui::Framebuffer::kBytes);
-    // An all-white framebuffer → all 0xFF in panel RAM (inverted).
+    // An all-white framebuffer becomes all 0xFF in panel RAM (inverted).
     bool all_ff = true;
     for (uint8_t b : f.ram)
         if (b != 0xFF) all_ff = false;
@@ -101,7 +101,7 @@ TEST_CASE("epd: present() rewrites the previous-image bank so the panel diffs th
     second.set_pixel(20, 20, true);
     d.present(second, hal::Refresh::Fast, 5000);
 
-    // Bank 0x26 must hold what the glass shows — the first frame — and bank
+    // Bank 0x26 must hold what the glass shows (the first frame) and bank
     // 0x24 the new one, both in panel polarity. A stale or empty 0x26 is the
     // classic partial-update ghosting bug.
     REQUIRE(f.ram_previous.size() == ui::Framebuffer::kBytes);

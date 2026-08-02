@@ -1,7 +1,9 @@
-// ADS-L position packet: the safety-critical round-trip and error-correction
-// tests: a radio protocol tested with zero RF hardware.
-// The RF channel is reduced to an injectable BER; we distinguish *detected
-// failure* from *silent miscorrection* (the real anti-collision danger).
+// The ADS-L position packet end to end, a radio protocol checked with no RF
+// hardware in the room: the channel is an injectable bit error rate, and the
+// packet has to survive it or say that it did not. What these separate is a
+// *detected failure*, a frame dropped and counted, from a *silent
+// miscorrection*, a frame that decodes to a plausible aircraft somewhere it is
+// not. Only the second one collides with anybody.
 #include <cstdlib>  // std::abs - libc++ pulls it in transitively, libstdc++ does not
 #include <cstring>
 
@@ -69,7 +71,7 @@ TEST_CASE("adsl: scramble+crc, then descramble+check round-trip is lossless (BER
     AdslPacket golden = p;
     p.scramble();
     p.set_crc();
-    // On air these 21 bytes ride; the RX recomputes.
+    // On air these 21 bytes ride. The RX recomputes.
     CHECK(p.check_crc() == 0);
     p.descramble();
     // payload identical to golden (compare the scrambled region bytes)
@@ -112,7 +114,7 @@ TEST_CASE("adsl: multi-bit errors within flagged (weak) bits are corrected") {
     CHECK(p.check_crc() == 0);
 }
 
-TEST_CASE("adsl: Monte-Carlo BER — detected vs silent miscorrection accounting") {
+TEST_CASE("adsl: Monte-Carlo BER, detected vs silent miscorrection accounting") {
     // Push random-ish bit errors, some flagged (weak) and some not, and count:
     //   good      = decoded to the exact original codeword
     //   detected  = check_crc != 0 after correct() (safe: we know it failed)
@@ -132,7 +134,7 @@ TEST_CASE("adsl: Monte-Carlo BER — detected vs silent miscorrection accounting
         uint8_t* d = reinterpret_cast<uint8_t*>(&rx.Version);
         uint8_t err[AdslPacket::kDataBytes] = {0};
 
-        // Inject up to 3 bit errors; flag ~70% of them as weak.
+        // Inject up to 3 bit errors, and flag ~70% of them as weak.
         int nerr = (rng.next() % 4);  // 0..3
         for (int e = 0; e < nerr; e++) {
             int bit = rng.next() % (AdslPacket::kDataBytes * 8);
@@ -157,7 +159,7 @@ TEST_CASE("adsl: Monte-Carlo BER — detected vs silent miscorrection accounting
     MESSAGE("good=" << good << " detected=" << detected << " silent=" << silent);
     CHECK(good > 0);
     // A 24-bit CRC bounds the silent-miscorrection probability ~2^-24 per random
-    // codeword; with only <=3 injected bits it must be essentially zero here.
+    // codeword. With only <=3 injected bits it must be essentially zero here.
     CHECK(silent <= 2);
 }
 

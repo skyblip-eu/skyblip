@@ -1,3 +1,8 @@
+// What an EFB is told, in the FLARM sentences it already speaks. The geometry is
+// the part with teeth: PFLAA is relative to own-ship, so a sign error puts traffic
+// on the wrong side of the aircraft on a moving map. Without an own position there
+// is no relative anything, and the encoder must emit nothing rather than a target
+// relative to (0, 0).
 #include <cstdlib>  // std::abs
 #include <cstring>
 #include <string>
@@ -36,7 +41,7 @@ TEST_CASE("nmea: checksum appended correctly") {
     CHECK(s.substr(s.size() - 2) == "\r\n");
 }
 
-TEST_CASE("nmea: relative geometry — target due north is +north, ~0 east") {
+TEST_CASE("nmea: relative geometry, target due north is +north, ~0 east") {
     auto own = own_at(481000000, 81000000, 1000);
     messages::AircraftObs t{};
     t.valid_pos = true;

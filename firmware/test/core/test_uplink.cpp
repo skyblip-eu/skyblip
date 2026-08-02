@@ -85,7 +85,7 @@ TEST_CASE("rs: corrects ALL patterns up to 16 symbol errors") {
     }
 }
 
-TEST_CASE("rs: beyond 16 errors — detected vs silent miscorrection, counted") {
+TEST_CASE("rs: beyond 16 errors, detected vs silent miscorrection, counted") {
     ReedSolomon255 rs;
     Rng rng(0x1234);
     uint8_t data[ReedSolomon255::kK];
@@ -119,11 +119,11 @@ TEST_CASE("rs: beyond 16 errors — detected vs silent miscorrection, counted") 
         } else if (std::memcmp(cw, base, ReedSolomon255::kN) == 0) {
             lucky++;  // happened to fully recover (rare)
         } else {
-            silent++;  // decoded to a WRONG codeword — the danger mode
+            silent++;  // decoded to a WRONG codeword: the danger mode
         }
     }
     MESSAGE("detected=" << detected << " silent=" << silent << " lucky=" << lucky);
-    // The vast majority must be safely detected; silent miscorrection is bounded
+    // The vast majority must be safely detected. Silent miscorrection is bounded
     // by the RS structure and must stay a small minority (and is measured, not
     // hidden). decode() re-verifies syndromes so silent should be ~0 here.
     CHECK(detected > kTrials * 3 / 4);

@@ -1,3 +1,8 @@
+// The table is finite and the sky is not, so every entry that arrives asks which
+// one leaves. That is a safety decision, not bookkeeping: an aircraft under alarm
+// stays even when the table overflows, a second report of the same aircraft merges
+// rather than doubles it, and a stale entry ages out instead of haunting the
+// screen. The alarm cases pin the escalation as a target closes.
 #include "core/traffic/alarm.h"
 #include "core/traffic/table.h"
 #include "doctest/doctest.h"
@@ -29,7 +34,7 @@ TEST_CASE("traffic: insert, find, count") {
     CHECK(tbl.find(6, 0x222) == -1);
 }
 
-TEST_CASE("traffic: dedup merges same target; fresher/direct wins") {
+TEST_CASE("traffic: dedup merges the same target, fresher and direct win") {
     TrafficTable tbl;
     tbl.update(obs(0x111, 6, 100, messages::Source::AdslUplink), 100);
     // direct, same time -> should replace uplink (direct preferred)

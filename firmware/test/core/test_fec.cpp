@@ -1,3 +1,8 @@
+// The bit-level transforms every burst passes through, each checked in both
+// directions. A scrambler that is not its own inverse, or a Manchester decoder
+// that hides a flipped chip instead of flagging it, corrupts traffic the CRC then
+// has to catch by luck. The avalanche case is what keeps a long run of identical
+// bits off the air.
 #include <cstdint>
 #include <cstring>
 
@@ -72,7 +77,7 @@ TEST_CASE("scramble: descramble is the exact inverse (property)") {
     }
 }
 
-TEST_CASE("scramble: avalanche — one input bit flips ~half the output bits") {
+TEST_CASE("scramble: avalanche, one input bit flips ~half the output bits") {
     uint32_t w[5] = {0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555};
     uint32_t a[5];
     std::memcpy(a, w, sizeof(w));
@@ -83,7 +88,7 @@ TEST_CASE("scramble: avalanche — one input bit flips ~half the output bits") {
     xxtea_scramble_key0(b, 5, 6);
     int diff = 0;
     for (int i = 0; i < 5; i++) diff += __builtin_popcountl(a[i] ^ b[i]);
-    // 160 output bits; a good diffusion is roughly half.
+    // 160 output bits. A good diffusion is roughly half.
     CHECK(diff > 50);
     CHECK(diff < 110);
 }

@@ -1,3 +1,9 @@
+// Raw RSSI ranks distances, not radios. These pin down the arithmetic that takes
+// the range back out of a signal, so two aircraft at the same distance with 12 dB
+// between them is read as an antenna finding rather than as traffic. What must not
+// happen is a verdict where there is no evidence: a relayed position carries the
+// relay's radio, not the aircraft's, and an emitter without a position cannot be
+// ranged at all.
 #include "core/traffic/link.h"
 #include "doctest/doctest.h"
 
