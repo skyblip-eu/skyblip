@@ -2,6 +2,7 @@
 
 #include "core/fec/crc.h"
 #include "core/fec/scramble.h"
+#include "core/flight/extrapolate.h"
 #include "core/settings/address.h"
 #include "core/util/bitcount.h"
 #include "core/util/varint.h"
@@ -341,25 +342,45 @@ void AdslPacket::set_integrity_from_hdop_e2(uint16_t hdop_e2) {
 // constant, and rotating it is a separate piece of work.
 constexpr uint8_t kAnonymousAddrTable = 0;
 
+uint8_t timestamp_code(uint32_t utc, int32_t lead_ms) {
+    constexpr int64_t kCycleMs = static_cast<int64_t>(kTimeStampCycleS) * 1000;
+    int64_t ms = static_cast<int64_t>(utc % kTimeStampCycleS) * 1000 + lead_ms;
+    ms %= kCycleMs;
+    if (ms < 0) ms += kCycleMs;
+    return static_cast<uint8_t>(ms / kTimeStampQuarterMs);
+}
+
 void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
               uint8_t aircraft_cat, bool stealth) {
+    from_own(p, own, addr, addr_table, aircraft_cat, stealth, BurstInstant{own.utc, 0, 0});
+}
+
+void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
+              uint8_t aircraft_cat, bool stealth, const BurstInstant& at) {
     p.init(0x02);
     const uint8_t table = stealth ? kAnonymousAddrTable : addr_table;
     p.set_address(settings::safe_air_address(addr, table));
     p.set_addr_table(table);
-    p.TimeStamp = static_cast<uint8_t>((own.utc % 15) * 4);
+
+    // The burst leaves later than the fix was solved, so the position goes
+    // forward to the instant the timestamp names. Past the model's bound the
+    // fix goes out as it stands, dated when it was solved: neither half of the
+    // pair is allowed to describe an instant the other does not.
+    const flight::Prediction where = flight::extrapolate(own, at.since_fix_ms);
+    p.TimeStamp =
+        timestamp_code(at.utc, where.valid ? at.into_utc_ms : at.into_utc_ms - at.since_fix_ms);
     p.FlightState = own.flight_state;
     p.AcftCat = aircraft_cat;
     p.Emergency = 1;
-    p.set_lat_1e7(own.lat_1e7);
-    p.set_lon_1e7(own.lon_1e7);
+    p.set_lat_1e7(where.lat_1e7);
+    p.set_lon_1e7(where.lon_1e7);
 
     // Altitude and ground speed come from the 3D fix, so without one they are
     // UNAVAILABLE and must say so (G.1.7, G.1.8). Transmitting a stale or zeroed
     // altitude as if it were valid is worse than transmitting nothing: a receiver
     // would compute relative vertical separation against it.
     if (own.fix_valid) {
-        p.set_alt_m(own.alt_m);
+        p.set_alt_m(where.alt_m);
         p.set_speed_q(own.speed_q);
         p.set_integrity_from_hdop_e2(own.hdop_e2);
     } else {
@@ -376,7 +397,7 @@ void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8
     else
         p.set_climb_invalid();
 
-    p.set_track_c9(own.track_c9);
+    p.set_track_c9(where.track_c9);
 }
 
 }

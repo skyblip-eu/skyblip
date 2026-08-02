@@ -5,6 +5,8 @@
 #include <cstring>
 #include <string>
 
+#include "core/flight/extrapolate.h"
+#include "core/gnss/first_fix.h"
 #include "core/timing/channel.h"
 #include "core/timing/slot.h"
 #include "core/timing/transmit.h"
@@ -25,6 +27,20 @@ simulator::Simulator listening_at(int phase_ms, int slot) {
     h.world().set_pps_locked(false);
     h.world().add_aircraft(800, 0, 0, 30, 180, phase_ms, slot);
     return h;
+}
+
+// F5: own-ship holds every burst until the receiver's first solutions have
+// settled, so a transmit test that starts the clock at zero is a test of the
+// settling window and nothing else. This is the far side of it, with the tape
+// wiped so the bursts that follow are the ones under test.
+uint32_t past_settling(simulator::Simulator& h) {
+    h.run(gnss::kFirstFixSettleMs);
+    h.world().air().clear();
+    return gnss::kFirstFixSettleMs;
+}
+
+void run_on(simulator::Simulator& h, uint32_t from_ms, uint32_t for_ms) {
+    for (uint32_t t = from_ms; t <= from_ms + for_ms; t += simulator::Simulator::kStepMs) h.step(t);
 }
 
 int count_of(const simulator::Air& air, simulator::AirEvent want) {
@@ -59,6 +75,7 @@ struct Pass {
         if (s != Status::Ok) return s;
         state.own.fix_valid = true;
         state.own.utc_valid = true;
+        state.own.tx_settled = true;
         state.own.flight_state = 2;
         state.clock.utc_valid = true;
         return radio_service.setup();
@@ -175,7 +192,8 @@ TEST_CASE("rf: own-ship transmits once a second, inside its window, alternating 
     REQUIRE(h.setup() == Status::Ok);
     h.world().set_fix(true);
     h.world().set_speed_kt(50);
-    h.run(6000);
+    const uint32_t from_ms = past_settling(h);
+    run_on(h, from_ms, 6000);
 
     const simulator::Air& air = h.world().air();
     int transmissions = 0;
@@ -200,7 +218,7 @@ TEST_CASE("rf: own-ship transmits once a second, inside its window, alternating 
     CHECK(h.product().radio().noise_floor().dbm() < timing::NoiseFloor::kSeedDbm);
     CHECK(h.product().radio().transmitter().air_time().total_ms() ==
           static_cast<uint32_t>(transmissions) * timing::Transmitter::kAirTimeMs);
-    CHECK(h.product().radio().duty_permille(6000) < timing::AirTime::kLimitPermille);
+    CHECK(h.product().radio().duty_permille(from_ms + 6000) < timing::AirTime::kLimitPermille);
     CHECK_FALSE(h.product().radio().over_budget());
 }
 
@@ -210,7 +228,7 @@ TEST_CASE("rf: what own-ship put on air decodes back to own-ship state") {
     h.world().set_fix(true);
     h.world().set_speed_kt(50);
     h.world().set_altitude_m(1200);
-    h.run(3000);
+    run_on(h, past_settling(h), 3000);
 
     const simulator::Air& air = h.world().air();
     int checked = 0;
@@ -251,7 +269,7 @@ TEST_CASE("rf: on the ground the transmit rate drops to 0.1 Hz") {
     REQUIRE(h.setup() == Status::Ok);
     h.world().set_fix(true);
     h.world().set_speed_kt(0);
-    h.run(8000);
+    run_on(h, past_settling(h), 8000);
     CHECK(count_of(h.world().air(), simulator::AirEvent::Tx) == 1);
 }
 
@@ -430,4 +448,136 @@ TEST_CASE("rf: a channel that is never clear is counted, and each refusal buys 3
         pass.radio_service.noise_floor().dbm() + timing::NoiseFloor::kClearMarginDb +
         static_cast<int>(pass.radio_service.gave_up_count()) * timing::NoiseFloor::kRetryStepDb;
     CHECK(pass.radio_service.lbt_threshold_dbm() == expected);
+}
+
+// F5. A cold receiver's first solutions walk, and the flight state we derive
+// from ground speed decides the transmit rate, so transmitting through that
+// window publishes a track nobody flew. gnss::FirstFix has held the answer
+// since it was written; until now nothing asked it.
+TEST_CASE("rf: nothing goes on air until the first fix has settled") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_speed_kt(50);
+
+    h.run(gnss::kFirstFixSettleMs - 2000);
+    CHECK_FALSE(h.product().state().own.tx_settled);
+    CHECK(count_of(h.world().air(), simulator::AirEvent::Tx) == 0);
+    CHECK(h.product().state().tx_ok == 0);
+    // Not because it has nothing to say: the fix is good and the clock anchored.
+    CHECK(h.product().state().own.fix_valid);
+    CHECK(h.product().state().clock.pps_locked);
+
+    run_on(h, gnss::kFirstFixSettleMs - 2000, 4000);
+    CHECK(h.product().state().own.tx_settled);
+    CHECK(count_of(h.world().air(), simulator::AirEvent::Tx) > 0);
+}
+
+// F3. The burst leaves in the direct slot, 450 to 1000 ms into the second, and
+// the ADS-L TimeStamp resolves to a quarter of a second. Encoding the fix's own
+// second left every transmission claiming quarter zero - an instant 450 ms or
+// more before the burst existed - while carrying a position from a third
+// instant. This pins the pair together: the quarter the frame claims is the
+// quarter it went on air in.
+TEST_CASE("rf: the burst is dated when it leaves, and carries the position from then") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_speed_kt(90);
+    h.world().set_track_deg(90);
+    run_on(h, past_settling(h), 6000);
+
+    const simulator::Air& air = h.world().air();
+    int checked = 0;
+    for (int i = 0; i < air.record_count(); i++) {
+        const simulator::AirRecord& r = air.record(i);
+        if (r.event != simulator::AirEvent::Tx) continue;
+        protocol::Frame frame{};
+        REQUIRE(simulator::Air::framed(r, frame));
+        protocol::AdslPacket p{};
+        p.init();
+        std::memcpy(&p.Version, frame.data, protocol::kAdslFrameBytes);
+        REQUIRE(p.check_crc() == 0);
+        p.descramble();
+        REQUIRE(p.address() == h.platform().device_addr());
+
+        // Inside the direct slot the quarter is 1, 2 or 3. Zero is the old bug.
+        REQUIRE(timing::Scheduler::in_direct_slot(r.phase_ms));
+        CHECK(int(p.TimeStamp % 4) == r.phase_ms / 250);
+        CHECK(int(p.TimeStamp % 4) != 0);
+        checked++;
+    }
+    CHECK(checked >= 4);
+}
+
+// The 30 s no-RX reinitialisation lived in parts::Sx1262::service(), which only
+// the host executor ever called: on silicon hardware/platform/zephyr/rf.h had an
+// empty service() body, so the radio health watchdog this pins did not exist on
+// the device at all. It belongs to whichever thread owns the radio, because
+// reinitialising from the service list would put a second writer on the SPI bus
+// while a dwell is using it.
+TEST_CASE("rf: a receiver that hears nothing is reinitialised by the executor that owns it") {
+    models::Sx1262 chip;
+    parts::Sx1262 radio(chip, chip, chip.busy_pin, chip.reset_pin, chip.dio1_pin);
+    platform::host::Clock clock;
+    bus::Queue<messages::RfEvent, 8> events;
+    platform::host::Rf rf(radio, clock, events);
+    REQUIRE(rf.begin() == Status::Ok);
+
+    hal::RfPlan plan{};
+    plan.mode = hal::RfMode::RxMband;
+    plan.freq_hz = timing::kMband0Hz;
+    plan.start_us = 0;
+    plan.end_us = 400000;
+    REQUIRE(rf.arm(plan) == Status::Ok);
+
+    const uint32_t deadline_ms = runtime::kRadioNoRxReinitMs;
+    for (uint32_t t = 0; t < deadline_ms; t += 10) {
+        clock.set_millis(t);
+        rf.service(t);
+    }
+    CHECK(radio.reinit_count() == 0);
+    for (uint32_t t = deadline_ms; t <= deadline_ms + 100; t += 10) {
+        clock.set_millis(t);
+        rf.service(t);
+    }
+    CHECK(radio.reinit_count() == 1);
+    CHECK(radio.mode() == parts::RadioMode::Rx);
+
+    // A frame that arrives restarts the rope rather than shortening it.
+    uint8_t burst[protocol::kAdslFrameBytes] = {0};
+    chip.queue_rx(burst, sizeof(burst));
+    for (uint32_t t = deadline_ms + 100; t <= 2 * deadline_ms; t += 10) {
+        clock.set_millis(t);
+        rf.service(t);
+    }
+    CHECK(radio.reinit_count() == 1);
+}
+
+// F3's quality metric, through the whole pipeline: own-ship predicts the fix it
+// last had forward to the instant the next one arrives and keeps the miss. A
+// model that has stopped describing the aircraft is then a number on the bench
+// rather than a surprise in the air (oss/nrf52-ogn-tracker src/ogn.h:1424-1430).
+TEST_CASE("rf: the extrapolation residual is measured against the fix that arrives") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_speed_kt(90);
+    h.world().set_track_deg(90);
+    h.run(6000);
+    CHECK(h.product().state().own.pred_resid_valid);
+    CHECK(h.product().state().own.pred_resid_m <= 2);
+
+    // A track that jumps 90 degrees between two solutions is a manoeuvre no
+    // constant-turn model saw coming, and the residual says so on the solution
+    // that closes the interval - and only on that one, because the model has the
+    // aircraft again the moment it flies straight.
+    h.world().set_track_deg(180);
+    uint16_t worst_m = 0;
+    for (uint32_t t = 6000; t <= 6600; t += simulator::Simulator::kStepMs) {
+        h.step(t);
+        const uint16_t resid_m = h.product().state().own.pred_resid_m;
+        if (resid_m > worst_m) worst_m = resid_m;
+    }
+    CHECK(worst_m > 10);
 }

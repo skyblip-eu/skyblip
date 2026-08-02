@@ -24,11 +24,14 @@ void OwnshipService::tick(uint32_t now_ms) {
     while (context_.bus.baro.pop(sample)) apply_baro(sample);
 
     context_.state.baro_active = baro_active();
+    context_.state.own.tx_settled = settle_.settled(now_ms);
 }
 
 void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
     messages::OwnState& own = context_.state.own;
+    const messages::OwnState previous = own;
     context_.state.gnss_fixes++;
+    settle_.update(f.valid, now_ms);
 
     own.fix_valid = f.valid;
     own.utc_valid = f.utc_valid;
@@ -59,6 +62,31 @@ void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
 
     own.flight_state = flight_state_from(own, now_ms);
     update_turn_rate(now_ms);
+    update_residual(previous);
+}
+
+// The model, run over the interval that has just elapsed, against the fix that
+// closed it. Nothing acts on the answer: it is the bench's measure of whether
+// the extrapolation the transmitter applies is describing this aircraft.
+void OwnshipService::update_residual(const messages::OwnState& previous) {
+    messages::OwnState& own = context_.state.own;
+    if (!previous.fix_valid || !own.fix_valid) {
+        own.pred_resid_valid = false;
+        return;
+    }
+    const int32_t dt_ms = static_cast<int32_t>(own.fix_ms - previous.fix_ms);
+    if (dt_ms <= 0) {
+        own.pred_resid_valid = false;
+        return;
+    }
+    const flight::Prediction p = flight::extrapolate(previous, dt_ms);
+    if (!p.valid) {
+        own.pred_resid_valid = false;
+        return;
+    }
+    const uint32_t resid = flight::prediction_residual_m(p, own.lat_1e7, own.lon_1e7, own.alt_m);
+    own.pred_resid_m = resid > 0xFFFF ? 0xFFFF : static_cast<uint16_t>(resid);
+    own.pred_resid_valid = true;
 }
 
 void OwnshipService::apply_baro(const messages::BaroSample& sample) {
@@ -86,6 +114,7 @@ void OwnshipService::update_turn_rate(uint32_t now_ms) {
     const int32_t diff = ((static_cast<int32_t>(track_c9) - turn_ref_track_c9_ + 768) % 512) - 256;
     context_.state.turn_dps =
         static_cast<int16_t>((diff * 45 * 1000) / (64 * static_cast<int32_t>(dt)));
+    context_.state.own.turn_dps = context_.state.turn_dps;
     turn_ref_ms_ = now_ms;
     turn_ref_track_c9_ = track_c9;
 }

@@ -191,8 +191,28 @@ static_assert(sizeof(AdslPacket) == 28, "AdslPacket wire size must be 28 bytes")
 
 void to_obs(const AdslPacket& p, uint32_t rx_utc, uint16_t rx_ms, int8_t rssi_dbm,
             messages::Source source, messages::AircraftObs& out);
+// The TimeStamp field is quarter seconds inside a 15 s cycle, so the instant a
+// burst claims is expressible to 250 ms - and the position it carries has to
+// belong to that instant rather than to whenever the receiver last spoke.
+static constexpr uint32_t kTimeStampCycleS = 15;
+static constexpr uint32_t kTimeStampQuarterMs = 250;
+uint8_t timestamp_code(uint32_t utc, int32_t lead_ms);
+
+// When a burst leaves, in the two frames of reference the packet needs it in.
+// The UTC second and the offset into it are what TimeStamp names; the offset
+// from the fix is over what the position is carried forward. They are not the
+// same number: the receiver stamps whole seconds, so at 5 Hz four solutions out
+// of five are already part of a second old when they arrive.
+struct BurstInstant {
+    uint32_t utc;
+    int32_t into_utc_ms;
+    int32_t since_fix_ms;
+};
+
 void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
               uint8_t aircraft_cat, bool stealth);
+void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
+              uint8_t aircraft_cat, bool stealth, const BurstInstant& at);
 
 }
 

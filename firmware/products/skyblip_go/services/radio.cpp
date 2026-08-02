@@ -53,6 +53,21 @@ uint64_t RadioService::dwell_epoch_us(uint32_t now_ms) const {
     return (in_slot1_tail && epoch_us >= 1000000) ? epoch_us - 1000000 : epoch_us;
 }
 
+// Two clocks meet here. The TimeStamp field counts quarter seconds from the top
+// of the UTC second the slot belongs to, which the latched PPS edge anchors;
+// the position has to be carried over the interval since the fix, which is a
+// monotonic one. The dwell is armed before the slot opens, so the second figure
+// is the staleness already accrued plus the whole wait still to come.
+protocol::BurstInstant RadioService::burst_instant(const timing::Transmitter::Attempt& a,
+                                                   uint64_t tx_at_us, uint32_t now_ms) const {
+    const uint32_t tx_ms = static_cast<uint32_t>(tx_at_us / 1000);
+    protocol::BurstInstant at{};
+    at.utc = slot_utc(now_ms);
+    at.into_utc_ms = a.at_ms;
+    at.since_fix_ms = static_cast<int32_t>(tx_ms - context_.state.own.fix_ms);
+    return at;
+}
+
 uint32_t RadioService::slot_utc(uint32_t now_ms) const {
     const uint32_t utc = context_.state.own.utc;
     const bool in_slot1_tail = phase_ms(now_ms) < timing::kSlot1Wrap;
@@ -87,7 +102,10 @@ bool RadioService::transmit_due(const timing::SlotPlan& plan, uint32_t now_ms) c
 timing::Transmitter::Attempt RadioService::attempt(const timing::SlotPlan& plan,
                                                    uint32_t now_ms) const {
     const messages::OwnState& own = context_.state.own;
-    if (!own.fix_valid || !own.utc_valid) return timing::Transmitter::Attempt{};
+    // F5: a cold receiver's first solutions walk, and the flight state derived
+    // from them decides our transmit rate. Nothing goes on air until own-ship
+    // says the solution behind it has settled.
+    if (!own.fix_valid || !own.utc_valid || !own.tx_settled) return timing::Transmitter::Attempt{};
     const uint32_t fix_age_ms = now_ms - own.fix_ms;
     const bool airborne = own.flight_state == kFlightStateAirborne;
     return transmitter_.attempt(plan, slot_utc(now_ms), now_ms, airborne, fix_age_ms);
@@ -115,7 +133,7 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
     if (carries_tx) {
         protocol::from_own(outgoing_, context_.state.own, context_.roles.device_addr,
                            context_.state.settings.addr_table, context_.state.own.aircraft_cat,
-                           context_.state.settings.stealth);
+                           context_.state.settings.stealth, burst_instant(a, tx_at_us, now_ms));
         outgoing_.scramble();
         outgoing_.set_crc();
         plan.tx = outgoing_chips_;

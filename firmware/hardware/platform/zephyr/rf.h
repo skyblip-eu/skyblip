@@ -20,6 +20,10 @@ class Rf : public hal::Rf {
    public:
     static constexpr int kStackSize = 2048;
     static constexpr int kSpinUs = 200;
+    // How long the thread waits for the next dwell before it looks at the
+    // radio's health instead. Short against the 30 s no-RX rope, long enough
+    // that an idle device is not woken for nothing.
+    static constexpr int kHealthTickMs = 250;
 
     Rf(parts::Sx1262& radio, hal::Clock& clock, bus::Queue<messages::RfEvent, 8>& out)
         : radio_(radio), clock_(clock), out_(out) {
@@ -67,14 +71,22 @@ class Rf : public hal::Rf {
 
     hal::RfCarrier carrier() const override { return carrier_; }
 
+    // The board calls this from the service pass, and there is deliberately
+    // nothing here: the radio belongs to the thread below, and reinitialising it
+    // from the service list would put a second writer on the SPI bus while a
+    // dwell is using it. The health watchdog runs in run(), where the chip is
+    // owned.
     void service(uint32_t) {}
 
    private:
     static void entry(void* self, void*, void*) { static_cast<Rf*>(self)->run(); }
 
     void run() {
+        health_us_ = clock_.micros();
         for (;;) {
-            k_sem_take(&armed_, K_FOREVER);
+            const int armed = k_sem_take(&armed_, K_MSEC(kHealthTickMs));
+            health();
+            if (armed != 0) continue;
             if (sleep_requested_) {
                 sleep_requested_ = false;
                 radio_.sleep();
@@ -86,7 +98,21 @@ class Rf : public hal::Rf {
             if (abort_) continue;
             start(plan);
             dwell(plan);
+            health();
         }
+    }
+
+    // A receiver that has heard nothing for 30 s is deaf, not lucky, and the
+    // only cure is a reinitialisation. It is accumulated here, between dwells,
+    // because this thread owns the bus: the elapsed time comes off the same
+    // clock the deadlines do, so a dwell that overran is counted, not lost.
+    void health() {
+        const uint64_t now_us = clock_.micros();
+        if (now_us <= health_us_) return;
+        const uint32_t elapsed_ms = static_cast<uint32_t>((now_us - health_us_) / 1000);
+        if (elapsed_ms == 0) return;
+        health_us_ += static_cast<uint64_t>(elapsed_ms) * 1000;
+        radio_.service(elapsed_ms, runtime::kRadioNoRxReinitMs);
     }
 
     void sleep_until(uint64_t deadline_us) {
@@ -181,6 +207,7 @@ class Rf : public hal::Rf {
     hal::RfPlan plan_{};
     hal::RfCarrier carrier_{};
     uint32_t backoff_seed_{0x5eed1262u};
+    uint64_t health_us_{0};
     struct k_sem armed_{};
     struct k_thread thread_{};
     k_tid_t tid_{nullptr};

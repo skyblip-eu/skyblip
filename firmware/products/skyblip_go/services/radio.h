@@ -46,6 +46,8 @@ class RadioService : public runtime::Service {
     // slot started in.
     uint64_t dwell_epoch_us(uint32_t now_ms) const;
     uint32_t slot_utc(uint32_t now_ms) const;
+    protocol::BurstInstant burst_instant(const timing::Transmitter::Attempt& attempt,
+                                         uint64_t tx_at_us, uint32_t now_ms) const;
     static hal::RfMode mode_for(const timing::SlotPlan& plan);
     static void listen_for(timing::Band band, hal::RfPlan& plan);
     timing::Transmitter::Attempt attempt(const timing::SlotPlan& plan, uint32_t now_ms) const;
