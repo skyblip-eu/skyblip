@@ -1,6 +1,7 @@
 #include "products/skyblip_go/services/ownship.h"
 
 #include "core/flight/atmosphere.h"
+#include "core/flight/turn.h"
 
 namespace skyblip::go {
 
@@ -25,6 +26,7 @@ void OwnshipService::tick(uint32_t now_ms) {
 
     context_.state.baro_active = baro_active();
     context_.state.own.tx_settled = settle_.settled(now_ms);
+    context_.state.own.fix_acquired = settle_.take_acquired();
 }
 
 void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
@@ -109,12 +111,7 @@ void OwnshipService::update_turn_rate(uint32_t now_ms) {
     const uint32_t dt = now_ms - turn_ref_ms_;
     if (dt < kTurnWindowMs) return;
 
-    // cordic9: 512 units = 360 deg. Wrap to the short way round so 359 -> 001
-    // reads as +2 deg, not -358.
-    const int32_t diff = ((static_cast<int32_t>(track_c9) - turn_ref_track_c9_ + 768) % 512) - 256;
-    context_.state.turn_dps =
-        static_cast<int16_t>((diff * 45 * 1000) / (64 * static_cast<int32_t>(dt)));
-    context_.state.own.turn_dps = context_.state.turn_dps;
+    context_.state.own.turn_dps = flight::turn_rate_dps(track_c9, turn_ref_track_c9_, dt);
     turn_ref_ms_ = now_ms;
     turn_ref_track_c9_ = track_c9;
 }

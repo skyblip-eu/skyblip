@@ -70,6 +70,10 @@ struct OwnState {
     // The receiver has held a fix long enough for the solution behind it to have
     // settled. Nothing is transmitted before this is true.
     bool tx_settled;
+    // True for the one pass that applied the receiver's first fix since boot.
+    // Own-ship is the only writer, so whoever annunciates it reads it here
+    // instead of keeping a second watch on the same fact.
+    bool fix_acquired;
     uint8_t sats;
     uint8_t aircraft_cat;
     uint8_t flight_state;

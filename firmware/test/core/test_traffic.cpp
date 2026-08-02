@@ -18,8 +18,9 @@ namespace {
 
 uint16_t c9(int deg) { return static_cast<uint16_t>(((deg % 360 + 360) % 360) * 512 / 360); }
 
-messages::OwnState flying(int mps, int track_deg) {
+messages::OwnState flying(int mps, int track_deg, int16_t turn_dps = 0) {
     messages::OwnState o{};
+    o.turn_dps = turn_dps;
     o.fix_valid = true;
     o.lat_1e7 = 481000000;
     o.lon_1e7 = 81000000;
@@ -198,7 +199,7 @@ TEST_CASE("alarm: a target is announced once per level, and again when it gets w
     const messages::OwnState own = flying(30, 0);
 
     uint32_t t = 1000;
-    AlarmTracker::Decision d = tracker.update(own, 0, neighbour(own, 2800, 0, 0, 20, 180), t);
+    AlarmTracker::Decision d = tracker.update(own, neighbour(own, 2800, 0, 0, 20, 180), t);
     REQUIRE(d.assessment.level == 1);
     CHECK(d.notify);
     CHECK(d.escalated);
@@ -206,13 +207,13 @@ TEST_CASE("alarm: a target is announced once per level, and again when it gets w
     // Same target, same level, over and over: said once.
     for (int i = 0; i < 20; i++) {
         t += 100;
-        d = tracker.update(own, 0, neighbour(own, 2800, 0, 0, 20, 180, t), t);
+        d = tracker.update(own, neighbour(own, 2800, 0, 0, 20, 180, t), t);
         CHECK_FALSE(d.notify);
     }
 
     // Now it is important, and that is new information.
     t += 100;
-    d = tracker.update(own, 0, neighbour(own, 1200, 0, 0, 20, 180, t), t);
+    d = tracker.update(own, neighbour(own, 1200, 0, 0, 20, 180, t), t);
     CHECK(d.assessment.level >= 2);
     CHECK(d.notify);
     CHECK(d.escalated);
@@ -225,14 +226,14 @@ TEST_CASE("alarm: an urgent contact says so again, at the re-notification cadenc
     const messages::OwnState own = flying(30, 0);
 
     uint32_t t = 1000;
-    AlarmTracker::Decision d = tracker.update(own, 0, neighbour(own, 400, 0, 0, 30, 180, t), t);
+    AlarmTracker::Decision d = tracker.update(own, neighbour(own, 400, 0, 0, 30, 180, t), t);
     REQUIRE(d.assessment.level == 3);
     REQUIRE(d.notify);
 
     int spoken = 0;
     for (int i = 0; i < 50; i++) {
         t += 100;
-        d = tracker.update(own, 0, neighbour(own, 400, 0, 0, 30, 180, t), t);
+        d = tracker.update(own, neighbour(own, 400, 0, 0, 30, 180, t), t);
         if (d.notify) spoken++;
     }
     CHECK(spoken == 2);
@@ -246,12 +247,12 @@ TEST_CASE("alarm: a target that has gone quiet stops driving the annunciator") {
     const messages::AircraftObs frozen = neighbour(own, 400, 0, 0, 30, 180, 1000);
 
     uint32_t t = 1000;
-    REQUIRE(tracker.update(own, 0, frozen, t).notify);
+    REQUIRE(tracker.update(own, frozen, t).notify);
 
     int spoken = 0;
     for (int i = 0; i < 100; i++) {
         t += 200;
-        if (tracker.update(own, 0, frozen, t).notify) spoken++;
+        if (tracker.update(own, frozen, t).notify) spoken++;
     }
     // Two reminders inside the five seconds it stayed fresh, then silence.
     CHECK(spoken == 2);
@@ -272,12 +273,11 @@ TEST_CASE("alarm: two gliders circling the same thermal stop shouting at each ot
     for (int i = 0; i < 6; i++) {
         const uint32_t t = 1000 + static_cast<uint32_t>(i) * 1000;
         const int track_deg = 90 + 15 * i;
-        const messages::OwnState own = flying(25, track_deg);
+        const messages::OwnState own = flying(25, track_deg, own_turn);
         const double bearing = (track_deg - 90) * 3.14159265358979 / 180.0;
         const int north_m = static_cast<int>(150 * std::cos(bearing));
         const int east_m = static_cast<int>(150 * std::sin(bearing));
-        d = tracker.update(own, own_turn,
-                           neighbour(own, north_m, east_m, 20, 25, track_deg + 160, t), t);
+        d = tracker.update(own, neighbour(own, north_m, east_m, 20, 25, track_deg + 160, t), t);
     }
 
     // The target's turn came out of its own reported track history, at the rate
@@ -298,10 +298,10 @@ TEST_CASE("alarm: a head-on inside the thermal still alarms") {
 
     for (int i = 0; i < 6; i++) {
         const uint32_t t = 1000 + static_cast<uint32_t>(i) * 1000;
-        const messages::OwnState own = flying(25, 90 + 15 * i);
+        const messages::OwnState own = flying(25, 90 + 15 * i, 14);
         messages::AircraftObs intruder = neighbour(own, 400, 0, 0, 30, 180, t);
         intruder.addr = 0x777777;
-        d = tracker.update(own, 14, intruder, t);
+        d = tracker.update(own, intruder, t);
     }
 
     CHECK(d.suppression == Suppression::None);
@@ -317,19 +317,19 @@ TEST_CASE("alarm: a neighbour holding station is quietened, and turning in undoe
     AlarmTracker::Decision d{};
 
     uint32_t t = 1000;
-    d = tracker.update(own, 0, neighbour(own, 400, 0, 0, 30, 0, t), t);
+    d = tracker.update(own, neighbour(own, 400, 0, 0, 30, 0, t), t);
     CHECK(d.assessment.level == 2);
     CHECK(d.suppression == Suppression::None);
 
     for (int i = 0; i < 8; i++) {
         t += 1000;
-        d = tracker.update(own, 0, neighbour(own, 400, 0, 0, 30, 0, t), t);
+        d = tracker.update(own, neighbour(own, 400, 0, 0, 30, 0, t), t);
     }
     CHECK(d.suppression == Suppression::SteadyRange);
     CHECK(d.assessment.level == kSuppressedLevel);
 
     t += 1000;
-    d = tracker.update(own, 0, neighbour(own, 400, 0, 0, 30, 180, t), t);
+    d = tracker.update(own, neighbour(own, 400, 0, 0, 30, 180, t), t);
     CHECK(d.suppression == Suppression::None);
     CHECK(d.assessment.level == 3);
     CHECK(d.notify);

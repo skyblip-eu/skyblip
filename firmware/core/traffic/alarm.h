@@ -114,8 +114,8 @@ class AlarmTracker {
         bool escalated{false};
     };
 
-    Decision update(const messages::OwnState& own, int16_t own_turn_dps,
-                    const messages::AircraftObs& target, uint32_t now_ms);
+    Decision update(const messages::OwnState& own, const messages::AircraftObs& target,
+                    uint32_t now_ms);
 
     void forget_stale(uint32_t now_ms);
 

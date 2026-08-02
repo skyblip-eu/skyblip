@@ -11,7 +11,7 @@ void AlarmService::tick(uint32_t now_ms) {
             traffic::Target* t = context_.state.traffic.at(i);
             if (!t || !t->used) continue;
             const traffic::AlarmTracker::Decision d =
-                tracker_.update(context_.state.own, context_.state.turn_dps, t->obs, now_ms);
+                tracker_.update(context_.state.own, t->obs, now_ms);
             t->alarm_level = d.assessment.level;
             if (d.assessment.level > worst) worst = d.assessment.level;
             if (!d.notify) continue;

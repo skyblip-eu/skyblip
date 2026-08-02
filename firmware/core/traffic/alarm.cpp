@@ -1,5 +1,6 @@
 #include "core/traffic/alarm.h"
 
+#include "core/flight/turn.h"
 #include "core/protocol/nmea_out.h"
 #include "core/util/intmath.h"
 
@@ -14,9 +15,6 @@ constexpr int32_t kSpeedQPerMps = 4;
 // cordic9: 512 units of track for 65536 units of angle.
 constexpr int kTrackC9ToAngle = 7;
 constexpr int kTrackC9Mask = 0x1FF;
-constexpr int32_t kTrackC9Turn = 512;
-constexpr int32_t kDegPerTurnNum = 45;
-constexpr int32_t kDegPerTurnDen = 64;
 
 void velocity_ned(uint16_t speed_q, uint16_t track_c9, int32_t& north, int32_t& east) {
     const int16_t angle =
@@ -40,17 +38,6 @@ int32_t closing_from_vectors(const messages::OwnState& own, const messages::Airc
     int32_t closing = static_cast<int32_t>(-along / scale);
     if (!target.has_speed) closing += kUnknownTargetSpeedMps;
     return closing;
-}
-
-int16_t turn_rate_dps(uint16_t track_c9, uint16_t ref_track_c9, uint32_t dt_ms) {
-    const int32_t half = kTrackC9Turn / 2;
-    const int32_t diff =
-        ((static_cast<int32_t>(track_c9 & kTrackC9Mask) -
-          static_cast<int32_t>(ref_track_c9 & kTrackC9Mask) + kTrackC9Turn + half) %
-         kTrackC9Turn) -
-        half;
-    return static_cast<int16_t>((diff * kDegPerTurnNum * 1000) /
-                                (kDegPerTurnDen * static_cast<int32_t>(dt_ms)));
 }
 
 int32_t iabs32(int32_t v) { return v < 0 ? -v : v; }
@@ -86,7 +73,7 @@ AlarmAssessment assess(const messages::OwnState& own, const messages::AircraftOb
     return a;
 }
 
-AlarmTracker::Decision AlarmTracker::update(const messages::OwnState& own, int16_t own_turn_dps,
+AlarmTracker::Decision AlarmTracker::update(const messages::OwnState& own,
                                             const messages::AircraftObs& target, uint32_t now_ms) {
     Decision d{};
     d.assessment = assess(own, target);
@@ -109,7 +96,7 @@ AlarmTracker::Decision AlarmTracker::update(const messages::OwnState& own, int16
         slot->slow_since_ms = now_ms;
     }
 
-    if (co_circling(*slot, own_turn_dps, d.assessment))
+    if (co_circling(*slot, own.turn_dps, d.assessment))
         d.suppression = Suppression::CoCircling;
     else if (slot->slow_closure && now_ms - slot->slow_since_ms >= kSteadyClosureMs)
         d.suppression = Suppression::SteadyRange;
@@ -174,7 +161,7 @@ void AlarmTracker::sample_track(Slot& slot, uint16_t track_c9, uint32_t now_ms) 
     }
     const uint32_t dt = now_ms - slot.turn_ref_ms;
     if (dt < kTargetTurnWindowMs) return;
-    slot.turn_dps = turn_rate_dps(track_c9, slot.turn_ref_track_c9, dt);
+    slot.turn_dps = flight::turn_rate_dps(track_c9, slot.turn_ref_track_c9, dt);
     slot.turn_ref_ms = now_ms;
     slot.turn_ref_track_c9 = track_c9;
 }

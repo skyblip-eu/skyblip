@@ -29,7 +29,6 @@ struct State {
     uint32_t tx_ok{0};
     uint32_t tx_busy{0};
     uint32_t gnss_fixes{0};
-    int16_t turn_dps{0};
     uint32_t pressure_pa{0};
     // The altimeter subscale, as the pilot sets it: standard until told otherwise.
     uint32_t qnh_pa{flight::kIsaSeaLevelPa};
