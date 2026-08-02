@@ -11,6 +11,21 @@ Each action states the acceptance test that proves it. An action without a runna
 
 Legend: **P0** blocks the first flash, **P1** produces wrong data or a dead battery, **P2** is what a pilot notices in flight.
 
+## Status
+
+Every action below is done: A1-A8, B1-B4, C1-C3, D1-D5, E1-E2, F1-F5, in pull request 14. The host suite went from 251 cases to 407, CI is green on all four jobs including the Zephyr image and the native_sim adapters, and `docs/BEHAVIOR.md` names what each one claims.
+
+Two things were found while wiring it that were not on the list and were worse than most of it: nothing ever called `set_flight_state()`, so every companion-link command was refused on a real device forever, and nothing called `confirm()`, so the physical presence that stands in for BLE pairing had no input path. Both are fixed. A pending operation now goes on the panel, two presses inside 600 ms authorise it and one press refuses it.
+
+What the bench still owes, because no host test can settle it:
+
+- the radio probe reads PASS on the self-test page with the rails as `board.c` leaves them
+- a burst is on 868.2 and 868.4 at the phase the slot map says, on a spectrum analyser
+- the transmitted power is the 25 mW e.r.p. the driver programs, measured, with an antenna fitted
+- the L76K accepts the `$PCAS` sequence and reports 5 Hz, and its PPS-to-sentence latency is the 135 ms the part constant claims
+- the extrapolation residual stays small in flight, which is what it exists to tell us
+- a PPS-to-lock histogram, and current draw in every one of the four power states
+
 ---
 
 ## A. SX1262 bring-up (P0)
