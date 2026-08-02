@@ -29,8 +29,16 @@ class TEchoPlus {
                t_echo_plus::kEpdRst, t_echo_plus::kEpdBusy, t_echo_plus::kEpdBacklight),
           gnss_(platform.uart(io::BusId::Gnss)),
           rf_(radio_, platform.clock(), bus.rf),
-          capabilities_(platform.capabilities() | hal::Capability::Rf) {
+          capabilities_(platform.capabilities()) {
         platform_.wire(t_echo_plus::kPinMap);
+        // The radio is the one part on this board with no bus enumeration of its
+        // own, so presence is a register round-trip. Asserting it instead makes a
+        // dead MISO look like a healthy radio that never hears anything. It
+        // belongs here rather than in begin() because capabilities() has to be
+        // final before roles() is taken, and the round-trip needs nothing the
+        // rails have not already provided: DS 13.1.1 puts the part in STDBY_RC on
+        // reset, and a register write and read back run on that internal clock.
+        if (radio_.probe() == Status::Ok) capabilities_ = capabilities_ | hal::Capability::Rf;
     }
 
     // Probing is done: capabilities() is already known. This is bring-up, and a part that
@@ -40,6 +48,7 @@ class TEchoPlus {
         const Status s = platform_.begin();
         if (s != Status::Ok) return s;
         if (hal::has(capabilities_, hal::Capability::Display)) epd_.begin();
+        if (!hal::has(capabilities_, hal::Capability::Rf)) return Status::Ok;
         return rf_.begin();
     }
 
@@ -98,8 +107,14 @@ class TEchoPlus {
         if (button_.update(platform_.button_down(), now_ms))
             bus_.input.push(messages::ButtonEvent{0});
 
+        const uint64_t now_us = platform_.clock().micros();
         state.clock.pps_locked = platform_.pps().locked();
-        state.clock.ms_since_pps = platform_.pps().ms_since(platform_.clock().micros());
+        state.clock.ms_since_pps = platform_.pps().ms_since(now_us);
+        // The edge itself, not the phase it had when this pass started: whoever
+        // reads it later reads an instant that has not gone stale in the
+        // meantime. Rebuilt from ms_since() because that is the whole of the PPS
+        // surface both platforms share.
+        state.clock.pps_edge_us = now_us - static_cast<uint64_t>(state.clock.ms_since_pps) * 1000;
     }
 
     typename P::Rf& rf() { return rf_; }

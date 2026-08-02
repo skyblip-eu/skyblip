@@ -36,11 +36,19 @@ class Sx1262 {
     Sx1262(io::Spi& spi, io::Gpio& gpio, int busy_pin, int reset_pin, int dio1_pin)
         : spi_(spi), gpio_(gpio), busy_(busy_pin), reset_(reset_pin), dio1_(dio1_pin) {}
 
+    // Is there a radio on the other end of this bus at all? Answers only what a
+    // register round-trip can prove, and leaves the chip in standby.
+    Status probe();
+
     Status begin();
     Status configure_mband(const MbandConfig& cfg);
 
     Status transmit(const uint8_t* data, uint8_t len);
     Status start_receive();
+
+    // The lowest-power state the part has, and the way back out of it.
+    void sleep();
+    Status wake();
 
     // Instantaneous RSSI on the tuned channel, for listen-before-talk. Valid
     // only while the receiver is running (DS 13.5.2).
@@ -60,7 +68,10 @@ class Sx1262 {
     void cmd(uint8_t opcode, const uint8_t* params, size_t n);
     void cmd_read(uint8_t opcode, uint8_t* out, size_t n);
     void write_register(uint16_t addr, const uint8_t* data, size_t n);
+    void read_register(uint16_t addr, uint8_t* out, size_t n);
     void hold_reset_low();
+    Status reset_to_standby();
+    Status verify_link();
     Status enter_standby();
     void configure_modulation(const MbandConfig& cfg);
     void configure_power();
@@ -98,7 +109,18 @@ constexpr uint8_t kSetPaConfig = 0x95;
 constexpr uint8_t kSetTxParams = 0x8E;
 constexpr uint8_t kSetDioIrqParams = 0x08;
 constexpr uint8_t kWriteRegister = 0x0D;
+constexpr uint8_t kReadRegister = 0x1D;
+constexpr uint8_t kSetSleep = 0x84;
+// DS 13.1.2 sleepConfig: bit 0 is the RTC wake-up, bit 2 is warm start. Warm
+// start keeps the configuration in retention, so coming back is an NSS edge and
+// a standby rather than the whole bring-up; the RTC is off because the only
+// thing that wakes this device is the button.
+constexpr uint8_t kSleepWarmStartNoRtc = 0x04;
 constexpr uint16_t kSyncWordRegister = 0x06C0;  // DS 13.4.9, 8 bytes
+// Written and read back over the same register to prove the part answers. Two
+// bytes that are each other's complement: a MISO line stuck at either rail, or
+// tied to MOSI, gives back something else.
+constexpr uint8_t kLinkProbePattern[2] = {0xA5, 0x5A};
 constexpr uint8_t kWriteBuffer = 0x0E;
 constexpr uint8_t kReadBuffer = 0x1E;
 constexpr uint8_t kGetIrqStatus = 0x12;

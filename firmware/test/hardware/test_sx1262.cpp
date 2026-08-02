@@ -444,6 +444,42 @@ TEST_CASE("radio: SetTx carries a timeout past the frame's air time at the confi
     CHECK(timeout_us < air_us + 30000);
 }
 
+// A8. BUSY going low proves a rail and a pull-down, which an empty footprint
+// and an unsoldered MISO pad manage too. Only a value out of the part proves it.
+TEST_CASE("radio: presence is a register round-trip, and a dead MISO is an absent radio") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    CHECK(r.probe() == Status::Ok);
+    CHECK(r.begin() == Status::Ok);  // and leaves the part where bring-up wants it
+    for (uint8_t rail : {uint8_t{0x00}, uint8_t{0xFF}}) {
+        models::Sx1262 mute;  // BUSY still answers: the old check still passed
+        mute.miso_dead = true;
+        mute.miso_level = rail;
+        Sx1262 absent = make(mute);
+        CHECK(absent.probe() == Status::Down);
+        CHECK(absent.begin() == Status::Down);
+    }
+}
+
+// D4. The way off has to reach the part, not only the executor driving it.
+TEST_CASE("radio: sleep is a warm start with the RTC off, and an NSS edge brings it back") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    r.configure_mband(MbandConfig{});
+    r.start_receive();
+    r.sleep();
+    CHECK(r.mode() == RadioMode::Sleep);
+    // DS 13.1.2 sleepConfig: bit 0 is the RTC wake-up, bit 2 the warm start.
+    CHECK(chip.sleep_config == sx::kSleepWarmStartNoRtc);
+    CHECK((chip.sleep_config & 0x05) == 0x04);
+    CHECK(r.wake() == Status::Ok);
+    CHECK(r.start_receive() == Status::Ok);
+    CHECK(chip.receiving);
+    CHECK(r.wake() == Status::Ok);  // and nothing is owed by a radio that is awake
+    CHECK(chip.wakes == 1);
+}
+
 TEST_CASE("radio: a transmission that never completes is recovered to RX and counted") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);

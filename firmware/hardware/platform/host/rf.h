@@ -38,14 +38,15 @@ class Rf : public hal::Rf {
 
     void abort() override { armed_ = false; }
 
-    // The part model has no sleep state to enter, so this records the intent:
-    // what the shutdown path must prove is that it asked before the rails drop.
     void sleep() override {
         armed_ = false;
         sleeps_++;
+        radio_.sleep();
     }
 
     int sleeps() const { return sleeps_; }
+
+    hal::RfCarrier carrier() const override { return carrier_; }
 
     void service(uint32_t now_ms) {
         const uint64_t now_us = clock_.micros();
@@ -60,6 +61,7 @@ class Rf : public hal::Rf {
         // while the next plan was being armed is in the chip, not lost.
         if (started_ || radio_.mode() == parts::RadioMode::Rx) drain(now_us);
         if (armed_ && now_us >= plan_.end_us) {
+            sample_carrier();
             if (plan_.tx != nullptr && !completed_)
                 emit(transmitted_ ? messages::RfEventType::Missed : messages::RfEventType::TxBusy,
                      0, 0, now_us);
@@ -74,6 +76,7 @@ class Rf : public hal::Rf {
     void start() {
         started_ = true;
         armed_count_++;
+        radio_.wake();
         if (plan_.freq_hz != 0) {
             parts::MbandConfig cfg{};
             cfg.freq_hz = plan_.freq_hz;
@@ -91,13 +94,22 @@ class Rf : public hal::Rf {
         radio_.transmit(plan_.tx, plan_.tx_len);
     }
 
+    // One live level, reported and not judged. The average behind it and the
+    // threshold in front of it are core/timing/channel.h's.
+    int8_t sample_carrier() {
+        if (radio_.mode() != parts::RadioMode::Rx) return carrier_.dbm;
+        carrier_.dbm = radio_.rssi_inst();
+        carrier_.samples++;
+        return carrier_.dbm;
+    }
+
     // ADS-L 4 SRD-860 issue 2 §D.3 / §C.2: sample the carrier, and on a busy
     // channel wait a backoff interval before sampling again. Backing off never
     // stops the receiver, and the dwell's end is the only thing that gives up,
     // so a burst is never truncated on air.
     bool carrier_clear(uint64_t now_us) {
         if (now_us < next_carrier_sample_us_) return false;
-        if (radio_.rssi_inst() < plan_.lbt_threshold_dbm) return true;
+        if (sample_carrier() < plan_.lbt_threshold_dbm) return true;
         const uint32_t span = plan_.backoff_max_ms - plan_.backoff_min_ms + 1;
         backoff_seed_ = backoff_seed_ * 1664525u + 1013904223u;
         const uint32_t wait_ms = plan_.backoff_min_ms + (backoff_seed_ >> 16) % span;
@@ -146,6 +158,7 @@ class Rf : public hal::Rf {
     hal::Clock& clock_;
     bus::Queue<messages::RfEvent, 8>& out_;
     hal::RfPlan plan_{};
+    hal::RfCarrier carrier_{};
     uint64_t next_carrier_sample_us_{0};
     uint32_t backoff_seed_{0x5eed1262u};
     uint32_t last_ms_{0};

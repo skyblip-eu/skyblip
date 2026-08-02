@@ -44,7 +44,7 @@ Status Sx1262::enter_standby() {
     return Status::Ok;
 }
 
-Status Sx1262::begin() {
+Status Sx1262::reset_to_standby() {
     gpio_.mode_output(reset_);
     gpio_.mode_input(busy_, false);
     gpio_.mode_input(dio1_, false);
@@ -52,7 +52,32 @@ Status Sx1262::begin() {
     hold_reset_low();
     gpio_.set(reset_, true);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
-    if (enter_standby() != Status::Ok) return Status::Timeout;
+    return enter_standby();
+}
+
+// BUSY going low proves a pull-down and a power rail, which a radio that is not
+// fitted, not soldered on its MISO pad or held in reset also manages. Only a
+// value that came back out of the part proves the part.
+Status Sx1262::verify_link() {
+    write_register(sx::kSyncWordRegister, sx::kLinkProbePattern, sizeof(sx::kLinkProbePattern));
+    uint8_t back[sizeof(sx::kLinkProbePattern)] = {0};
+    read_register(sx::kSyncWordRegister, back, sizeof(back));
+    for (size_t i = 0; i < sizeof(back); i++)
+        if (back[i] != sx::kLinkProbePattern[i]) return Status::Down;
+    return Status::Ok;
+}
+
+Status Sx1262::probe() {
+    const Status s = reset_to_standby();
+    if (s != Status::Ok) return s;
+    return verify_link();
+}
+
+Status Sx1262::begin() {
+    const Status reset = reset_to_standby();
+    if (reset != Status::Ok) return reset;
+    const Status link = verify_link();
+    if (link != Status::Ok) return link;
 
     // T-Echo (Plus) hardware wiring: DIO2 is the RF/antenna switch and DIO3
     // powers the TCXO at 1.8 V. Without the TCXO control the radio has no clock
@@ -82,6 +107,20 @@ void Sx1262::write_register(uint16_t addr, const uint8_t* data, size_t n) {
                        static_cast<uint8_t>(addr)};
     spi_.transfer(head, nullptr, sizeof(head));
     spi_.transfer(data, nullptr, n);
+    spi_.select(false);
+}
+
+// DS 13.2.2 ReadRegister: opcode, address, one NOP the chip answers nothing to,
+// then the bytes.
+void Sx1262::read_register(uint16_t addr, uint8_t* out, size_t n) {
+    spi_.select(true);
+    uint8_t head[4] = {sx::kReadRegister, static_cast<uint8_t>(addr >> 8),
+                       static_cast<uint8_t>(addr), 0};
+    spi_.transfer(head, nullptr, sizeof(head));
+    for (size_t i = 0; i < n; i++) {
+        uint8_t tx = 0;
+        spi_.transfer(&tx, &out[i], 1);
+    }
     spi_.select(false);
 }
 
@@ -198,6 +237,24 @@ Status Sx1262::start_receive() {
     mode_ = RadioMode::Rx;
     ms_since_rx_ = 0;
     return Status::Ok;
+}
+
+// DS 9.3: warm start keeps the configuration in retention across sleep, so what
+// comes back is the radio that went to sleep and not a chip out of reset.
+void Sx1262::sleep() {
+    uint8_t config = sx::kSleepWarmStartNoRtc;
+    cmd(sx::kSetSleep, &config, 1);
+    mode_ = RadioMode::Sleep;
+}
+
+// DS 9.3: a falling edge on NSS is what wakes the part; it comes back in
+// STDBY_RC with everything the warm start retained.
+Status Sx1262::wake() {
+    if (mode_ != RadioMode::Sleep) return Status::Ok;
+    spi_.select(true);
+    spi_.select(false);
+    if (wait_busy_low() != Status::Ok) return Status::Timeout;
+    return enter_standby();
 }
 
 // DS 13.5.2: the chip reports -2x the signal level in dBm, one byte.

@@ -51,15 +51,24 @@ class Sx1262 : public io::Spi, public io::Gpio {
 
     void select(bool on) override {
         if (on) {
+            // DS 9.3: the falling edge on NSS is the wake-up. Whatever the host
+            // meant to send, the first thing it does is bring the part back.
+            if (sleeping) {
+                sleeping = false;
+                standby = true;
+                wakes++;
+            }
             seq_ = 0;
             opcode_ = 0xFF;
         }
     }
+    // A part that is not fitted, or whose MISO pad never got soldered, still
+    // lets the host clock bytes out and still lets BUSY be read low.
     void transfer(const uint8_t* tx, uint8_t* rx, size_t len) override {
         for (size_t i = 0; i < len; i++) {
             uint8_t in = tx ? tx[i] : 0;
             uint8_t out = process(in);
-            if (rx) rx[i] = out;
+            if (rx) rx[i] = miso_dead ? miso_level : out;
             seq_++;
         }
     }
@@ -137,6 +146,11 @@ class Sx1262 : public io::Spi, public io::Gpio {
 
     int busy_pin{0}, reset_pin{1}, dio1_pin{2};
     bool busy_stuck{false};
+    bool miso_dead{false};
+    uint8_t miso_level{0x00};
+    bool sleeping{false};
+    uint8_t sleep_config{0xFF};
+    uint32_t wakes{0};
     uint32_t freq_hz{0};
     bool receiving{false};
     bool tx_pending{false};
@@ -195,6 +209,7 @@ class Sx1262 : public io::Spi, public io::Gpio {
     // and the modem: everything the driver programmed is gone.
     void power_on_reset() {
         standby = true;
+        sleeping = false;
         tcxo_powered = calibrated = image_calibrated = false;
         modulation_set = pa_set = tx_power_set = false;
         irq_mask = dio1_mask = 0;
@@ -220,6 +235,11 @@ class Sx1262 : public io::Spi, public io::Gpio {
             if (standby_only(in) && !standby) note_fault(Fault::ConfigOutsideStandby);
             if (opcode_ == parts::sx::kClearIrqStatus) irq_flags = 0;
             if (opcode_ == parts::sx::kSetStandby) standby = true;
+            if (opcode_ == parts::sx::kSetSleep) {
+                sleeping = true;
+                standby = false;
+                receiving = false;
+            }
             if (opcode_ == parts::sx::kSetDio3AsTcxoCtrl) tcxo_powered = true;
             if (opcode_ == parts::sx::kCalibrate) calibrated = true;
             if (opcode_ == parts::sx::kCalibrateImage) {
@@ -242,12 +262,30 @@ class Sx1262 : public io::Spi, public io::Gpio {
                 }
             }
             if (opcode_ == parts::sx::kWriteBuffer) tx_buf_.clear();
-            if (opcode_ == parts::sx::kWriteRegister) reg_addr_ = 0;
+            if (opcode_ == parts::sx::kWriteRegister || opcode_ == parts::sx::kReadRegister)
+                reg_addr_ = 0;
             if (opcode_ == parts::sx::kSetRfFrequency) frf_ = 0;
             return 0;
         }
         if (opcode_ == parts::sx::kWriteBuffer && seq_ >= 2) {
             tx_buf_.push_back(in);
+            return 0;
+        }
+        if (opcode_ == parts::sx::kSetSleep) {
+            if (seq_ == 1) sleep_config = in;
+            return 0;
+        }
+        if (opcode_ == parts::sx::kReadRegister) {
+            if (seq_ <= 2) {
+                reg_addr_ = static_cast<uint16_t>((reg_addr_ << 8) | in);
+                if (seq_ == 2) reg_offset_ = 0;
+                return 0;
+            }
+            if (seq_ == 3) return 0;  // the NOP the chip answers nothing to
+            const uint16_t addr = static_cast<uint16_t>(reg_addr_ + reg_offset_++);
+            if (addr >= parts::sx::kSyncWordRegister &&
+                addr < parts::sx::kSyncWordRegister + sizeof(sync))
+                return sync[addr - parts::sx::kSyncWordRegister];
             return 0;
         }
         if (opcode_ == parts::sx::kWriteRegister) {

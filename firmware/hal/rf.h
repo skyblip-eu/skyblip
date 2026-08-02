@@ -41,6 +41,14 @@ struct RfPlan {
     uint32_t backoff_max_ms{250};
 };
 
+// What the executor measured on the tuned channel, and how many measurements it
+// has taken. Averaging them into a noise floor and turning that into a
+// threshold is policy (core/timing/channel.h): the executor only reports.
+struct RfCarrier {
+    int8_t dbm{0};
+    uint32_t samples{0};
+};
+
 class Rf {
    public:
     virtual ~Rf() = default;
@@ -49,11 +57,13 @@ class Rf {
     virtual Status arm(const RfPlan& plan) = 0;
     virtual void abort() = 0;
 
+    virtual RfCarrier carrier() const { return RfCarrier{}; }
+
     // Put the transceiver in its lowest-power state until the next begin().
     // Called on the way to SYSTEM OFF: the receiver is armed through most of
     // every second by design, so a radio left in RX is what flattens the pack.
     // Virtual-with-default, so an executor that has nothing to sleep stays
-    // valid; the SX1262 executor overrides it with SetSleep (0x84).
+    // valid; both SX1262 executors override it with SetSleep (0x84).
     virtual void sleep() {}
 };
 

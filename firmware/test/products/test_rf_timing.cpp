@@ -5,9 +5,11 @@
 #include <cstring>
 #include <string>
 
+#include "core/timing/channel.h"
 #include "core/timing/slot.h"
 #include "core/timing/transmit.h"
 #include "doctest/doctest.h"
+#include "products/skyblip_go/services/traffic.h"
 #include "simulator/simulator.h"
 
 using namespace skyblip;
@@ -31,6 +33,72 @@ int count_of(const simulator::Air& air, simulator::AirEvent want) {
         if (air.record(i).event == want) n++;
     return n;
 }
+
+// The radio policy and its executor with the board's job done by hand, so that
+// the two halves of a service pass - the instant the PPS phase is read off the
+// hardware, and the instant the policy uses it - can be pulled apart. On silicon
+// they are separated by however long the services ahead of the radio took.
+// Every part below the services is the real one: the driver, the chip model, the
+// executor and the service that turns radio events into counters.
+struct Pass {
+    platform::host::Platform platform{};
+    models::Sx1262& chip{platform.chips().radio};
+    parts::Sx1262 radio{chip, chip, chip.busy_pin, chip.reset_pin, chip.dio1_pin};
+    bus::Bus bus{};
+    bus::State state{};
+    platform::host::Rf rf{radio, platform.clock(), bus.rf};
+    runtime::NullRoles null{};
+    hal::Roles roles{platform.clock(), rf,       null.link,           null.display, null.kv,
+                     null.annunciator, null.dfu, hal::Capability::Rf, 0x0ABBCC};
+    runtime::Context context{roles, bus, state};
+    go::RadioService radio_service{context};
+    go::TrafficService traffic_service{context};
+
+    Status begin() {
+        const Status s = rf.begin();
+        if (s != Status::Ok) return s;
+        state.own.fix_valid = true;
+        state.own.utc_valid = true;
+        state.own.flight_state = 2;
+        state.clock.utc_valid = true;
+        return radio_service.setup();
+    }
+
+    // Exactly what boards/lilygo/t_echo_plus/board.h does at the top of a pass.
+    void poll_clock(uint64_t now_us) {
+        platform.clock().set_micros(now_us);
+        state.clock.pps_locked = platform.pps().locked();
+        state.clock.ms_since_pps = platform.pps().ms_since(now_us);
+        state.clock.pps_edge_us = now_us - static_cast<uint64_t>(state.clock.ms_since_pps) * 1000;
+    }
+
+    void whole_pass(uint64_t now_us) {
+        poll_clock(now_us);
+        services_at(now_us);
+    }
+
+    void services_at(uint64_t now_us) {
+        platform.clock().set_micros(now_us);
+        const uint32_t now_ms = static_cast<uint32_t>(now_us / 1000);
+        state.own.utc = now_ms / 1000;
+        state.own.fix_ms = now_ms;
+        rf.service(now_ms);
+        radio_service.tick(now_ms);
+        traffic_service.tick(now_ms);
+    }
+
+    // The executor between service passes: it runs on its own thread on silicon,
+    // so it sees time the service list does not.
+    void executor_until(uint64_t until_us, uint64_t step_us = 100) {
+        for (uint64_t t = platform.clock().micros() + step_us; t <= until_us; t += step_us) {
+            platform.clock().set_micros(t);
+            rf.service(static_cast<uint32_t>(t / 1000));
+            if (chip.tx_pending && first_tx_us == 0) first_tx_us = t;
+        }
+    }
+
+    uint64_t first_tx_us{0};
+};
 
 }  // namespace
 
@@ -125,6 +193,15 @@ TEST_CASE("rf: own-ship transmits once a second, inside its window, alternating 
     }
     CHECK(transmissions >= 4);
     CHECK(h.product().state().tx_ok == static_cast<uint32_t>(transmissions));
+
+    // E1 and E2, read off the service that spent them: the floor the carrier
+    // sense threshold is derived from, and every millisecond that went on air.
+    CHECK(h.product().radio().noise_floor().samples() > 0);
+    CHECK(h.product().radio().noise_floor().dbm() < timing::NoiseFloor::kSeedDbm);
+    CHECK(h.product().radio().transmitter().air_time().total_ms() ==
+          static_cast<uint32_t>(transmissions) * timing::Transmitter::kAirTimeMs);
+    CHECK(h.product().radio().duty_permille(6000) < timing::AirTime::kLimitPermille);
+    CHECK_FALSE(h.product().radio().over_budget());
 }
 
 TEST_CASE("rf: what own-ship put on air decodes back to own-ship state") {
@@ -225,4 +302,132 @@ TEST_CASE("rf: listen before talk holds a burst on a busy channel") {
     }
     CHECK(radio.mode() == parts::RadioMode::Tx);
     CHECK(chip.tx_pending);
+    // Two hundred milliseconds in Tx with no TxDone, and no firmware timer
+    // anywhere: see the case below for why that is the right answer.
+    CHECK(chip.tx_timeout_ticks != 0);
+}
+
+// A7, decided and written down: there is no second, firmware-side transmit
+// watchdog in the executor or in the driver's service, and there does not need
+// to be one. SetTx carries a timeout of air time plus 25 ms (DS 13.4.1), so the
+// hardware unkeys the PA on its own and no firmware timer can be faster; poll()
+// turns that into a counted recovery. A backstop could only run on the thread
+// that owns the radio, which is the same loop that already reads the IRQ, so it
+// would fire strictly after the chip does. The one gap it might have covered - a
+// burst issued so late that the dwell closes before the chip's timeout expires -
+// is closed by the next dwell, which is standby-bracketed (DS 13.1) and unkeys
+// the transmitter on its way to the new channel.
+TEST_CASE("rf: the SetTx timeout is the transmit watchdog, and the next dwell is the backstop") {
+    models::Sx1262 chip;
+    parts::Sx1262 radio(chip, chip, chip.busy_pin, chip.reset_pin, chip.dio1_pin);
+    REQUIRE(radio.begin() == Status::Ok);
+    parts::MbandConfig cfg{};
+    cfg.freq_hz = timing::kMband0Hz;
+    cfg.sync = protocol::kSharedSync;
+    cfg.sync_bits = protocol::kSharedSyncBits;
+    cfg.payload_bytes = protocol::kRxChipBytes;
+    REQUIRE(radio.configure_mband(cfg) == Status::Ok);
+    radio.start_receive();
+
+    uint8_t frame[protocol::kAdslFrameBytes] = {0};
+    REQUIRE(radio.transmit(frame, sizeof(frame)) == Status::Ok);
+    // The chip is holding a timer that expires well inside one 400 ms dwell.
+    const uint32_t timeout_ms = chip.tx_timeout_ticks * parts::sx::kTimeoutStepNs / 1000000u;
+    CHECK(timeout_ms > 0);
+    CHECK(timeout_ms < timing::kSlot0End - timing::kSlot0Start);
+
+    // And a TxDone that never came and a timeout nobody polled still leave the
+    // transmitter off before the next channel opens.
+    cfg.freq_hz = timing::kMband1Hz;
+    REQUIRE(radio.configure_mband(cfg) == Status::Ok);
+    CHECK(chip.standby);
+    CHECK_FALSE(chip.receiving);
+    CHECK(radio.mode() == parts::RadioMode::Standby);
+    CHECK(chip.fault == models::Sx1262::Fault::None);
+}
+
+// A8. Capability::Rf used to be ORed in unconditionally, and bring-up only
+// proved BUSY went low - which an empty footprint with a pull-down does too. A
+// radio that is not there then boots as a radio that is simply never hearing
+// anything, which is the hardest fault on this board to diagnose in the field.
+TEST_CASE("rf: a radio that will not answer over SPI is an absent capability, not a quiet one") {
+    platform::host::Platform fitted_platform;
+    go::Product<platform::host::Platform> fitted{fitted_platform};
+    CHECK(hal::has(fitted.capabilities(), hal::Capability::Rf));
+    CHECK(fitted.setup() == Status::Ok);
+    CHECK(fitted.flyable());
+
+    platform::host::Platform dead_platform;
+    dead_platform.chips().radio.miso_dead = true;
+    go::Product<platform::host::Platform> dead{dead_platform};
+    CHECK_FALSE(hal::has(dead.capabilities(), hal::Capability::Rf));
+    // The radio is required, so the loop refuses to fly - and the self-test page
+    // that names the part is painted before anything refuses.
+    CHECK(dead.setup() == Status::Down);
+    CHECK_FALSE(dead.flyable());
+    CHECK(hal::has(hal::missing(dead.capabilities(), go::kRequired), hal::Capability::Rf));
+}
+
+// B3. The phase used to be whatever the board sampled at the top of the pass,
+// combined with a clock read at the bottom of it. Everything the service list
+// does in between - parsing a GNSS burst, painting a panel - moved the transmit
+// instant that far late, on top of the 5 ms the jitter guard already allows for.
+TEST_CASE("rf: the transmit instant is measured from the latched edge, not from a stale phase") {
+    for (uint32_t lag_ms : {0u, 4u, 9u}) {
+        Pass pass;
+        REQUIRE(pass.begin() == Status::Ok);
+
+        // A real edge is not on a millisecond boundary either.
+        const uint64_t edge_us = 4000000;
+        pass.poll_clock(edge_us + 460450);
+        const uint64_t at_service_us = edge_us + 460450 + lag_ms * 1000;
+        const uint32_t now_ms = static_cast<uint32_t>(at_service_us / 1000);
+        pass.services_at(at_service_us);
+
+        const timing::SlotPlan plan = timing::Scheduler{}.plan(500, pass.state.clock);
+        const timing::Transmitter::Attempt wanted =
+            pass.radio_service.transmitter().attempt(plan, 4, now_ms, true, 0);
+        REQUIRE(wanted.go);
+        const uint64_t wanted_us = edge_us + static_cast<uint64_t>(wanted.at_ms) * 1000;
+
+        pass.executor_until(edge_us + 800000);
+        REQUIRE(pass.first_tx_us != 0);
+        const int64_t error_us =
+            static_cast<int64_t>(pass.first_tx_us) - static_cast<int64_t>(wanted_us);
+        CAPTURE(lag_ms);
+        CAPTURE(error_us);
+        CHECK(error_us >= 0);
+        CHECK(error_us < timing::kJitterGuardMs * 1000);
+        // And in fact inside the millisecond the PPS surface is quantised to,
+        // whatever the pass costs: the edge is an instant, not a phase.
+        CHECK(error_us < 1000);
+    }
+}
+
+// E1. A site where the carrier is never under a fixed -90 dBm used to be a
+// device that transmitted nothing and reported nothing about why.
+TEST_CASE("rf: a channel that is never clear is counted, and each refusal buys 3 dB") {
+    Pass pass;
+    REQUIRE(pass.begin() == Status::Ok);
+    // The threshold before anything has been measured is OGN's seed plus its
+    // margin, so a cold start on a quiet channel is not paralysed either.
+    CHECK(pass.radio_service.lbt_threshold_dbm() ==
+          timing::NoiseFloor::kSeedDbm + timing::NoiseFloor::kClearMarginDb);
+
+    pass.chip.rssi_dbm = -50;  // a neighbour sitting on the channel
+    // Short of D.3's forced transmission at 3000 ms, so nothing here is on air
+    // because the rules gave up on listening.
+    for (uint64_t t = 0; t <= 2900000; t += 10000) pass.whole_pass(t);
+
+    CHECK(pass.state.tx_ok == 0);
+    CHECK(pass.radio_service.gave_up_count() >= 2);
+    CHECK(pass.state.tx_busy == pass.radio_service.gave_up_count());
+    // The floor is a measurement now, and it has moved off the seed.
+    CHECK(pass.radio_service.noise_floor().samples() > 3);
+    CHECK(pass.radio_service.noise_floor().dbm() > timing::NoiseFloor::kSeedDbm);
+    // Floor plus margin plus 3 dB for every dwell that gave up.
+    const int expected =
+        pass.radio_service.noise_floor().dbm() + timing::NoiseFloor::kClearMarginDb +
+        static_cast<int>(pass.radio_service.gave_up_count()) * timing::NoiseFloor::kRetryStepDb;
+    CHECK(pass.radio_service.lbt_threshold_dbm() == expected);
 }

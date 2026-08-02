@@ -55,6 +55,18 @@ class Rf : public hal::Rf {
 
     void abort() override { abort_ = true; }
 
+    // The shutdown path runs on the service thread and the radio belongs to this
+    // one, so what crosses the boundary is a request: abort the dwell, wake the
+    // thread, and let it issue SetSleep itself. Nothing else may touch the SPI
+    // while a dwell is on it.
+    void sleep() override {
+        sleep_requested_ = true;
+        abort_ = true;
+        k_sem_give(&armed_);
+    }
+
+    hal::RfCarrier carrier() const override { return carrier_; }
+
     void service(uint32_t) {}
 
    private:
@@ -63,6 +75,11 @@ class Rf : public hal::Rf {
     void run() {
         for (;;) {
             k_sem_take(&armed_, K_FOREVER);
+            if (sleep_requested_) {
+                sleep_requested_ = false;
+                radio_.sleep();
+                continue;
+            }
             abort_ = false;
             const hal::RfPlan plan = plan_;
             sleep_until(plan.start_us);
@@ -81,6 +98,7 @@ class Rf : public hal::Rf {
     }
 
     void start(const hal::RfPlan& plan) {
+        radio_.wake();
         if (plan.freq_hz != 0) {
             parts::MbandConfig cfg{};
             cfg.freq_hz = plan.freq_hz;
@@ -99,6 +117,15 @@ class Rf : public hal::Rf {
         return static_cast<uint64_t>(plan.backoff_min_ms + (backoff_seed_ >> 16) % span) * 1000;
     }
 
+    // One live level, reported and not judged. The average behind it and the
+    // threshold in front of it are core/timing/channel.h's.
+    int8_t sample_carrier() {
+        if (radio_.mode() != parts::RadioMode::Rx) return carrier_.dbm;
+        carrier_.dbm = radio_.rssi_inst();
+        carrier_.samples++;
+        return carrier_.dbm;
+    }
+
     void dwell(const hal::RfPlan& plan) {
         bool completed = false;
         bool transmitted = false;
@@ -109,7 +136,7 @@ class Rf : public hal::Rf {
         while (!abort_ && clock_.micros() < plan.end_us) {
             const uint64_t now_us = clock_.micros();
             if (plan.tx != nullptr && !transmitted && now_us >= next_carrier_sample_us) {
-                if (!plan.lbt || radio_.rssi_inst() < plan.lbt_threshold_dbm) {
+                if (!plan.lbt || sample_carrier() < plan.lbt_threshold_dbm) {
                     transmitted = true;
                     radio_.transmit(plan.tx, plan.tx_len);
                 } else {
@@ -132,6 +159,7 @@ class Rf : public hal::Rf {
                 default: emit(messages::RfEventType::Missed); return;
             }
         }
+        sample_carrier();
         if (plan.tx != nullptr && !completed)
             emit(transmitted ? messages::RfEventType::Missed : messages::RfEventType::TxBusy);
     }
@@ -151,12 +179,14 @@ class Rf : public hal::Rf {
     hal::Clock& clock_;
     bus::Queue<messages::RfEvent, 8>& out_;
     hal::RfPlan plan_{};
+    hal::RfCarrier carrier_{};
     uint32_t backoff_seed_{0x5eed1262u};
     struct k_sem armed_{};
     struct k_thread thread_{};
     k_tid_t tid_{nullptr};
     K_KERNEL_STACK_MEMBER(stack_, kStackSize);
     volatile bool abort_{false};
+    volatile bool sleep_requested_{false};
 };
 
 }  // namespace skyblip::platform::zephyr
