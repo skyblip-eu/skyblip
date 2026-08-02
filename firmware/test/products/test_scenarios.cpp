@@ -152,3 +152,26 @@ TEST_CASE("scenario: an ALP-TAS target decodes to where it actually is") {
     }
     CHECK(found == 1);
 }
+
+// The fixture for the way this device gets switched off in the cockpit: three
+// gliders working the same thermal, co-altitude, a few hundred metres away, all
+// going the same way at the same speed. Adding both speeds together called that
+// 60 m/s of closure and held every one of them at "urgent" for as long as the
+// climb lasted. They are traffic - they belong on the screen, they must not be
+// an alarm - and the assertion is what the annunciator is allowed to say.
+TEST_CASE("scenario: a gaggle in one thermal is traffic, not three collisions") {
+    simulator::Simulator s;
+    REQUIRE(s.setup() == Status::Ok);
+    REQUIRE(s.load_file("scenarios/gaggle.json"));
+    replay(s);
+
+    CHECK(s.world().failures() == 0);
+    const traffic::TrafficTable& table = s.product().state().traffic;
+    CHECK(table.count() == 3);
+    CHECK(s.product().state().alarm_level <= traffic::kSuppressedLevel);
+    for (int i = 0; i < traffic::TrafficTable::kCapacity; i++) {
+        const traffic::Target* t = table.at(i);
+        if (t == nullptr || !t->used) continue;
+        CHECK(t->alarm_level <= traffic::kSuppressedLevel);
+    }
+}
