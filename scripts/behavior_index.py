@@ -58,7 +58,7 @@ def main():
         return 1
 
     os.makedirs(os.path.dirname(OUTPUT), exist_ok=True)
-    with open(OUTPUT, "w") as out:
+    with open(OUTPUT, "w", encoding="utf-8") as out:
         out.write(render(cases))
     report(f"{len(cases)} cases -> {os.path.relpath(OUTPUT, ROOT)}")
     return 0
@@ -70,7 +70,11 @@ def run_suite():
         sys.exit(1)
     # cwd is firmware/ because the scenario cases open scenarios/*.json by relative path.
     run = subprocess.run(
-        [TEST_BINARY, "--reporters=junit"], cwd=FIRMWARE, capture_output=True, text=True
+        [TEST_BINARY, "--reporters=junit"],
+        cwd=FIRMWARE,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
     if run.returncode != 0:
         report("the suite is failing, so its names are not documentation yet")
@@ -132,7 +136,7 @@ CASE_NOTE = re.compile(rf"^({COMMENT_BLOCK})TEST_CASE\(\s*\"((?:[^\"\\]|\\.)*)\"
 
 def read_prose(path):
     """The file's opening comment, and the comment heading each documented case."""
-    with open(os.path.join(FIRMWARE, path)) as source:
+    with open(os.path.join(FIRMWARE, path), encoding="utf-8") as source:
         text = source.read()
     intro = FILE_INTRO.match(text)
     notes = {
