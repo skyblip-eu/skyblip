@@ -37,6 +37,12 @@ jobs:
         run: make test
       - name: test-coverage structural gate
         run: python3 scripts/check_test_coverage.py
+      # docs/BEHAVIOR.md is the test names, so a rename that is not committed with
+      # the doc leaves the repo claiming behavior the suite no longer states.
+      - name: behavior index matches the suite
+        run: |
+          python3 scripts/behavior_index.py
+          git diff --exit-code docs/BEHAVIOR.md
 
   lint:
     name: clang-format
