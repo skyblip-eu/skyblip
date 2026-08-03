@@ -2,7 +2,22 @@
 
 Read against the tree at `830ebe9` (2026-08-02), and against two shipping implementations we keep as read-only clones: `oss/SoftRF-lyusupov` and `oss/SoftRF-moshe-braner` ("MB"). Their capability claims are read off their own READMEs and source, not measured by us.
 
-This is the **feature and product** half of the check. The bring-up half is `specs/first-flash-readiness.md`: SX1262 commands the chip needs, GNSS configuration, watchdog, low-battery action, LBT threshold, duty-cycle accounting. Nothing here restates it. An item that appears in both is named once, there, and referenced here.
+This is the **feature and product** half of the check. The bring-up half was `specs/first-flash-readiness.md`, closed in pull request 14 and deleted with the work; read it at `git show d190cc6^:specs/first-flash-readiness.md` when a reference below points at it. Nothing here restates it.
+
+## Status, 2026-08-03
+
+The host suite went 407 -> 508 cases closing this list. **G1, G2, G3 and G10 are closed in code. G4, G5, G6, G7, G8 and G9 are closed as far as software and documents reach, and each one now names the single bench or calendar act that finishes it.** Section 5 is answered in writing in `project/3-POSITIONS.md`, which is the authority for those four positions; this file keeps only the pointer.
+
+Six findings came out of closing it that were not on the list and matter more than parts of it:
+
+- **No FLARM-generation device receives ADS-L.** FLARM sells ADS-L as a paid transmit-only extension. Our ADS-L makes us visible to the newest ADS-L instruments and, through the OGN ground network, to SafeSky, SeeYou, SkyDemon and ForeFlight, and to nothing in a glider's own panel. `project/research/does-flarm-receive-adsl.md`, `project/research/who-receives-adsl.md`, position in `project/3-POSITIONS.md` section 0. This is the largest single fact about the product and it was not in this document.
+- **The buzzer was never released.** `AlarmService` silenced the annunciator only when the worst level reached zero, and the Zephyr annunciator's tone is continuous, so any traffic inside the 3 km info ring left a tone sounding for the rest of the climb. There was no cadence at all. Fixed in `core/annunciation/`, and it is a G4 item, not a cosmetic one.
+- **The carrier-sense ceiling was 0 dBm** where EN 300 220-2 V3.3.1 puts it near -79 dBm at 0 dBd, and the assessment was one instantaneous sample where the standard asks for 160 microseconds. Fixed, derived from the clauses, and the regulatory route we declare is the 1 percent duty cycle the firmware already enforces. `project/research/ce-red-compliance-path.md`.
+- **The tone sat below the transducer's resonance**, and the loudest level sat furthest from it. `project/research/alarm-audibility.md`.
+- **Nothing respected the negotiated BLE MTU.** The worst-case status frame is 192 bytes and an iOS central commonly settles at an ATT payload of 182, where a notification does not truncate, it fails.
+- **A settings write can now land inside a dwell**, because on-device editing is deliberately allowed in flight and the settings blob is on internal flash, whose write stalls the CPU that arms the radio's deadlines.
+
+The last two were found by integration and are being closed on their own branches.
 
 **Position, unchanged: ADS-L on the wire, ALP-TAS on the wire and on the output, simultaneously.** Every gap below is judged against that, not against "be SoftRF". A gap we choose not to close is recorded as deferred so review does not reopen it.
 
@@ -12,11 +27,13 @@ Verdicts: **gate** blocks the first public firmware, **decision** needs a writte
 
 ## What is actually in the tree today
 
-Air interface: ADS-L direct RX/TX and ADS-L uplink RX per SRD-860 Issue 2, plus the **ALP-TAS air-frame codec (FLARM-wire, 2024 protocol)** with `Feature::AlptasRx` enabled and a decrypt-plausibility gate ahead of the traffic table. Output: `$PFLAA`/`$PFLAU`/`$PGRMZ` over BLE. Alarm: three levels off straight-line closure. Power: divider read -> gauge -> status screen, two discharge curves. One product, `skyblip_go`, seven services on T-Echo Plus. Host suite 251 cases; the device image and the twister suite compile in CI only.
+Air interface: ADS-L direct RX/TX and ADS-L uplink RX per SRD-860 Issue 2, plus the **ALP-TAS air-frame codec (FLARM-wire, 2024 protocol)** with `Feature::AlptasRx` enabled and a decrypt-plausibility gate ahead of the traffic table. Output: `$PFLAA`/`$PFLAU`/`$PGRMZ` over BLE. Alarm: three levels off straight-line closure, each with its own annunciation rhythm. Power: divider read -> gauge -> status screen and companion link, two discharge curves. One product, `skyblip_go`, eight services on T-Echo Plus. Host suite 508 cases; the device image and the twister suite compile in CI only.
 
-That baseline moved twice in the last day. Re-read it before the review meeting rather than trusting this paragraph.
+Two claims this paragraph made on 2026-08-02 were already stale when it was written, and are corrected rather than deleted because they were each load-bearing for a gate: `settings.region` does not exist (it was deleted with its reader in pull request 14, and G3 is closed without it), and `ui/input/` is two headers, a debounced button and the authorising gesture, not one.
 
 ---
+
+The rows in sections 1 to 3 are the 2026-08-02 record of the tree and are left as written. Where a row and the gate table in section 7 disagree, the gate table is current.
 
 ## 1. Air interface
 
@@ -80,7 +97,12 @@ That baseline moved twice in the last day. Re-read it before the review meeting 
 
 ## 5. Decisions, each answered in writing before the check
 
-An answer of "not this year" is a valid answer. An unanswered row is a blocked review.
+**All four are answered, in `project/3-POSITIONS.md`, which is the authority for them. The summaries below are pointers, not the position.** An answer of "not this year" is a valid answer. An unanswered row is a blocked review.
+
+- **5.1 ALP-TAS transmit: receive only, and the code enforces it.** No licence, no freedom-to-operate opinion, and an exposure that is asymmetric at any volume we can reach. `Feature::AlptasTx` does not exist and the encoder is reachable from tests and the simulator alone. The trigger to revisit, in order of likelihood: FLARM ships ADS-L In and the gap closes without us; a written transmit licence; an authority requirement.
+- **5.2 FANET: receive in v1.1, transmit only on evidence.** The protocol is published, receiving is never a licensing question, and the population is drifting to ADS-L on its own. The decision to build it is gated on a measured dwell-loss budget.
+- **5.3 Alarm model: straight-line in v1, circling prediction in v1.1.** The limitation is two committed fixtures and three cases: silence through an 11 m crossing in a shared thermal, and a straight-line joiner still caught at 1486 m. MB's algorithm read and priced at 1.5 to 2 weeks.
+- **5.4 Telemetry: nothing leaves the device in v1.** Opt-in, off by default, post-flight aggregate in v1.1, with no identity, no track, no exact position and no exact time.
 
 ### 5.1 ALP-TAS transmit
 
@@ -111,18 +133,18 @@ We have BLE offload and a manage page. Collecting reception statistics from unit
 
 Green means a runnable check or a named document. Not an opinion in review.
 
-| Gate | Requirement | Evidence that closes it |
-|---|---|---|
-| **G1** | Battery state reaches the pilot's tablet, not just the panel | state of charge and charging flag in the companion link payload, host test through `core/comms` |
-| **G2** | A flight leaves a record | `FlightLog` service in the `skyblip_go` list, records surviving a power cut, offload over BLE, host test |
-| **G3** | A pilot with no phone can change region, aircraft type and alarm volume | settings screen over the existing button input, host test through the public entry point |
-| **G4** | The alarm is audible in a cockpit | measured dB at 1 m on the bench plus one in-aircraft note; if the single-pin drive fails it, the fix is in the BOM before launch |
-| **G5** | Regulatory file open | RED/EMC path chosen, duty-cycle and LBT evidence identified (firmware half: `first-flash-readiness.md` E1/E2), test house contacted. Calendar time: it starts now, it does not finish now |
-| **G6** | Slot timing proven on silicon | bench PPS-to-lock histogram from a real T-Echo Plus, twister suite green in CI |
-| **G7** | One enclosure, one mount | printable case committed, mount identified, a product photo that is not a taped dev board |
-| **G8** | 868 antenna specified | part chosen, gain and pattern stated, one measured range figure traced to `project/research/` before any public range claim |
-| **G9** | A stranger can flash and fly | one page: UF2 first flash, BLE config, what each alarm level means, what the device does not see |
-| **G10** | `first-flash-readiness.md` P0 and P1 closed | that document's own acceptance tests, green |
+| Gate | Requirement | Evidence that closes it | State |
+|---|---|---|---|
+| **G1** | Battery state reaches the pilot's tablet, not just the panel | state of charge and charging flag in the companion link payload, host test through `core/comms` | **closed.** `status` carries state of charge, validity, the charging flag and the published power level, and pushes unsolicited on a charging flip, a level change or a 5 percent step while a link is up |
+| **G2** | A flight leaves a record | `FlightLog` service in the `skyblip_go` list, records surviving a power cut, offload over BLE, host test | **closed.** 24-byte records on the reserved external `log_partition`, 48 flight hours per mebibyte, 62 hours before the ring wraps; a power cut costs the record being programmed and at most 4 seconds of flight; offload and erase over the link, erase behind the physical-presence prompt |
+| **G3** | A pilot with no phone can change region, aircraft type and alarm volume | settings screen over the existing button input, host test through the public entry point | **closed**, and region is not in it: the field was deleted with its reader and 868 EU is the only plan (row 2.12). Aircraft type, alarm on/off, volume, units, QNH and the page mask, on the one button, editable in flight on purpose |
+| **G4** | The alarm is audible in a cockpit | measured dB at 1 m on the bench plus one in-aircraft note; if the single-pin drive fails it, the fix is in the BOM before launch | **software done, bench owes the number.** Release and cadence fixed, tone moved onto the transducer's likely resonance, target derived (about 93 dB(A) at the ear in a glider, about 100 in a Cessna, ISO 7731), procedure and two BOM fallbacks in `project/research/alarm-audibility.md`. The fitted part could not be pinned from LilyGO's material |
+| **G5** | Regulatory file open | RED/EMC path chosen, duty-cycle and LBT evidence identified, test house contacted. Calendar time: it starts now, it does not finish now | **open by one email.** Route chosen (RED module B plus C, the 1 percent duty-cycle channel-access route), standards and their OJEU status listed, technical file as a checklist, calendar backwards from launch, and a ready-to-send enquiry drafted in `project/research/ce-red-compliance-path.md`. The firmware finding it produced is fixed |
+| **G6** | Slot timing proven on silicon | bench PPS-to-lock histogram from a real T-Echo Plus, twister suite green in CI | **instrument built, bench owes the run.** Two histograms and three counters in `core/timing/timing_stats.h`, readable over the link with `{"cmd":"timing"}`, thresholds and procedure in `project/research/pps-slot-timing-bench.md`. Twister covers the NVS adapter only: the PPS path needs a `gpio_emul` overlay nobody can verify without the SDK |
+| **G7** | One enclosure, one mount | printable case committed, mount identified, a product photo that is not a taped dev board | **decided, blocked on parts and a board in hand.** `project/research/enclosure-and-mount-go.md`: the supplied LilyGO case for a sub-fifty batch, a RAM suction mount, and the thermal and antenna constraints a case must not break. The photo needs a built unit |
+| **G8** | 868 antenna specified | part chosen, gain and pattern stated, one measured range figure traced to `project/research/` before any public range claim | **part chosen, range unmeasured.** `project/research/antenna-868-go.md`: ANT-868-CW-QW-SMA, 1.6 dBi, link budget 22 km peak-pattern and 8 to 10 km predicted in the field, with the measurement protocol and the sentence we may publish once it is done |
+| **G9** | A stranger can flash and fly | one page: UF2 first flash, BLE config, what each alarm level means, what the device does not see | **closed**, on the website in both languages (`content/pages/first-flight.*`). Every threshold on the page traces to a constant. The walk-up configuration page it would like to link to does not exist yet, and the page says so instead of inventing a URL |
+| **G10** | `first-flash-readiness.md` P0 and P1 closed | that document's own acceptance tests, green | **closed** in pull request 14, CI green on all four jobs. What only a bench can settle is listed in that document's own closing section |
 
 Non-gates, recorded so review does not reopen them: the MCU zoo, non-EU regions, UAT978, APRS, ham, MAVLink, Remote ID, SDR receivers, companion displays, strobes, voice, IMU, microSD, RTC, magnetometer, ID filters, relaying.
 
@@ -130,9 +152,14 @@ Non-gates, recorded so review does not reopen them: the MCU zoo, non-EU regions,
 
 ## 8. Order
 
-1. G10 — the bring-up list is the only thing between the host suite and a flown device.
-2. G1, G2, G3 — days each, and they are what a pilot notices missing.
-3. 5.1 in writing. It is the largest single question on this page and it is not engineering time.
-4. G5, G7, G8 started in parallel today: supplier and test-house calendars, not sprints.
-5. G6 the moment a board and an SDK are in the same room.
-6. G4 and G9 last, because both need a device that flies.
+The original order, kept as the record: G10 first, then G1/G2/G3, then 5.1 in writing, then G5/G7/G8 in parallel, G6 when a board and an SDK are in the same room, G4 and G9 last. That is what was done, in that order, on 2026-08-03.
+
+What is left, in the order it should be picked up:
+
+1. **Send the test-house enquiry** (`project/research/ce-red-compliance-path.md`, the drafted email). Calendar, not engineering, and it is the longest pole on the page.
+2. **Order the antenna and the mount** (`antenna-868-go.md`, `enclosure-and-mount-go.md`). Same reason.
+3. **Merge the two integration findings**: the BLE payload against the negotiated MTU, and the durable write that must not land inside a dwell. Both are launch blockers in the field and neither is visible from a host suite.
+4. **One bench day, in this order**: sleep and receive current (the power spec's A and B), the PPS histogram (`pps-slot-timing-bench.md`), the buzzer sweep and dB at 1 m (`alarm-audibility.md`), sector erase time on the fitted flash part. Every one of them has its acceptance number written down already.
+5. **One field day**: two units, the range protocol in `antenna-868-go.md`, and the first public range figure.
+6. **`specs/2026-08-03_power-and-field-robustness.md`**, whose P0 items (the rails that are never dropped, both regulators on their LDO) are cheaper than anything left on this page and cost more battery than anything on it.
+7. **v1.1, in this order**: the false urgent at 130 m in a gaggle, then circling prediction and the wind estimate, then FANET receive, then the opt-in telemetry aggregate.
