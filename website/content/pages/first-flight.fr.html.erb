@@ -1,0 +1,226 @@
+---
+title: Flasher, configurer, voler
+nav_title: Premier vol
+slug: premier-vol
+description: "Le premier flashage en UF2, ce qu'un téléphone peut modifier en Bluetooth, ce que fait chacun des trois niveaux d'alarme — et, parce que c'est ce qui compte le plus, ce qu'un skyBlip Go ne voit pas."
+---
+
+<section>
+  <h2 class="kicker">Premier vol</h2>
+  <h3>Flasher, configurer, voler.</h3>
+  <p class="lede">
+    Un skyBlip Go ne demande rien d&rsquo;autre à installer que le firmware
+    lui-même&nbsp;: on glisse un fichier sur l&rsquo;appareil, puis on lui
+    parle en Bluetooth. Cette page couvre l&rsquo;ensemble &mdash; le premier
+    flashage, les réglages qu&rsquo;un téléphone peut modifier, ce que font
+    vraiment les trois niveaux d&rsquo;alarme &mdash; et se termine par ce
+    dont un inconnu qui pilote ceci pour la première fois a le plus
+    besoin&nbsp;: ce que l&rsquo;appareil ne voit pas.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">Le premier flashage</h2>
+  <h3>Double-clic, glisser, déposer.</h3>
+  <p>
+    Le LilyGO T-Echo Plus sur lequel tourne skyBlip Go est livré avec un
+    bootloader d&rsquo;usine déjà installé, le même que celui qu&rsquo;utilisent
+    le firmware LilyGO lui-même et des projets comme SoftRF ou Meshtastic. On
+    n&rsquo;y touche jamais, dans aucun sens&nbsp;: installer skyBlip
+    n&rsquo;empêche pas de remettre un autre firmware sur du matériel qui vous
+    appartient.
+  </p>
+  <ol>
+    <li>
+      Brancher l&rsquo;appareil en USB-C, puis double-cliquer sur son
+      bouton RESET en moins d&rsquo;une demi-seconde.
+    </li>
+    <li>
+      Un disque nommé <span class="mono">TECHOBOOT</span> apparaît sur
+      l&rsquo;ordinateur. C&rsquo;est le bootloader lui-même qui répond,
+      indépendamment du firmware présent sur l&rsquo;appareil &mdash; même
+      cassé ou à moitié écrit.
+    </li>
+    <li>
+      Glisser le fichier <span class="mono">.uf2</span> sur ce disque, et
+      attendre la fin de la copie. L&rsquo;appareil redémarre seul, sur le
+      nouveau firmware.
+    </li>
+  </ol>
+  <p>
+    Chaque <span class="mono">.uf2</span> que nous publions est construit
+    pour tenir entièrement dans la zone que le bootloader réserve à une
+    application, si bien qu&rsquo;un fichier correctement construit ne peut
+    pas atterrir sur le bootloader lui-même. Le seul fichier à éviter est un
+    <em>remplacement de bootloader</em> pour cette carte, parfois partagé aux
+    côtés d&rsquo;autres firmwares T-Echo sous un nom comme
+    <span class="mono">nosd.uf2</span>&nbsp;: en déposer un supprime le chemin
+    glisser-déposer dont dépend cette page, sans retour possible sans un
+    programmateur matériel. Rien de ce que skyBlip publie n&rsquo;est ce
+    fichier.
+  </p>
+  <p class="note">
+    Le même double-clic fonctionne toujours, quel que soit l&rsquo;état du
+    firmware installé&nbsp;: c&rsquo;est la seule voie de secours qui ne
+    demande ni liaison Bluetooth fonctionnelle, ni charge dans l&rsquo;appareil
+    au-delà de ce que fournit l&rsquo;USB.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">Les réglages, en Bluetooth</h2>
+  <h3>Ce qu&rsquo;un téléphone peut changer, et ce qu&rsquo;il faut pour que ça tienne.</h3>
+  <p>
+    Une fois flashé, un skyBlip Go propose un service Bluetooth Low Energy à
+    deux fonctions. L&rsquo;une diffuse le trafic en direct sous forme de
+    trames NMEA au format FLARM, ce que lisent déjà SDVFR Next, SkyDemon,
+    ForeFlight et les applications comparables. L&rsquo;autre lit et écrit
+    les réglages de l&rsquo;appareil sous forme de petits messages
+    JSON&nbsp;: un téléphone peut lire la configuration en cours, ou en
+    proposer une nouvelle.
+  </p>
+  <p>Ce qu&rsquo;un téléphone peut changer&nbsp;:</p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>Réglage</th><th>Ce que ça fait</th></tr>
+      </thead>
+      <tbody>
+        <tr><th>Adresse</th><td>auto-attribuée, ou une adresse délivrée ICAO, FLARM ou OGN</td></tr>
+        <tr><th>Catégorie d&rsquo;aéronef</th><td>le type ADS-L sous lequel l&rsquo;appareil émet</td></tr>
+        <tr><th>Alarme</th><td>activée ou non, et un volume de 0 à 5</td></tr>
+        <tr><th>Furtif</th><td>émission anonyme, taux vertical non transmis</td></tr>
+        <tr><th>Unités</th><td>métrique ou impérial, sur les pages d&rsquo;instruments</td></tr>
+        <tr><th>Masque de pages</th><td>quelles pages d&rsquo;instruments l&rsquo;écran fait défiler</td></tr>
+        <tr><th>Indicatif</th><td>affiché sur l&rsquo;appareil et transmis sur la liaison &mdash; l&rsquo;ADS-L lui-même ne porte aucun champ d&rsquo;indicatif, donc il n&rsquo;est jamais émis sur les ondes</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Rien ne prend effet depuis un téléphone seul. Chaque changement &mdash; un
+    nouveau volume d&rsquo;alarme comme une mise à jour de firmware &mdash;
+    est refusé purement et simplement en vol. Au sol, il est mis en attente
+    comme une invite qui attend un geste sur l&rsquo;appareil lui-même&nbsp;:
+    appuyer deux fois sur le bouton en moins de 600&nbsp;ms pour confirmer,
+    une seule fois pour refuser, et une invite à laquelle personne ne répond
+    s&rsquo;annule d&rsquo;elle-même après 30&nbsp;secondes. Perdre la liaison
+    Bluetooth l&rsquo;annule aussi. L&rsquo;appairage Bluetooth est
+    volontairement désactivé sur cet appareil (des réglages chiffrés cassent
+    le Web Bluetooth sur certaines plateformes)&nbsp;: ce geste physique en
+    tient lieu &mdash; rien de sensible ne se produit parce qu&rsquo;un
+    téléphone à portée l&rsquo;a demandé.
+  </p>
+  <p>
+    Une mise à jour de firmware passe par le même geste, deux fois&nbsp;: une
+    première pour ouvrir une fenêtre de dix minutes pour la nouvelle image,
+    une seconde pour confirmer le redémarrage qui l&rsquo;installe. Décoller
+    referme immédiatement une fenêtre ouverte et annule toute invite en
+    attente.
+  </p>
+  <p class="note">
+    Y accéder aujourd&rsquo;hui suppose un outil Bluetooth capable
+    d&rsquo;écrire sur une caractéristique GATT personnalisée &mdash; le
+    service reprend le même bloc d&rsquo;UUID que le service UART propre à
+    Nordic, donc plusieurs outils existent déjà. Une page d&rsquo;accès direct
+    sur skyblip.eu qui parlerait ce protocole pour vous n&rsquo;est pas encore
+    construite.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">L&rsquo;alarme</h2>
+  <h3>Trois niveaux, et ce que fait vraiment chacun.</h3>
+  <p>
+    Une alarme a besoin de deux choses pour se déclencher&nbsp;: un autre
+    aéronef qui émet quelque chose que cet appareil reçoit, et un écart
+    d&rsquo;altitude de moins de 300&nbsp;m. Au-delà, au-dessus ou
+    au-dessous, le trafic reste affiché sur l&rsquo;écran radar, quelle que
+    soit la distance &mdash; il n&rsquo;est jamais alarmé.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>Niveau</th><th>Se déclenche quand</th><th>Buzzer</th><th>Vibration</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>1 &middot; Info</th>
+          <td>à moins de 3&nbsp;km</td>
+          <td>une tonalité</td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <th>2 &middot; Important</th>
+          <td>ne s&rsquo;éloigne pas, et à moins de 1,5&nbsp;km ou moins de 25&nbsp;s du rapprochement maximal</td>
+          <td>tonalité, plus aiguë</td>
+          <td>200&nbsp;ms, au moment où ça s&rsquo;aggrave</td>
+        </tr>
+        <tr>
+          <th>3 &middot; Urgent</th>
+          <td>se rapproche réellement, et à moins de 500&nbsp;m ou moins de 15&nbsp;s du rapprochement maximal</td>
+          <td>la tonalité se répète toutes les 2&nbsp;s tant que ça reste urgent</td>
+          <td>600&nbsp;ms, à chaque aggravation</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    «&nbsp;Se rapproche réellement&nbsp;» exclut le bruit du GNSS&nbsp;: une
+    cible doit combler l&rsquo;écart à plus de 2&nbsp;m/s environ (4&nbsp;kt
+    environ) avant que son rapprochement ne compte pour quoi que ce soit, et
+    une cible qui cesse de se rapprocher pendant six secondes de suite est
+    retenue à Info, quelle que soit la proximité déjà atteinte. «&nbsp;Ne
+    s&rsquo;éloigne pas&nbsp;» exclut le trafic qui s&rsquo;éloigne, quelle
+    que soit la distance. Et deux aéronefs qui virent dans le même sens à la
+    même vitesse, à moins de 1&nbsp;km et 100&nbsp;m l&rsquo;un de
+    l&rsquo;autre &mdash; plusieurs planeurs qui tournent ensemble dans le
+    même thermique &mdash; sont eux aussi retenus à Info, volontairement&nbsp;:
+    cette géométrie produit une douzaine de fausses alertes urgentes par
+    heure si on ne le fait pas.
+  </p>
+  <p class="note">
+    C&rsquo;est une géométrie en ligne droite, calculée à partir de la route
+    et de la vitesse actuelles de chaque aéronef, réévaluée chaque seconde.
+    Elle n&rsquo;a aucun modèle de l&rsquo;endroit où se trouvera un aéronef
+    en virage dans dix secondes, seulement de l&rsquo;endroit où il est
+    maintenant.
+  </p>
+</section>
+
+<section class="pledge">
+  <h2 class="kicker">Ce que cet appareil ne voit pas</h2>
+  <h3>Il ne voit que ce qui émet déjà quelque chose qu&rsquo;il peut recevoir.</h3>
+  <p>
+    Un skyBlip Go reçoit l&rsquo;ADS-L directement, reçoit directement le
+    trafic de génération FLARM, et &mdash; seulement à portée d&rsquo;une
+    station sol skyPost &mdash; le trafic ADS-B que cette station relaie en
+    ADS-L. C&rsquo;est toute la liste. Il ne reçoit ni l&rsquo;OGNTP, ni le
+    FANET ou le FANET+, ni le P3I de PilotAware, ni l&rsquo;UAT&nbsp;978, ni
+    l&rsquo;ADS-B 1090&nbsp;MHz sur sa propre radio&nbsp;: un avion de ligne
+    ou un avion de voyage qui émet en ADS-B est invisible pour un Go hors
+    couverture skyPost, exactement comme un parapente en FANET seul lui est
+    invisible partout.
+  </p>
+  <p>
+    Et sous chacun de ces protocoles se trouve le cas qui compte le
+    plus&nbsp;: un aéronef qui ne porte qu&rsquo;un transpondeur, ou qui ne
+    porte rien du tout, n&rsquo;émet rien que cet équipement, ni aucun autre
+    de ce genre, puisse recevoir, et lui reste invisible, purement et
+    simplement. Un écran d&rsquo;alarme vide n&rsquo;est pas un ciel vide.
+    Cet appareil relève du
+    <%= link_to_page "see-and-avoid", label: "voir et éviter", class: "cta" %>,
+    la seconde paire d&rsquo;yeux décrite sur cette page, et ne remplace pas
+    la vigilance visuelle que la réglementation impose déjà au pilote.
+  </p>
+  <p>
+    <%= link_to_page "safety", class: "cta cta--next" %>
+  </p>
+</section>
+
+<section>
+  <p>
+    <%= link_to_page "devices", class: "cta cta--previous" %>
+    &nbsp;&middot;&nbsp;
+    <%= link_to_page "index", label: "skyBlip", class: "cta" %>
+  </p>
+</section>
