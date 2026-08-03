@@ -43,6 +43,17 @@ Transmitter::Attempt Transmitter::attempt(const SlotPlan& plan, uint32_t utc, ui
     const int slot = next_slot();
     if (Scheduler::slot_of(plan.start_ms) != slot) return a;
 
+    // EN 300 220-2 band h1.4 is 1% of any hour. Listen before talk plus backoff
+    // is what makes us polite, and the budget is what makes us provable: at the
+    // design rate of one 5 ms burst per second we sit at half the allowance, so
+    // an empty budget is a fault, and a faulted transmitter that will not stop
+    // is worse for everyone on the band than a quiet one. It blocks, and the
+    // forced transmission of §D.3 does not get an exemption from it.
+    if (!air_.may_spend(now_ms, kAirTimeMs)) {
+        a.over_budget = true;
+        return a;
+    }
+
     a.go = true;
     a.at_ms = instant_in(slot, utc);
     a.freq_hz = Scheduler::slot_freq(slot);
@@ -52,6 +63,7 @@ Transmitter::Attempt Transmitter::attempt(const SlotPlan& plan, uint32_t utc, ui
 
 void Transmitter::sent(uint32_t utc, uint32_t now_ms, bool forced) {
     sent_++;
+    air_.spend(now_ms, kAirTimeMs);
     ever_sent_ = true;
     last_sent_utc_ = utc;
     last_sent_ms_ = now_ms;

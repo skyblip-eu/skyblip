@@ -1,6 +1,7 @@
 #ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_ALARM_H
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_ALARM_H
 
+#include "core/traffic/alarm.h"
 #include "runtime/service.h"
 
 namespace skyblip::go {
@@ -23,7 +24,9 @@ class AlarmService : public runtime::Service {
     static constexpr uint16_t kVibroImportantMs = 200;
     static constexpr uint16_t kVibroUrgentMs = 600;
 
+    traffic::AlarmTracker tracker_{};
     bool dirty_{false};
+    bool sounding_{false};
 };
 
 }  // namespace skyblip::go

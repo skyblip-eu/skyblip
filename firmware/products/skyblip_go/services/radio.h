@@ -3,6 +3,7 @@
 
 #include "core/protocol/adsl_uplink.h"
 #include "core/protocol/air.h"
+#include "core/timing/channel.h"
 #include "core/timing/slot.h"
 #include "core/timing/transmit.h"
 #include "runtime/service.h"
@@ -24,6 +25,17 @@ class RadioService : public runtime::Service {
     uint32_t arm_count() const { return arm_count_; }
     const timing::Transmitter& transmitter() const { return transmitter_; }
 
+    // What the air discipline looks like from outside: the measured floor, the
+    // threshold the next dwell will carry, how many dwells gave up without
+    // getting a word in, and how much of the hour's allowance is spent.
+    const timing::NoiseFloor& noise_floor() const { return noise_; }
+    int8_t lbt_threshold_dbm() const { return noise_.threshold_dbm(lbt_retry_); }
+    uint32_t gave_up_count() const { return transmitter_.busy_count(); }
+    uint32_t duty_permille(uint32_t now_ms) const {
+        return transmitter_.air_time().permille(now_ms);
+    }
+    bool over_budget() const { return over_budget_; }
+
    private:
     static constexpr uint8_t kFlightStateAirborne = 2;
 
@@ -34,15 +46,19 @@ class RadioService : public runtime::Service {
     // slot started in.
     uint64_t dwell_epoch_us(uint32_t now_ms) const;
     uint32_t slot_utc(uint32_t now_ms) const;
+    protocol::BurstInstant burst_instant(const timing::Transmitter::Attempt& attempt,
+                                         uint64_t tx_at_us, uint32_t now_ms) const;
     static hal::RfMode mode_for(const timing::SlotPlan& plan);
     static void listen_for(timing::Band band, hal::RfPlan& plan);
     timing::Transmitter::Attempt attempt(const timing::SlotPlan& plan, uint32_t now_ms) const;
     bool transmit_due(const timing::SlotPlan& plan, uint32_t now_ms) const;
     void arm_dwell(const timing::SlotPlan& plan, uint32_t now_ms);
     void collect_outcome(uint32_t now_ms);
+    void take_carrier_samples();
 
     timing::Scheduler scheduler_{};
     timing::Transmitter transmitter_{};
+    timing::NoiseFloor noise_{};
     protocol::AdslPacket outgoing_{};
     uint8_t outgoing_chips_[protocol::kTxChipBytes]{};
     hal::RfMode armed_{hal::RfMode::Idle};
@@ -52,8 +68,11 @@ class RadioService : public runtime::Service {
     uint32_t tx_utc_{0};
     uint32_t seen_tx_ok_{0};
     uint32_t seen_tx_busy_{0};
+    uint32_t seen_carrier_samples_{0};
+    uint8_t lbt_retry_{0};
     bool tx_armed_{false};
     bool tx_forced_{false};
+    bool over_budget_{false};
 };
 
 }  // namespace skyblip::go

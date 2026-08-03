@@ -50,9 +50,15 @@ TEST_CASE("scenario: GNSS -> own, direct ADS-L RX over BER channel -> alarm -> N
                       "$GPGGA,120000,4807.000,N,00800.000,E,1,09,0.8,1000.0,M,47,M,,*6F");
     REQUIRE(own.fix_valid);
 
-    // 2) an intruder ~800 m north, co-altitude, approaching
+    // 2) an intruder ~800 m north, co-altitude, head-on. Own-ship is tracking
+    //    north at 50 kt; the intruder tracks south at the same speed, so the two
+    //    close at about 51 m/s and meet in under the urgent time to impact. It
+    //    used to be a copy of own-ship displaced north, which is a chase at a
+    //    constant 800 m and alarms for the range alone - the assertion below
+    //    says which of the two this fixture means.
     messages::OwnState intruder_state = own;
     intruder_state.lat_1e7 = own.lat_1e7 + static_cast<int32_t>((int64_t)800 * 1000000 / 11132);
+    intruder_state.track_c9 = 256;  // cordic9: 512 to the turn, so due south
     intruder_state.utc = own.utc;
     protocol::AdslPacket tx;
     protocol::from_own(tx, intruder_state, 0xC5D804, /*table=*/6, /*cat=*/4, /*stealth=*/false);
@@ -85,10 +91,27 @@ TEST_CASE("scenario: GNSS -> own, direct ADS-L RX over BER channel -> alarm -> N
     REQUIRE(idx >= 0);
     CHECK(table.count() == 1);
 
-    // 5) alarm
+    // 5) alarm: the closure comes off the relative velocity vector, so a level 3
+    //    here is the geometry saying so and not the range gate it used to be.
     traffic::AlarmAssessment a = traffic::assess(own, obs);
     CHECK(a.valid);
-    CHECK(a.level >= 2);  // ~800 m closing head-on -> important/urgent
+    CHECK(a.rel_dist_m > 700);
+    CHECK(a.rel_dist_m < 900);
+    CHECK(a.closing_mps > 40);
+    CHECK(a.level == 3);
+
+    // The same aircraft in the same place, flying the way we are: nothing is
+    // arriving, and the proximity ring still draws it because 800 m abeam is
+    // worth knowing about. That is a level 2, and it is not an alarm. assess()
+    // has no memory and cannot say more than that; six seconds of a range that
+    // does not move is what quietens it, and that decision belongs to
+    // AlarmTracker's SteadyRange suppression, which is what the product runs.
+    messages::AircraftObs chase = obs;
+    chase.track_c9 = own.track_c9;
+    const traffic::AlarmAssessment following = traffic::assess(own, chase);
+    CHECK(following.closing_mps < traffic::kClosingFloorMps);
+    CHECK(following.level == 2);
+
     table.at(idx)->alarm_level = a.level;
 
     // 6) NMEA out to the EFB link

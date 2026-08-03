@@ -63,6 +63,11 @@ struct ClockState {
     bool utc_valid{false};
     bool pps_locked{false};
     uint32_t ms_since_pps{0};
+    // The latched edge itself, on the same clock hal::Rf deadlines are armed
+    // against. A phase sampled once per service pass is stale by however long
+    // that pass takes; an absolute instant is not, so the phase is derived from
+    // this at the point of use and the slot map keeps its 5 ms guard.
+    uint64_t pps_edge_us{0};
 };
 
 struct SlotPlan {

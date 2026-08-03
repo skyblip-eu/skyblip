@@ -1,6 +1,9 @@
 #ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_OWNSHIP_H
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_OWNSHIP_H
 
+#include "core/flight/extrapolate.h"
+#include "core/flight/state.h"
+#include "core/gnss/first_fix.h"
 #include "runtime/service.h"
 
 namespace skyblip::go {
@@ -15,19 +18,25 @@ class OwnshipService : public runtime::Service {
 
     bool baro_active() const { return baro_ref_ms_ != 0; }
 
-    static uint8_t flight_state_from(uint16_t speed_q, uint8_t current, bool fix_valid);
+    // ADS-L G.1.4 FlightState, decided by core/flight from the fix stream.
+    uint8_t flight_state_from(const messages::OwnState& own, uint32_t now_ms);
+
+    // The one copy of "has the receiver settled": the transmit gate reads it
+    // through state.own.tx_settled, and whoever annunciates the first fix takes
+    // the edge from here rather than keeping a second watch of its own.
+    const gnss::FirstFix& first_fix() const { return settle_; }
+    bool take_fix_acquired() { return settle_.take_acquired(); }
 
    private:
-    // Quarter metres per second: airborne above 5 m/s, on the ground below 3.
-    static constexpr uint16_t kAirborneSpeedQ = 20;
-    static constexpr uint16_t kGroundSpeedQ = 12;
-
     void apply_fix(const gnss::GnssFix& fix, uint32_t now_ms);
     void apply_baro(const messages::BaroSample& sample);
     void update_turn_rate(uint32_t now_ms);
+    void update_residual(const messages::OwnState& previous);
     bool vs_from_alt_cm(int32_t alt_cm, uint32_t now_ms, uint32_t window_ms, int32_t& ref_alt_cm,
                         uint32_t& ref_ms, int16_t& out_e8) const;
 
+    flight::FlightMonitor flight_{};
+    gnss::FirstFix settle_{};
     int32_t vs_ref_alt_cm_{0};
     uint32_t vs_ref_ms_{0};
     int32_t baro_ref_alt_cm_{0};

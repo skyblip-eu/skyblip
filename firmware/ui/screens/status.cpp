@@ -128,7 +128,10 @@ void battery_row(Framebuffer& fb, int y, const StatusSnapshot& s) {
     n = fmt_uint(percent, s.battery_percent, 1);
     percent[n] = 0;
 
-    text_row(fb, y, "BAT", volts, " V", percent, s.charging ? " % CHG" : " %");
+    // A cell on the cable is not low whatever it reads, so the charger wins the
+    // marker. Off it, the warning is the whole reason this row is on the page.
+    const char* mark = s.charging ? " % CHG" : (s.battery_low ? " % LOW" : " %");
+    text_row(fb, y, "BAT", volts, " V", percent, mark);
 }
 }  // namespace
 
@@ -137,11 +140,13 @@ void draw_status(Framebuffer& fb, const StatusSnapshot& s) {
 
     char buf[32];
 
-    // Header: device address (the ADS-L identity) + fix state.
+    // Header: device address (the ADS-L identity) + the name the pilot gave it.
     int n = fmt_string(buf, "ID ");
     n += fmt_hex(buf + n, s.device_addr, 6);
     buf[n] = 0;
     fb.draw_text(kLeft, 3, buf, true, 2);
+    if (s.callsign != nullptr && s.callsign[0] != 0)
+        right_aligned(fb, Framebuffer::kW - kLeft, 8, s.callsign, length(s.callsign));
     fb.hline(kLeft, 21, Framebuffer::kW - 2 * kLeft, true);
 
     // Everything that is one free-form string first, then the block where every

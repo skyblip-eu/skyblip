@@ -204,6 +204,26 @@ TEST_CASE("status: the battery row states the voltage, the charge and which curv
     draw_status(no_sensor, absent);
     CHECK(no_sensor.count_black() != resting.count_black());
 
+    // The cutoff monitor's warning, on the page: a cell at 3.45 V is low and
+    // says so, and the same cell on the cable is charging, not low.
+    StatusSnapshot l = s;
+    l.battery_mv = 3450;
+    l.battery_percent = 12;
+    l.battery_low = true;
+    Framebuffer low;
+    draw_status(low, l);
+    StatusSnapshot q = l;
+    q.battery_low = false;
+    Framebuffer quiet;
+    draw_status(quiet, q);
+    CHECK(low.count_black() > quiet.count_black());
+
+    StatusSnapshot on_cable = l;
+    on_cable.charging = true;
+    Framebuffer cable;
+    draw_status(cable, on_cable);
+    CHECK(cable.count_black() != low.count_black());
+
     // The row is the last one on the panel: it has to fit inside it.
     for (int y = 194; y < Framebuffer::kH; y++)
         for (int x = 0; x < Framebuffer::kW; x++) CHECK_FALSE(charging.get_pixel(x, y));
@@ -229,6 +249,41 @@ TEST_CASE("panel model: the driver's own output is what the model shows") {
     // pixel-for-pixel what the UI drew.
     CHECK(panel.framebuffer().count_black() == fb.count_black());
     CHECK(panel.save_pgm("build/status.pgm"));
+}
+
+// B4. ADS-L carries no callsign, so the setting has exactly one job: telling
+// three devices on a bench apart. It shares the header with the identity that
+// does go on the air.
+TEST_CASE("status: the callsign shares the header with the address, and never crowds it") {
+    StatusSnapshot s;
+    s.device_addr = 0xED1234;
+
+    Framebuffer bare;
+    draw_status(bare, s);
+
+    StatusSnapshot named = s;
+    named.callsign = "D-KXYZ";
+    Framebuffer with_name;
+    draw_status(with_name, named);
+    CHECK(with_name.count_black() > bare.count_black());
+
+    // The address is drawn at scale 2 from the left margin; the name is
+    // right-aligned on the same row. Neither may touch the other or the rule
+    // under them.
+    StatusSnapshot widest = s;
+    widest.callsign = "123456789";
+    Framebuffer full;
+    draw_status(full, widest);
+    for (int y = 3; y < 21; y++)
+        for (int x = 116; x < 128; x++) CHECK_FALSE(full.get_pixel(x, y));
+    for (int y = 3; y < 21; y++) CHECK_FALSE(full.get_pixel(Framebuffer::kW - 1, y));
+
+    // An empty callsign is a header with nothing extra on it, not a blank box.
+    StatusSnapshot empty = s;
+    empty.callsign = "";
+    Framebuffer none;
+    draw_status(none, empty);
+    CHECK(none.count_black() == bare.count_black());
 }
 
 TEST_CASE("status: the widest position on earth still fits its row") {

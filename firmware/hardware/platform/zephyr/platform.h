@@ -20,6 +20,8 @@
 #include "hardware/platform/zephyr/link.h"
 #include "hardware/platform/zephyr/pps.h"
 #include "hardware/platform/zephyr/rf.h"
+#include "hardware/platform/zephyr/system_power.h"
+#include "hardware/platform/zephyr/watchdog.h"
 
 namespace skyblip::platform::zephyr {
 
@@ -29,6 +31,7 @@ class Platform {
     using Link = zephyr::Link;
 
     Status begin() {
+        system_power_.begin();
         if (!device_is_ready(gpio0_) || !device_is_ready(gpio1_)) return Status::Down;
         if (!device_is_ready(radio_spi_dev_)) return Status::Down;
         // The gated rails are raised at board level so MCUboot sees them too;
@@ -60,6 +63,8 @@ class Platform {
     zephyr::Pps& pps() { return pps_; }
     zephyr::Baro* baro() { return baro_; }
     zephyr::Battery& battery() { return battery_; }
+    zephyr::Watchdog& watchdog() { return watchdog_; }
+    zephyr::SystemPower& system_power() { return system_power_; }
 
     bool button_down() { return gpio_pin_get_dt(&button_) == 1; }
     bool read_pressure_pa(uint32_t& out_pa) {
@@ -131,6 +136,8 @@ class Platform {
     zephyr::Baro* baro_{nullptr};
     zephyr::Battery battery_{battery_dev_};
     zephyr::Pps pps_{};
+    zephyr::Watchdog watchdog_{};
+    zephyr::SystemPower system_power_{button_};
 };
 
 }  // namespace skyblip::platform::zephyr

@@ -71,7 +71,9 @@ TEST_CASE("simulator: a virtual aircraft arrives as a real ADS-L frame and enter
     CHECK(h.product().state().traffic.count() == 0);
 
     h.world().add_aircraft(2000, 0, 0);  // 2 km north
-    run(h, 2000, 4000);
+    // A neighbour transmits once a second, and we are deaf through our own
+    // burst, so the window has to be wider than one of its transmissions.
+    run(h, 2000, 6000);
 
     CHECK(h.product().state().rx_ok > 0);             // frames actually decoded (CRC ok)
     CHECK(h.product().state().rx_bad == 0);           // and none corrupt
@@ -86,7 +88,7 @@ TEST_CASE("simulator: a converging aircraft raises the collision alarm and buzze
     CHECK(int(h.alarm_level()) == 0);
 
     h.world().add_threat();  // ~600 m, converging, co-altitude
-    run(h, 2000, 4000);
+    run(h, 2000, 6000);
 
     CHECK(h.product().state().traffic.count() >= 1);
     CHECK(int(h.alarm_level()) > 0);  // annunciator was driven
@@ -97,13 +99,13 @@ TEST_CASE("simulator: clearing traffic empties the table and silences the alarm"
     REQUIRE(h.setup() == Status::Ok);
     run(h, 0, 2000);
     h.world().add_threat();
-    run(h, 2000, 4000);
+    run(h, 2000, 6000);
     REQUIRE(h.product().state().traffic.count() >= 1);
 
     // Nothing transmits any more, so the targets age out of the table on their
     // own schedule (core/traffic 30 s) rather than being deleted behind its back.
     h.world().clear_aircraft();
-    run(h, 4000, 40000);
+    run(h, 6000, 42000);
     CHECK(h.product().state().traffic.count() == 0);
     CHECK(int(h.alarm_level()) == 0);
 }

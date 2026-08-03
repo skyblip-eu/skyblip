@@ -7,10 +7,48 @@
 
 namespace skyblip::comms {
 
+FlightState flight_state_from(uint8_t adsl_code) {
+    switch (static_cast<flight::FlightState>(adsl_code)) {
+        case flight::FlightState::OnGround: return FlightState::Ground;
+        case flight::FlightState::Airborne: return FlightState::Airborne;
+        case flight::FlightState::Unknown: break;
+    }
+    return FlightState::Unknown;
+}
+
+const char* pending_title(Pending pending) {
+    switch (pending) {
+        case Pending::Set: return "SETTINGS";
+        case Pending::Dfu: return "FIRMWARE";
+        case Pending::Apply: return "INSTALL";
+        case Pending::Recovery: return "RECOVERY";
+        case Pending::PowerOff: return "POWER OFF";
+        case Pending::None: break;
+    }
+    return "";
+}
+
+const char* pending_detail(Pending pending) {
+    switch (pending) {
+        case Pending::Set: return "APPLY THE SETTINGS THE PHONE SENT";
+        case Pending::Dfu: return "LET THE PHONE WRITE A NEW IMAGE";
+        case Pending::Apply: return "REBOOT INTO THE STAGED IMAGE";
+        case Pending::Recovery: return "REBOOT INTO THE USB BOOTLOADER";
+        case Pending::PowerOff: return "SHUT THE DEVICE DOWN";
+        case Pending::None: break;
+    }
+    return "";
+}
+
 void ConfigService::tick(uint32_t now_ms) {
     now_ms_ = now_ms;
     if (upload_window_open_ && now_ms - window_opened_ms_ >= kUploadWindowMs) {
         upload_window_open_ = false;
+    }
+    if (pending_ != Pending::None && now_ms - pending_since_ms_ >= kConfirmWindowMs) {
+        pending_ = Pending::None;
+        pending_len_ = 0;
+        ack(false, "expired");
     }
 }
 
@@ -18,6 +56,13 @@ void ConfigService::set_flight_state(FlightState fs) {
     if (fs == FlightState::Airborne) {
         airborne_latched_ = true;
         upload_window_open_ = false;
+        // A prompt that survived the take-off roll would be an authorisation a
+        // pilot could confirm with an elbow in the air.
+        if (pending_ != Pending::None) {
+            pending_ = Pending::None;
+            pending_len_ = 0;
+            ack(false, "in_flight");
+        }
     }
     if (fs == FlightState::Ground) airborne_latched_ = false;
     if (airborne_latched_)
@@ -41,11 +86,45 @@ void ConfigService::reply(const char* json) {
                                                          static_cast<size_t>(std::strlen(json))));
 }
 
+void ConfigService::stage(Pending pending, const char* reason) {
+    pending_ = pending;
+    pending_since_ms_ = now_ms_;
+    char buf[64];
+    json::Writer w(buf, sizeof(buf));
+    w.kv_bool("ack", false);
+    w.kv_bool("pending", true);
+    w.kv_str("reason", reason);
+    w.finish();
+    reply(buf);
+}
+
 void ConfigService::ack(bool ok, const char* reason) {
     char buf[96];
     json::Writer w(buf, sizeof(buf));
     w.kv_bool("ack", ok);
     if (reason) w.kv_str("reason", reason);
+    w.finish();
+    reply(buf);
+}
+
+const char* ConfigService::flight_name(FlightState fs) {
+    switch (fs) {
+        case FlightState::Ground: return "ground";
+        case FlightState::Airborne: return "airborne";
+        case FlightState::Unknown: break;
+    }
+    return "unknown";
+}
+
+void ConfigService::send_status() {
+    char buf[192];
+    json::Writer w(buf, sizeof(buf));
+    w.kv_str("cmd", "status");
+    w.kv_int("addr", static_cast<long>(settings_.device_addr));
+    w.kv_str("callsign", settings_.callsign);
+    w.kv_str("reset", power::to_string(reset_reason_));
+    w.kv_str("flight", flight_name(flight_));
+    w.kv_bool("upload", upload_allowed());
     w.finish();
     reply(buf);
 }
@@ -73,6 +152,11 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
         return;
     }
 
+    if (std::strcmp(cmd, "status") == 0) {
+        send_status();
+        return;
+    }
+
     if (std::strcmp(cmd, "set") == 0) {
         if (!on_ground()) {
             ack(false, "in_flight");
@@ -83,22 +167,15 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
                            : static_cast<int>(sizeof(pending_buf_)) - 1;
         std::memcpy(pending_buf_, data, static_cast<size_t>(pending_len_));
         pending_buf_[pending_len_] = 0;
-        pending_ = Pending::Set;
-        char buf[64];
-        json::Writer w(buf, sizeof(buf));
-        w.kv_bool("ack", false);
-        w.kv_bool("pending", true);
-        w.kv_str("reason", "confirm");
-        w.finish();
-        reply(buf);
+        stage(Pending::Set, "confirm");
         return;
     }
 
     // "dfu" opens an upload window. The image itself then travels over MCUmgr
     // /SMP, not over this channel. "apply" swaps an image already staged in the
     // secondary slot. "recovery" reboots into the factory drag-and-drop
-    // bootloader. All three take the same route: refuse in flight, then wait for
-    // a button press.
+    // bootloader. "power_off" asks the shutdown sequencer for the rails. All
+    // four take the same route: refuse in flight, then wait for a button press.
     Pending requested = Pending::None;
     const char* reason = nullptr;
     if (std::strcmp(cmd, "dfu") == 0) {
@@ -110,6 +187,9 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
     } else if (std::strcmp(cmd, "recovery") == 0) {
         requested = Pending::Recovery;
         reason = "confirm_recovery";
+    } else if (std::strcmp(cmd, "power_off") == 0) {
+        requested = Pending::PowerOff;
+        reason = "confirm_power_off";
     }
 
     if (requested != Pending::None) {
@@ -117,14 +197,7 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
             ack(false, "in_flight");
             return;
         }
-        pending_ = requested;
-        char buf[64];
-        json::Writer w(buf, sizeof(buf));
-        w.kv_bool("ack", false);
-        w.kv_bool("pending", true);
-        w.kv_str("reason", reason);
-        w.finish();
-        reply(buf);
+        stage(requested, reason);
         return;
     }
 
@@ -163,6 +236,11 @@ void ConfigService::confirm() {
         upload_window_open_ = false;
         ack(true, "recovery");
         if (dfu_) dfu_->enter_recovery();
+    } else if (pending_ == Pending::PowerOff) {
+        pending_ = Pending::None;
+        upload_window_open_ = false;
+        power_off_requested_ = true;
+        ack(true, "power_off");
     }
 }
 

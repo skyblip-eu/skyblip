@@ -12,6 +12,9 @@ namespace skyblip::ui {
 
 struct StatusSnapshot {
     uint32_t device_addr{0};
+    // ADS-L carries no callsign, so this names the device on the glass and
+    // nowhere else: which of three on a bench is the one in front of you.
+    const char* callsign{""};
     bool fix_valid{false};
     bool utc_valid{false};
     bool pps_locked{false};
@@ -31,6 +34,7 @@ struct StatusSnapshot {
     int n_targets{0};
     bool battery_valid{false};
     bool charging{false};
+    bool battery_low{false};
     uint16_t battery_mv{0};
     uint8_t battery_percent{0};
 };

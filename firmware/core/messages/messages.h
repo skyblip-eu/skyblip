@@ -39,14 +39,41 @@ struct OwnState {
     bool climb_valid;
     int32_t lat_1e7;
     int32_t lon_1e7;
+    // Height above the WGS-84 ellipsoid: ADS-L G.1.7 transmits HAE, and every
+    // neighbour altitude we receive is measured against the same datum, so a
+    // relative height only means something if ours uses it too. alt_msl_m is the
+    // geoid-referenced figure a panel or an IGC file wants.
     int32_t alt_m;
+    int32_t alt_msl_m;
     int16_t climb_e8;
     uint16_t speed_q;
     uint16_t track_c9;
+    // Rate of turn, degrees per second, positive to the right. The extrapolation
+    // to the transmit instant needs it, so it is own-ship state and not a
+    // display value.
+    int16_t turn_dps;
     uint32_t utc;
     // When the fix that made this state arrived. ADS-L G.1.16 refuses to
     // transmit a navigation solution older than 500 ms.
     uint32_t fix_ms;
+    // Horizontal dilution of precision in hundredths. Zero means the receiver
+    // did not report it, which is not the same as a good one.
+    uint16_t hdop_e2;
+    // False when the geoid separation behind alt_m came from a regional constant
+    // rather than from the receiver.
+    bool geoid_separation_measured;
+    // How far the constant-speed, constant-turn, constant-climb model missed the
+    // fix that has just arrived, in metres. A model that is wrong is worse than
+    // no model, and this is how that is found on the bench.
+    uint16_t pred_resid_m;
+    bool pred_resid_valid;
+    // The receiver has held a fix long enough for the solution behind it to have
+    // settled. Nothing is transmitted before this is true.
+    bool tx_settled;
+    // True for the one pass that applied the receiver's first fix since boot.
+    // Own-ship is the only writer, so whoever annunciates it reads it here
+    // instead of keeping a second watch on the same fact.
+    bool fix_acquired;
     uint8_t sats;
     uint8_t aircraft_cat;
     uint8_t flight_state;

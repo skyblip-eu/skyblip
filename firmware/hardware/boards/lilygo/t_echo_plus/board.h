@@ -29,8 +29,16 @@ class TEchoPlus {
                t_echo_plus::kEpdRst, t_echo_plus::kEpdBusy, t_echo_plus::kEpdBacklight),
           gnss_(platform.uart(io::BusId::Gnss)),
           rf_(radio_, platform.clock(), bus.rf),
-          capabilities_(platform.capabilities() | hal::Capability::Rf) {
+          capabilities_(platform.capabilities()) {
         platform_.wire(t_echo_plus::kPinMap);
+        // The radio is the one part on this board with no bus enumeration of its
+        // own, so presence is a register round-trip. Asserting it instead makes a
+        // dead MISO look like a healthy radio that never hears anything. It
+        // belongs here rather than in begin() because capabilities() has to be
+        // final before roles() is taken, and the round-trip needs nothing the
+        // rails have not already provided: DS 13.1.1 puts the part in STDBY_RC on
+        // reset, and a register write and read back run on that internal clock.
+        if (radio_.probe() == Status::Ok) capabilities_ = capabilities_ | hal::Capability::Rf;
     }
 
     // Probing is done: capabilities() is already known. This is bring-up, and a part that
@@ -40,6 +48,7 @@ class TEchoPlus {
         const Status s = platform_.begin();
         if (s != Status::Ok) return s;
         if (hal::has(capabilities_, hal::Capability::Display)) epd_.begin();
+        if (!hal::has(capabilities_, hal::Capability::Rf)) return Status::Ok;
         return rf_.begin();
     }
 
@@ -75,8 +84,10 @@ class TEchoPlus {
         messages::RxFrame frame;
         while (platform_.link().pop_rx(frame)) bus_.link_rx.push(frame);
 
-        if (hal::has(capabilities_, hal::Capability::Gnss) && gnss_.poll())
-            bus_.gnss.push(gnss_.fix());
+        if (hal::has(capabilities_, hal::Capability::Gnss)) {
+            gnss_.service(now_ms);
+            if (gnss_.poll()) bus_.gnss.push(gnss_.fix());
+        }
 
         if (hal::has(capabilities_, hal::Capability::Baro) &&
             now_ms - last_baro_ms_ >= runtime::kBaroPeriodMs) {
@@ -96,8 +107,14 @@ class TEchoPlus {
         if (button_.update(platform_.button_down(), now_ms))
             bus_.input.push(messages::ButtonEvent{0});
 
+        const uint64_t now_us = platform_.clock().micros();
         state.clock.pps_locked = platform_.pps().locked();
-        state.clock.ms_since_pps = platform_.pps().ms_since(platform_.clock().micros());
+        state.clock.ms_since_pps = platform_.pps().ms_since(now_us);
+        // The edge itself, as the surface latched it: whoever reads it later
+        // reads an instant that has not gone stale in the meantime. Rebuilding
+        // it from the millisecond phase threw away up to a millisecond of the
+        // 5 ms jitter guard before the plan was even armed.
+        state.clock.pps_edge_us = platform_.pps().last_edge_us();
     }
 
     typename P::Rf& rf() { return rf_; }

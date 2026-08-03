@@ -1,17 +1,20 @@
 #include "products/skyblip_go/services/ownship.h"
 
 #include "core/flight/atmosphere.h"
+#include "core/flight/turn.h"
 
 namespace skyblip::go {
 
-// ADS-L G.1.4 FlightState: 0 unknown, 1 on ground, 2 airborne. The gap between
-// the two thresholds is what stops a taxiing aircraft toggling its transmit
-// rate between 1 Hz and 0.1 Hz every fix.
-uint8_t OwnshipService::flight_state_from(uint16_t speed_q, uint8_t current, bool fix_valid) {
-    if (!fix_valid) return 0;
-    if (speed_q >= kAirborneSpeedQ) return 2;
-    if (speed_q < kGroundSpeedQ) return 1;
-    return current == 0 ? 1 : current;
+uint8_t OwnshipService::flight_state_from(const messages::OwnState& own, uint32_t now_ms) {
+    flight::FlightSample sample{};
+    sample.at_ms = now_ms;
+    sample.speed_q = own.speed_q;
+    sample.climb_e8 = own.climb_e8;
+    sample.alt_msl_m = own.alt_msl_m;
+    sample.hdop_e2 = own.hdop_e2;
+    sample.fix_valid = own.fix_valid;
+    sample.climb_valid = own.climb_valid;
+    return static_cast<uint8_t>(flight_.update(sample));
 }
 
 void OwnshipService::tick(uint32_t now_ms) {
@@ -22,24 +25,30 @@ void OwnshipService::tick(uint32_t now_ms) {
     while (context_.bus.baro.pop(sample)) apply_baro(sample);
 
     context_.state.baro_active = baro_active();
+    context_.state.own.tx_settled = settle_.settled(now_ms);
+    context_.state.own.fix_acquired = settle_.take_acquired();
 }
 
 void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
     messages::OwnState& own = context_.state.own;
+    const messages::OwnState previous = own;
     context_.state.gnss_fixes++;
+    settle_.update(f.valid, now_ms);
 
     own.fix_valid = f.valid;
     own.utc_valid = f.utc_valid;
     own.lat_1e7 = f.lat_1e7;
     own.lon_1e7 = f.lon_1e7;
     own.alt_m = f.alt_m;
+    own.alt_msl_m = f.alt_msl_m;
+    own.geoid_separation_measured = f.geoid_separation_measured;
     own.speed_q = f.speed_q;
     own.track_c9 = f.track_c9;
+    own.hdop_e2 = f.hdop_e2;
     own.utc = f.utc;
-    own.fix_ms = now_ms;
+    own.fix_ms = gnss::fix_instant_ms(f, now_ms);
     own.sats = f.sats;
     own.aircraft_cat = context_.state.settings.aircraft_type;
-    own.flight_state = flight_state_from(own.speed_q, own.flight_state, f.valid);
 
     context_.state.clock.utc_valid = f.utc_valid;
 
@@ -53,7 +62,33 @@ void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
         own.climb_valid = true;
     }
 
+    own.flight_state = flight_state_from(own, now_ms);
     update_turn_rate(now_ms);
+    update_residual(previous);
+}
+
+// The model, run over the interval that has just elapsed, against the fix that
+// closed it. Nothing acts on the answer: it is the bench's measure of whether
+// the extrapolation the transmitter applies is describing this aircraft.
+void OwnshipService::update_residual(const messages::OwnState& previous) {
+    messages::OwnState& own = context_.state.own;
+    if (!previous.fix_valid || !own.fix_valid) {
+        own.pred_resid_valid = false;
+        return;
+    }
+    const int32_t dt_ms = static_cast<int32_t>(own.fix_ms - previous.fix_ms);
+    if (dt_ms <= 0) {
+        own.pred_resid_valid = false;
+        return;
+    }
+    const flight::Prediction p = flight::extrapolate(previous, dt_ms);
+    if (!p.valid) {
+        own.pred_resid_valid = false;
+        return;
+    }
+    const uint32_t resid = flight::prediction_residual_m(p, own.lat_1e7, own.lon_1e7, own.alt_m);
+    own.pred_resid_m = resid > 0xFFFF ? 0xFFFF : static_cast<uint16_t>(resid);
+    own.pred_resid_valid = true;
 }
 
 void OwnshipService::apply_baro(const messages::BaroSample& sample) {
@@ -76,11 +111,7 @@ void OwnshipService::update_turn_rate(uint32_t now_ms) {
     const uint32_t dt = now_ms - turn_ref_ms_;
     if (dt < kTurnWindowMs) return;
 
-    // cordic9: 512 units = 360 deg. Wrap to the short way round so 359 -> 001
-    // reads as +2 deg, not -358.
-    const int32_t diff = ((static_cast<int32_t>(track_c9) - turn_ref_track_c9_ + 768) % 512) - 256;
-    context_.state.turn_dps =
-        static_cast<int16_t>((diff * 45 * 1000) / (64 * static_cast<int32_t>(dt)));
+    context_.state.own.turn_dps = flight::turn_rate_dps(track_c9, turn_ref_track_c9_, dt);
     turn_ref_ms_ = now_ms;
     turn_ref_track_c9_ = track_c9;
 }

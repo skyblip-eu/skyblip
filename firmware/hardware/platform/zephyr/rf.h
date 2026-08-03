@@ -20,6 +20,10 @@ class Rf : public hal::Rf {
    public:
     static constexpr int kStackSize = 2048;
     static constexpr int kSpinUs = 200;
+    // How long the thread waits for the next dwell before it looks at the
+    // radio's health instead. Short against the 30 s no-RX rope, long enough
+    // that an idle device is not woken for nothing.
+    static constexpr int kHealthTickMs = 250;
 
     Rf(parts::Sx1262& radio, hal::Clock& clock, bus::Queue<messages::RfEvent, 8>& out)
         : radio_(radio), clock_(clock), out_(out) {
@@ -55,21 +59,60 @@ class Rf : public hal::Rf {
 
     void abort() override { abort_ = true; }
 
+    // The shutdown path runs on the service thread and the radio belongs to this
+    // one, so what crosses the boundary is a request: abort the dwell, wake the
+    // thread, and let it issue SetSleep itself. Nothing else may touch the SPI
+    // while a dwell is on it.
+    void sleep() override {
+        sleep_requested_ = true;
+        abort_ = true;
+        k_sem_give(&armed_);
+    }
+
+    hal::RfCarrier carrier() const override { return carrier_; }
+
+    // The board calls this from the service pass, and there is deliberately
+    // nothing here: the radio belongs to the thread below, and reinitialising it
+    // from the service list would put a second writer on the SPI bus while a
+    // dwell is using it. The health watchdog runs in run(), where the chip is
+    // owned.
     void service(uint32_t) {}
 
    private:
     static void entry(void* self, void*, void*) { static_cast<Rf*>(self)->run(); }
 
     void run() {
+        health_us_ = clock_.micros();
         for (;;) {
-            k_sem_take(&armed_, K_FOREVER);
+            const int armed = k_sem_take(&armed_, K_MSEC(kHealthTickMs));
+            health();
+            if (armed != 0) continue;
+            if (sleep_requested_) {
+                sleep_requested_ = false;
+                radio_.sleep();
+                continue;
+            }
             abort_ = false;
             const hal::RfPlan plan = plan_;
             sleep_until(plan.start_us);
             if (abort_) continue;
             start(plan);
             dwell(plan);
+            health();
         }
+    }
+
+    // A receiver that has heard nothing for 30 s is deaf, not lucky, and the
+    // only cure is a reinitialisation. It is accumulated here, between dwells,
+    // because this thread owns the bus: the elapsed time comes off the same
+    // clock the deadlines do, so a dwell that overran is counted, not lost.
+    void health() {
+        const uint64_t now_us = clock_.micros();
+        if (now_us <= health_us_) return;
+        const uint32_t elapsed_ms = static_cast<uint32_t>((now_us - health_us_) / 1000);
+        if (elapsed_ms == 0) return;
+        health_us_ += static_cast<uint64_t>(elapsed_ms) * 1000;
+        radio_.service(elapsed_ms, runtime::kRadioNoRxReinitMs);
     }
 
     void sleep_until(uint64_t deadline_us) {
@@ -81,6 +124,7 @@ class Rf : public hal::Rf {
     }
 
     void start(const hal::RfPlan& plan) {
+        radio_.wake();
         if (plan.freq_hz != 0) {
             parts::MbandConfig cfg{};
             cfg.freq_hz = plan.freq_hz;
@@ -99,6 +143,15 @@ class Rf : public hal::Rf {
         return static_cast<uint64_t>(plan.backoff_min_ms + (backoff_seed_ >> 16) % span) * 1000;
     }
 
+    // One live level, reported and not judged. The average behind it and the
+    // threshold in front of it are core/timing/channel.h's.
+    int8_t sample_carrier() {
+        if (radio_.mode() != parts::RadioMode::Rx) return carrier_.dbm;
+        carrier_.dbm = radio_.rssi_inst();
+        carrier_.samples++;
+        return carrier_.dbm;
+    }
+
     void dwell(const hal::RfPlan& plan) {
         bool completed = false;
         bool transmitted = false;
@@ -109,7 +162,7 @@ class Rf : public hal::Rf {
         while (!abort_ && clock_.micros() < plan.end_us) {
             const uint64_t now_us = clock_.micros();
             if (plan.tx != nullptr && !transmitted && now_us >= next_carrier_sample_us) {
-                if (!plan.lbt || radio_.rssi_inst() < plan.lbt_threshold_dbm) {
+                if (!plan.lbt || sample_carrier() < plan.lbt_threshold_dbm) {
                     transmitted = true;
                     radio_.transmit(plan.tx, plan.tx_len);
                 } else {
@@ -132,6 +185,7 @@ class Rf : public hal::Rf {
                 default: emit(messages::RfEventType::Missed); return;
             }
         }
+        sample_carrier();
         if (plan.tx != nullptr && !completed)
             emit(transmitted ? messages::RfEventType::Missed : messages::RfEventType::TxBusy);
     }
@@ -151,12 +205,15 @@ class Rf : public hal::Rf {
     hal::Clock& clock_;
     bus::Queue<messages::RfEvent, 8>& out_;
     hal::RfPlan plan_{};
+    hal::RfCarrier carrier_{};
     uint32_t backoff_seed_{0x5eed1262u};
+    uint64_t health_us_{0};
     struct k_sem armed_{};
     struct k_thread thread_{};
     k_tid_t tid_{nullptr};
     K_KERNEL_STACK_MEMBER(stack_, kStackSize);
     volatile bool abort_{false};
+    volatile bool sleep_requested_{false};
 };
 
 }  // namespace skyblip::platform::zephyr

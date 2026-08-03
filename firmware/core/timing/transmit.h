@@ -3,6 +3,7 @@
 #ifndef SKYBLIP_CORE_TIMING_TRANSMIT_H
 #define SKYBLIP_CORE_TIMING_TRANSMIT_H
 
+#include "core/timing/channel.h"
 #include "core/timing/slot.h"
 
 namespace skyblip::timing {
@@ -28,13 +29,14 @@ class Transmitter {
     // §C.2 backoff interval, applied by the executor between carrier samples.
     static constexpr uint32_t kBackoffMinMs = 15;
     static constexpr uint32_t kBackoffMaxMs = 250;
-    static constexpr int8_t kBusyThresholdDbm = -90;
 
     struct Attempt {
         bool go{false};
         int at_ms{0};
         uint32_t freq_hz{0};
         bool force{false};
+        // The one refusal that is not a rate rule: the hour's air time is spent.
+        bool over_budget{false};
     };
 
     void configure(uint32_t device_addr) { addr_ = device_addr; }
@@ -48,7 +50,10 @@ class Transmitter {
     void busy(uint32_t now_ms);
 
     uint32_t sent_count() const { return sent_; }
+    // A dwell that sampled the carrier until it ran out of dwell. Not silent:
+    // this is the counter a noisy site shows up in.
     uint32_t busy_count() const { return busy_; }
+    const AirTime& air_time() const { return air_; }
     // §C.2.5: traffic alternates between the two M-band channels, so the slot
     // to transmit in follows the transmission count, not the clock.
     int next_slot() const { return static_cast<int>(sent_ & 1u); }
@@ -59,6 +64,7 @@ class Transmitter {
     // one aircraft's instant is reproducible in a test.
     int instant_in(int slot, uint32_t utc) const;
 
+    AirTime air_{};
     uint32_t addr_{0};
     uint32_t sent_{0};
     uint32_t busy_{0};

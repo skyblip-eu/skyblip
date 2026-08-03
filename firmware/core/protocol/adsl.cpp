@@ -2,6 +2,8 @@
 
 #include "core/fec/crc.h"
 #include "core/fec/scramble.h"
+#include "core/flight/extrapolate.h"
+#include "core/settings/address.h"
 #include "core/util/bitcount.h"
 #include "core/util/varint.h"
 
@@ -263,40 +265,139 @@ void to_obs(const AdslPacket& p, uint32_t rx_utc, uint16_t rx_ms, int8_t rssi_db
     out.valid_pos = true;
 }
 
+// ADS-L 4 SRD860 issue 2 G.1.13, NACp. Code 0 is "unknown or HFOM >= 0.5 NM".
+uint8_t AdslPacket::horizontal_accuracy_code(uint32_t hfom_cm) {
+    static constexpr uint32_t kLimitCm[] = {300, 1000, 3000, 9260, 18520, 55560, 92600};
+    for (int i = 0; i < 7; i++)
+        if (hfom_cm < kLimitCm[i]) return static_cast<uint8_t>(7 - i);
+    return 0;
+}
+
+// G.1.14, GVA. 3 = VFOM < 10 m, 2 = < 45 m, 1 = < 150 m, 0 = unknown or worse.
+uint8_t AdslPacket::vertical_accuracy_code(uint32_t vfom_cm) {
+    if (vfom_cm < 1000) return 3;
+    if (vfom_cm < 4500) return 2;
+    if (vfom_cm < 15000) return 1;
+    return 0;
+}
+
+// G.1.15, NACv. A GNSS-only velocity is as good as the position fix behind it,
+// which is the relation the reference encoder uses verbatim
+// (oss/SoftRF-moshe-braner .../libraries/OGN/ads-l.h:453).
+uint8_t AdslPacket::velocity_accuracy_code(uint8_t horizontal_code) {
+    return horizontal_code >= 4 ? static_cast<uint8_t>(horizontal_code - 4) : 0;
+}
+
+// G.1.12, NIC: the containment radius Rc the position is claimed to lie within.
+// 12 = Rc < 7.5 m, 11 = < 25 m, 10 = < 75 m, 9 = < 0.1 NM, down to 1.
+uint8_t AdslPacket::navigation_integrity_code(uint32_t containment_cm) {
+    static constexpr uint32_t kLimitCm[] = {750,    2500,   7500,   18520,   37040,  111120,
+                                            185200, 370400, 740800, 1481600, 3703000};
+    for (int i = 0; i < 11; i++)
+        if (containment_cm < kLimitCm[i]) return static_cast<uint8_t>(12 - i);
+    return 1;
+}
+
+void AdslPacket::set_integrity_unknown() {
+    SourceIntegrity = 0;
+    DesignAssurance = 0;
+    NavigIntegrity = 0;
+    HorizAccuracy = 0;
+    VertAccuracy = 0;
+    VelAccuracy = 0;
+}
+
+void AdslPacket::set_integrity_from_hdop_e2(uint16_t hdop_e2) {
+    if (hdop_e2 == 0) {
+        set_integrity_unknown();
+        return;
+    }
+    // We only ask the receiver for GGA and RMC, so there is no VDOP to read and
+    // HDOP stands in for it. The vertical figure is the larger of the two per
+    // unit of DOP, so the substitution does not flatter the claim.
+    const uint32_t hfom_cm = hdop_e2 * kHorizontalErrorPerDopCm / 100;
+    const uint32_t vfom_cm = hdop_e2 * kVerticalErrorPerDopCm / 100;
+
+    // No RAIM and no protection level from this receiver, so the containment
+    // radius we claim is the accuracy itself, and SourceIntegrity says how much
+    // that claim is worth: 1e-3 per flight hour, the honest figure for an
+    // unaugmented, unmonitored GNSS. DesignAssurance stays 0 because this
+    // firmware carries no design assurance credit.
+    SourceIntegrity = kSourceIntegrity1e3;
+    DesignAssurance = kDesignAssuranceNone;
+    NavigIntegrity = navigation_integrity_code(hfom_cm);
+    HorizAccuracy = horizontal_accuracy_code(hfom_cm);
+    VertAccuracy = vertical_accuracy_code(vfom_cm);
+    VelAccuracy = velocity_accuracy_code(HorizAccuracy);
+}
+
+// Stealth, in a protocol that has no stealth bit. FLARM's wire format carries
+// one and SoftRF sets it while zeroing the vertical rate
+// (oss/SoftRF-lyusupov .../src/protocol/radio/Legacy.cpp:300, 308-309). ADS-L
+// handles privacy through the address table instead - tables 0 to 4 are
+// self-minted, unregistered identities - and through the G.1.9 code that says
+// the vertical rate is unavailable rather than zero. Zero would claim level
+// flight, which is the one thing a pilot who asked for stealth is hiding. What
+// this does not buy is anonymity over time: the address itself is still
+// constant, and rotating it is a separate piece of work.
+constexpr uint8_t kAnonymousAddrTable = 0;
+
+uint8_t timestamp_code(uint32_t utc, int32_t lead_ms) {
+    constexpr int64_t kCycleMs = static_cast<int64_t>(kTimeStampCycleS) * 1000;
+    int64_t ms = static_cast<int64_t>(utc % kTimeStampCycleS) * 1000 + lead_ms;
+    ms %= kCycleMs;
+    if (ms < 0) ms += kCycleMs;
+    return static_cast<uint8_t>(ms / kTimeStampQuarterMs);
+}
+
 void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
               uint8_t aircraft_cat, bool stealth) {
+    from_own(p, own, addr, addr_table, aircraft_cat, stealth, BurstInstant{own.utc, 0, 0});
+}
+
+void from_own(AdslPacket& p, const messages::OwnState& own, uint32_t addr, uint8_t addr_table,
+              uint8_t aircraft_cat, bool stealth, const BurstInstant& at) {
     p.init(0x02);
-    p.set_address(addr);
-    p.set_addr_table(addr_table);
-    p.TimeStamp = static_cast<uint8_t>((own.utc % 15) * 4);
+    const uint8_t table = stealth ? kAnonymousAddrTable : addr_table;
+    p.set_address(settings::safe_air_address(addr, table));
+    p.set_addr_table(table);
+
+    // The burst leaves later than the fix was solved, so the position goes
+    // forward to the instant the timestamp names. Past the model's bound the
+    // fix goes out as it stands, dated when it was solved: neither half of the
+    // pair is allowed to describe an instant the other does not.
+    const flight::Prediction where = flight::extrapolate(own, at.since_fix_ms);
+    p.TimeStamp =
+        timestamp_code(at.utc, where.valid ? at.into_utc_ms : at.into_utc_ms - at.since_fix_ms);
     p.FlightState = own.flight_state;
     p.AcftCat = aircraft_cat;
     p.Emergency = 1;
-    p.set_lat_1e7(own.lat_1e7);
-    p.set_lon_1e7(own.lon_1e7);
+    p.set_lat_1e7(where.lat_1e7);
+    p.set_lon_1e7(where.lon_1e7);
 
     // Altitude and ground speed come from the 3D fix, so without one they are
     // UNAVAILABLE and must say so (G.1.7, G.1.8). Transmitting a stale or zeroed
     // altitude as if it were valid is worse than transmitting nothing: a receiver
     // would compute relative vertical separation against it.
     if (own.fix_valid) {
-        p.set_alt_m(own.alt_m);
+        p.set_alt_m(where.alt_m);
         p.set_speed_q(own.speed_q);
+        p.set_integrity_from_hdop_e2(own.hdop_e2);
     } else {
         p.set_alt_invalid();
         p.set_speed_invalid();
+        p.set_integrity_unknown();
     }
 
     // Vertical rate needs two samples over a window, so it arrives later than the
     // fix and has its own validity. Encoding 0 before then would claim level
     // flight (G.1.9).
-    if (own.climb_valid)
+    if (own.climb_valid && !stealth)
         p.set_climb_e8(own.climb_e8);
     else
         p.set_climb_invalid();
 
-    p.set_track_c9(own.track_c9);
-    (void)stealth;
+    p.set_track_c9(where.track_c9);
 }
 
 }

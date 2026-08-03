@@ -14,7 +14,14 @@ enum class TaskPrio : uint8_t {
 };
 
 constexpr uint32_t kServiceStepMs = 10;
+// The longest a supervised service may go without reporting progress before the
+// loop stops feeding the dog. Five hundred passes: nothing healthy is that slow,
+// and it is well inside the hardware rope below.
 constexpr uint32_t kTaskWatchdogMs = 5000;
+// SoftRF's figure on the same silicon (src/platform/nRF52.cpp:4558). The rope
+// the whole device gets: longer than kTaskWatchdogMs so the loop's own refusal
+// to feed is what is seen first, and the bite is the backstop under it.
+constexpr uint32_t kHardwareWatchdogMs = 12000;
 constexpr uint32_t kRadioNoRxReinitMs = 30000;
 constexpr uint32_t kPpsLossListenOnlyMs = 60000;
 constexpr uint32_t kBaroPeriodMs = 250;

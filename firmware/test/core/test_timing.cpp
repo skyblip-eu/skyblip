@@ -3,6 +3,7 @@
 // runs past its edge or a burst that starts too late to finish inside the direct
 // slot transmits into someone else's window, and a device that keeps transmitting
 // once UTC is gone does it blind. Without a clock the answer is listen only.
+#include "core/timing/channel.h"
 #include "core/timing/slot.h"
 #include "core/timing/transmit.h"
 #include "doctest/doctest.h"
@@ -261,4 +262,118 @@ TEST_CASE("transmit: nothing goes out unless the slot allows it") {
     CHECK_FALSE(t.attempt(s.plan(300, anchored()), 10, 10000, true, 0).go);
     // Listening on M-band is not licence to transmit there yet.
     CHECK_FALSE(t.attempt(s.plan(420, anchored()), 10, 10000, true, 0).go);
+}
+
+// E1. A carrier-sense threshold that is a constant is a device that goes quiet
+// wherever the constant happens to be wrong, and says nothing about it. OGN's
+// answer is to measure: an average of the live level, seeded so a cold start is
+// not paralysed, and a margin above it (oss/nrf52-ogn-tracker
+// src/ogn-radio.cpp:77-78, 845-851).
+
+TEST_CASE("channel: the floor starts at the seed and walks to what the receiver hears") {
+    NoiseFloor floor;
+    CHECK(floor.dbm() == NoiseFloor::kSeedDbm);
+    CHECK(floor.samples() == 0);
+
+    for (int i = 0; i < 500; i++) floor.sample(-118);
+    CHECK(floor.dbm() == -118);
+    CHECK(floor.samples() == 500);
+
+    // And back up again: the average has no memory of having been quiet.
+    for (int i = 0; i < 500; i++) floor.sample(-96);
+    CHECK(floor.dbm() == -96);
+}
+
+// A single burst passing through does not become the floor. Sixty seconds of a
+// jammer does, which is the point: the device keeps transmitting at a noisy site.
+TEST_CASE("channel: one loud sample barely moves the average, a site full of them moves it all") {
+    NoiseFloor floor;
+    floor.sample(-40);
+    CHECK(floor.dbm() <= NoiseFloor::kSeedDbm + 4);
+
+    NoiseFloor site;
+    for (int i = 0; i < 200; i++) site.sample(-85);
+    CHECK(site.dbm() == -85);
+    // The fixed threshold this replaces was -90 dBm: at this site it would have
+    // held every burst until the forced transmission of D.3, once every 5 s.
+    CHECK(site.threshold_dbm() == -75);
+    CHECK(site.threshold_dbm() > -90);
+}
+
+TEST_CASE("channel: the threshold is the measured floor plus a margin, 3 dB more per failure") {
+    NoiseFloor floor;
+    for (int i = 0; i < 400; i++) floor.sample(-110);
+    REQUIRE(floor.dbm() == -110);
+    CHECK(floor.threshold_dbm(0) == -100);
+    CHECK(floor.threshold_dbm(1) == -97);
+    CHECK(floor.threshold_dbm(2) == -94);
+    CHECK(floor.threshold_dbm(10) == -70);
+    // Escalation is not a licence to transmit on top of anything at all: past
+    // the ceiling this has stopped being carrier sense.
+    CHECK(floor.threshold_dbm(255) == NoiseFloor::kThresholdCeilingDbm);
+}
+
+// E2. Listen before talk plus backoff is the polite-spectrum route out of the
+// 1% duty cycle EN 300 220-2 sets on 868.0-868.6 MHz. That is an argument, and
+// an argument is not evidence: this is the number that is.
+
+TEST_CASE("channel: air time is counted per rolling hour and leaves it again") {
+    AirTime air;
+    for (uint32_t second = 0; second < 3600; second++)
+        air.spend(second * 1000, Transmitter::kAirTimeMs);
+
+    CHECK(air.bursts() == 3600);
+    CHECK(air.total_ms() == 3600 * Transmitter::kAirTimeMs);
+    CHECK(air.window_ms(3599000) == 18000);
+    // One 5 ms burst a second is 0.5%: half of what the band allows.
+    CHECK(air.permille(3599000) == 5);
+    CHECK(air.permille(3599000) * 2 == AirTime::kLimitPermille);
+    // An hour after the last burst the window is empty, and the total is not.
+    CHECK(air.window_ms(3599000 + AirTime::kWindowMs) == 0);
+    CHECK(air.total_ms() == 18000);
+}
+
+TEST_CASE("channel: the hour's allowance is 1% of it, and the counter stops at the figure") {
+    CHECK(AirTime::kBudgetMs == AirTime::kWindowMs / 100);
+    CHECK(AirTime::kBudgetMs == 36000);
+
+    AirTime air;
+    uint32_t refused = 0;
+    for (uint32_t t = 0; t < AirTime::kWindowMs; t += 100) {
+        if (air.may_spend(t, Transmitter::kAirTimeMs))
+            air.spend(t, Transmitter::kAirTimeMs);
+        else
+            refused++;
+    }
+    CHECK(air.window_ms(AirTime::kWindowMs - 100) == AirTime::kBudgetMs);
+    CHECK(refused > 0);
+    CHECK_FALSE(air.may_spend(AirTime::kWindowMs - 100, Transmitter::kAirTimeMs));
+}
+
+// The decision, written down: an empty budget BLOCKS the burst. At the design
+// rate we sit at half the allowance, so an empty budget can only be a fault, and
+// a faulted transmitter that will not stop is worse for the band than a quiet
+// one. D.3's forced transmission is a way past a busy channel, not past this.
+TEST_CASE("transmit: an exhausted hour blocks the burst, forced or not, and says so") {
+    Transmitter t = airborne_transmitter();
+    for (uint32_t i = 0; i < 7200; i++) t.sent(i, i * 500, false);
+    REQUIRE(t.air_time().window_ms(3599500) == AirTime::kBudgetMs);
+
+    Transmitter::Attempt a = t.attempt(slot_plan(500), 7200, 3599500, true, 0);
+    CHECK_FALSE(a.go);
+    CHECK(a.over_budget);
+
+    t.busy(3596000);
+    a = t.attempt(slot_plan(500), 7200, 3599500, true, 0);
+    CHECK_FALSE(a.go);
+    CHECK(a.over_budget);
+}
+
+TEST_CASE("transmit: the design rate never reaches the limit, so nothing is ever blocked") {
+    Transmitter t = airborne_transmitter();
+    for (uint32_t i = 0; i < 3600; i++) t.sent(i, i * 1000, false);
+    CHECK(t.air_time().permille(3599000) == 5);
+    const Transmitter::Attempt a = t.attempt(slot_plan(500), 3600, 3600000, true, 0);
+    CHECK(a.go);
+    CHECK_FALSE(a.over_budget);
 }

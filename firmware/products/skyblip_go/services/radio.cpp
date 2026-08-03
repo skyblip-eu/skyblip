@@ -12,6 +12,7 @@ Status RadioService::setup() {
 void RadioService::tick(uint32_t now_ms) {
     const timing::SlotPlan plan = scheduler_.plan(phase_ms(now_ms), context_.state.clock);
     context_.state.plan = plan;
+    take_carrier_samples();
     collect_outcome(now_ms);
 
     const hal::RfMode want = mode_for(plan);
@@ -20,10 +21,24 @@ void RadioService::tick(uint32_t now_ms) {
     arm_dwell(plan, now_ms);
 }
 
+// From the latched edge, at the instant it is asked for. Deriving it from a
+// phase the board sampled at the top of the pass costs however long the pass
+// takes to reach this service, which is the whole jitter guard on a bad pass.
 int RadioService::phase_ms(uint32_t now_ms) const {
-    if (context_.state.clock.pps_locked)
-        return static_cast<int>(context_.state.clock.ms_since_pps % 1000);
+    const timing::ClockState& clock = context_.state.clock;
+    const uint64_t now_us = context_.roles.clock.micros();
+    if (clock.pps_locked && now_us >= clock.pps_edge_us)
+        return static_cast<int>((now_us - clock.pps_edge_us) / 1000 % 1000);
     return static_cast<int>(now_ms % 1000);
+}
+
+// The executor measures, the policy averages. One sample per pass is all the
+// executor can have taken between two of them at a 15 ms minimum backoff.
+void RadioService::take_carrier_samples() {
+    const hal::RfCarrier carrier = context_.roles.rf.carrier();
+    if (carrier.samples == seen_carrier_samples_) return;
+    seen_carrier_samples_ = carrier.samples;
+    noise_.sample(carrier.dbm);
 }
 
 uint64_t RadioService::pps_epoch_us(uint32_t now_ms) const {
@@ -36,6 +51,21 @@ uint64_t RadioService::dwell_epoch_us(uint32_t now_ms) const {
     const uint64_t epoch_us = pps_epoch_us(now_ms);
     const bool in_slot1_tail = phase_ms(now_ms) < timing::kSlot1Wrap;
     return (in_slot1_tail && epoch_us >= 1000000) ? epoch_us - 1000000 : epoch_us;
+}
+
+// Two clocks meet here. The TimeStamp field counts quarter seconds from the top
+// of the UTC second the slot belongs to, which the latched PPS edge anchors;
+// the position has to be carried over the interval since the fix, which is a
+// monotonic one. The dwell is armed before the slot opens, so the second figure
+// is the staleness already accrued plus the whole wait still to come.
+protocol::BurstInstant RadioService::burst_instant(const timing::Transmitter::Attempt& a,
+                                                   uint64_t tx_at_us, uint32_t now_ms) const {
+    const uint32_t tx_ms = static_cast<uint32_t>(tx_at_us / 1000);
+    protocol::BurstInstant at{};
+    at.utc = slot_utc(now_ms);
+    at.into_utc_ms = a.at_ms;
+    at.since_fix_ms = static_cast<int32_t>(tx_ms - context_.state.own.fix_ms);
+    return at;
 }
 
 uint32_t RadioService::slot_utc(uint32_t now_ms) const {
@@ -72,7 +102,10 @@ bool RadioService::transmit_due(const timing::SlotPlan& plan, uint32_t now_ms) c
 timing::Transmitter::Attempt RadioService::attempt(const timing::SlotPlan& plan,
                                                    uint32_t now_ms) const {
     const messages::OwnState& own = context_.state.own;
-    if (!own.fix_valid || !own.utc_valid) return timing::Transmitter::Attempt{};
+    // F5: a cold receiver's first solutions walk, and the flight state derived
+    // from them decides our transmit rate. Nothing goes on air until own-ship
+    // says the solution behind it has settled.
+    if (!own.fix_valid || !own.utc_valid || !own.tx_settled) return timing::Transmitter::Attempt{};
     const uint32_t fix_age_ms = now_ms - own.fix_ms;
     const bool airborne = own.flight_state == kFlightStateAirborne;
     return transmitter_.attempt(plan, slot_utc(now_ms), now_ms, airborne, fix_age_ms);
@@ -94,12 +127,13 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
     if (plan.end_us <= plan.start_us) plan.end_us = plan.start_us + 1000;
 
     const timing::Transmitter::Attempt a = attempt(slot, now_ms);
+    over_budget_ = a.over_budget;
     const uint64_t tx_at_us = epoch_us + static_cast<uint64_t>(a.at_ms) * 1000;
     const bool carries_tx = a.go && tx_at_us >= plan.start_us && tx_at_us < plan.end_us;
     if (carries_tx) {
         protocol::from_own(outgoing_, context_.state.own, context_.roles.device_addr,
                            context_.state.settings.addr_table, context_.state.own.aircraft_cat,
-                           context_.state.settings.stealth);
+                           context_.state.settings.stealth, burst_instant(a, tx_at_us, now_ms));
         outgoing_.scramble();
         outgoing_.set_crc();
         plan.tx = outgoing_chips_;
@@ -108,7 +142,7 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
             protocol::kAdslFrameBytes, outgoing_chips_));
         plan.tx_at_us = tx_at_us;
         plan.lbt = !a.force;
-        plan.lbt_threshold_dbm = timing::Transmitter::kBusyThresholdDbm;
+        plan.lbt_threshold_dbm = noise_.threshold_dbm(lbt_retry_);
         plan.backoff_min_ms = timing::Transmitter::kBackoffMinMs;
         plan.backoff_max_ms = timing::Transmitter::kBackoffMaxMs;
     }
@@ -134,11 +168,17 @@ void RadioService::collect_outcome(uint32_t now_ms) {
     if (context_.state.tx_ok != seen_tx_ok_) {
         seen_tx_ok_ = context_.state.tx_ok;
         transmitter_.sent(tx_utc_, now_ms, tx_forced_);
+        lbt_retry_ = 0;
         tx_armed_ = false;
     }
     if (context_.state.tx_busy != seen_tx_busy_) {
         seen_tx_busy_ = context_.state.tx_busy;
         transmitter_.busy(now_ms);
+        // A dwell that never got a word in buys the next one 3 dB of tolerance
+        // (oss/nrf52-ogn-tracker src/ogn-radio.cpp:851, which escalates inside
+        // one slot; our dwell is one carrier sample per backoff interval, so the
+        // escalation is per dwell and §D.3's forced transmission is what ends it).
+        if (lbt_retry_ < 0xFF) lbt_retry_++;
         tx_armed_ = false;
     }
 }

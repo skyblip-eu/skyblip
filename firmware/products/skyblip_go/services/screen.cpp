@@ -3,15 +3,75 @@
 #include <cstring>
 
 #include "core/flight/atmosphere.h"
+#include "core/power/cutoff.h"
 #include "core/protocol/nmea_out.h"
 #include "core/util/units.h"
 #include "ui/widgets/wordmark.h"
 
 namespace skyblip::go {
 
-void ScreenService::tick(uint32_t now_ms) {
+// SoftRF plays a six-note jingle on the very first fix
+// (oss/SoftRF-lyusupov .../src/platform/nRF52.cpp:2767-2787); the moshe-braner
+// fork adds a two-tone confirmation and then waits before it transmits. This is
+// the confirmation half. It runs before the display checks below because a
+// device with no panel fitted still owes the pilot the answer.
+void ScreenService::annunciate_first_fix(uint32_t now_ms) {
+    const bool quiet = context_.state.alarm_level == 0;
+    if (context_.state.own.fix_acquired) {
+        dirty_ = true;
+        if (!context_.state.settings.alarm_enabled || !quiet) return;
+        context_.roles.annunciator.alarm(kFirstFixToneLevel, context_.state.settings.alarm_volume);
+        tone_since_ms_ = now_ms;
+        tone_on_ = true;
+        return;
+    }
+    if (!tone_on_ || now_ms - tone_since_ms_ < kFirstFixToneMs) return;
+    tone_on_ = false;
+    if (quiet) context_.roles.annunciator.silence();
+}
+
+// INFO: cf 02aug26 One press means one thing at a time. While a prompt stands
+// there is no page cycling at all, so the press a pilot makes to change pages
+// cannot be spent on an authorisation - and a lone press at a prompt refuses it
+// rather than doing nothing, which is the same press failing closed.
+void ScreenService::handle_input(uint32_t now_ms) {
+    const comms::Pending pending = config_ ? config_->pending() : comms::Pending::None;
+    if (pending != prompt_) {
+        prompt_ = pending;
+        dirty_ = true;
+        want_full_ = true;
+        if (pending == comms::Pending::None)
+            gesture_.disarm();
+        else
+            gesture_.arm(now_ms);
+    }
+
     messages::ButtonEvent press{};
-    while (context_.bus.input.pop(press)) next_page();
+    while (context_.bus.input.pop(press)) {
+        if (prompt_ == comms::Pending::None) {
+            next_page();
+            continue;
+        }
+        resolve(gesture_.press(now_ms));
+    }
+    if (prompt_ != comms::Pending::None) resolve(gesture_.tick(now_ms));
+}
+
+void ScreenService::resolve(ui::Gesture gesture) {
+    if (gesture == ui::Gesture::None) return;
+    if (gesture == ui::Gesture::Confirm)
+        config_->confirm();
+    else
+        config_->cancel();
+    prompt_ = comms::Pending::None;
+    gesture_.disarm();
+    dirty_ = true;
+    want_full_ = true;
+}
+
+void ScreenService::tick(uint32_t now_ms) {
+    annunciate_first_fix(now_ms);
+    handle_input(now_ms);
 
     if (context_.state.alarm_level != last_alarm_) {
         last_alarm_ = context_.state.alarm_level;
@@ -98,7 +158,20 @@ void ScreenService::set_power(bool on) {
     context_.roles.display.power_off();
 }
 
+void ScreenService::draw_prompt() {
+    ui::ConfirmSnapshot snapshot;
+    snapshot.title = comms::pending_title(prompt_);
+    snapshot.detail = comms::pending_detail(prompt_);
+    snapshot.timeout_s = comms::kConfirmWindowMs / 1000;
+    ui::draw_confirm(fb_, snapshot);
+}
+
 void ScreenService::render() {
+    if (prompt_ != comms::Pending::None) {
+        draw_prompt();
+        return;
+    }
+
     fb_.clear(/*white=*/true);
 
     const messages::OwnState& own = context_.state.own;
@@ -133,12 +206,13 @@ void ScreenService::render() {
         case Page::SixPack: {
             ui::SixPackSnapshot snap;
             snap.have_data = own.fix_valid;
+            snap.units = settings.units;
             // 1 m/s = 1.94384 kt, from quarter-m/s.
             snap.speed_kt = (static_cast<int32_t>(own.speed_q) * 194384) / (4 * 100000);
             snap.alt_ft = to_feet(Metres(own.alt_m)).v;
             snap.vs_fpm = climb_fpm();
             snap.track_deg = to_degrees(Cordic9(own.track_c9)).v;
-            snap.turn_dps = context_.state.turn_dps;
+            snap.turn_dps = own.turn_dps;
             ui::draw_sixpack(fb_, snap);
             break;
         }
@@ -156,6 +230,7 @@ void ScreenService::render() {
         default: {
             ui::StatusSnapshot snap;
             snap.device_addr = settings.device_addr;
+            snap.callsign = settings.callsign;
             snap.fix_valid = own.fix_valid;
             snap.utc_valid = own.utc_valid;
             snap.pps_locked = context_.state.clock.pps_locked;
@@ -173,6 +248,12 @@ void ScreenService::render() {
             snap.battery_mv = context_.state.battery.millivolts;
             snap.battery_percent = context_.state.battery.percent;
             snap.charging = context_.state.battery.charging;
+            // The decision belongs to core/power's CutoffMonitor, which has
+            // already debounced it, ignored a cell on the cable and thrown out a
+            // floating sense. The page reports what it decided.
+            const power::PowerLevel level = context_.state.power_level;
+            snap.battery_low =
+                level == power::PowerLevel::Low || level == power::PowerLevel::Cutoff;
             snap.pressure_pa = context_.state.pressure_pa;
             snap.qnh_pa = context_.state.qnh_pa;
             if (context_.state.baro_active) {

@@ -31,10 +31,19 @@ constexpr int32_t kOne = 16384;
 constexpr int32_t kTurn = 65536;
 
 constexpr int32_t kAsiFullScaleKt = 160;
+// 300 km/h is 162 kt: the same arc for the same aeroplane, so a pilot who
+// switches units keeps the needle position they learned.
+constexpr int32_t kAsiFullScaleKmh = 300;
 constexpr int32_t kAsiSpanDeg = 300;
+// A metric altimeter is graduated 100 m to the mark and 1000 m to the turn of
+// the long hand, which is the same three-pointer geometry as 100 ft and
+// 1000 ft. Only the number under it changes.
 constexpr int32_t kAltHundredsPerTurn = 1000;
 constexpr int32_t kAltThousandsPerTurn = 10000;
 constexpr int32_t kVsiFullScaleFpm = 2000;
+// Tenths of a metre per second: +-10 m/s is the 2000 fpm arc, and a vario is
+// read to the decimal.
+constexpr int32_t kVsiFullScaleDmps = 100;
 constexpr int32_t kVsiSpanDeg = 80;
 constexpr int32_t kVsiZeroDeg = -90;
 constexpr int32_t kPitchFullScaleDeg = 20;
@@ -68,13 +77,13 @@ void text_center(Framebuffer& fb, int cx, int y, const char* s, int scale = 1) {
 }
 
 void value_center(Framebuffer& fb, int cx, int y, bool have, int32_t v, bool no_plus,
-                  uint8_t min_digits = 1) {
+                  uint8_t min_digits = 1, uint8_t decimals = 0) {
     if (!have) {
         text_center(fb, cx, y, "---");
         return;
     }
     char buf[12];
-    int n = fmt_int(buf, v, min_digits, 0, no_plus);
+    int n = fmt_int(buf, v, min_digits, decimals, no_plus);
     buf[n] = 0;
     text_center(fb, cx, y, buf);
 }
@@ -182,25 +191,33 @@ void draw_sixpack(Framebuffer& fb, const SixPackSnapshot& s) {
     const int32_t pitch = flight_path_deg(s.vs_fpm, kt);
     const int32_t bank = bank_deg(s.turn_dps, kt);
 
-    dial(fb, kCx[0], kCy[0], "GS KT");
+    const bool metric = s.units == settings::Units::Metric;
+    const int32_t speed = metric ? (kt * 1852) / 1000 : kt;
+    const int32_t speed_full = metric ? kAsiFullScaleKmh : kAsiFullScaleKt;
+    const int32_t alt = metric ? (s.alt_ft * 3048) / 10000 : s.alt_ft;
+    const int32_t vs = metric ? (s.vs_fpm * 508) / 10000 : s.vs_fpm;
+    const int32_t vs_full = metric ? kVsiFullScaleDmps : kVsiFullScaleFpm;
+
+    dial(fb, kCx[0], kCy[0], metric ? "GS KM/H" : "GS KT");
     if (s.have_data)
-        needle(fb, kCx[0], kCy[0], (clampi(kt, 0, kAsiFullScaleKt) * kAsiSpanDeg) / kAsiFullScaleKt,
+        needle(fb, kCx[0], kCy[0], (clampi(speed, 0, speed_full) * kAsiSpanDeg) / speed_full,
                kNeedle);
-    value_center(fb, kCx[0], kCy[0] + kValueDy, s.have_data, kt, true);
+    value_center(fb, kCx[0], kCy[0] + kValueDy, s.have_data, speed, true);
 
     dial(fb, kCx[1], kCy[0], "ATT");
     if (s.have_data) attitude(fb, kCx[1], kCy[0], pitch, bank);
     value_center(fb, kCx[1], kCy[0] + kValueDy, s.have_data, pitch, false);
 
-    dial(fb, kCx[2], kCy[0], "ALT FT", kAltTicks);
+    dial(fb, kCx[2], kCy[0], metric ? "ALT M" : "ALT FT", kAltTicks);
     if (s.have_data) {
-        const int32_t alt = s.alt_ft < 0 ? 0 : s.alt_ft;
-        needle(fb, kCx[2], kCy[0], ((alt % kAltThousandsPerTurn) * 360) / kAltThousandsPerTurn,
-               kShortNeedle, /*thick=*/true);
-        needle(fb, kCx[2], kCy[0], ((alt % kAltHundredsPerTurn) * 360) / kAltHundredsPerTurn,
+        const int32_t on_scale = alt < 0 ? 0 : alt;
+        needle(fb, kCx[2], kCy[0], ((on_scale % kAltThousandsPerTurn) * 360) / kAltThousandsPerTurn,
+               kShortNeedle,
+               /*thick=*/true);
+        needle(fb, kCx[2], kCy[0], ((on_scale % kAltHundredsPerTurn) * 360) / kAltHundredsPerTurn,
                kNeedle);
     }
-    value_center(fb, kCx[2], kCy[0] + kValueDy, s.have_data, s.alt_ft, true);
+    value_center(fb, kCx[2], kCy[0] + kValueDy, s.have_data, alt, true);
 
     dial(fb, kCx[0], kCy[1], "TURN");
     if (s.have_data) turn_coordinator(fb, kCx[0], kCy[1], bank);
@@ -218,13 +235,11 @@ void draw_sixpack(Framebuffer& fb, const SixPackSnapshot& s) {
     dial(fb, kCx[1], kCy[1], track, s.have_data ? 0 : kTicks);
     if (s.have_data) heading_card(fb, kCx[1], kCy[1], s.track_deg % 360);
 
-    dial(fb, kCx[2], kCy[1], "VS FPM");
+    dial(fb, kCx[2], kCy[1], metric ? "VS M/S" : "VS FPM");
     if (s.have_data)
         needle(fb, kCx[2], kCy[1],
-               kVsiZeroDeg + (clampi(s.vs_fpm, -kVsiFullScaleFpm, kVsiFullScaleFpm) * kVsiSpanDeg) /
-                                 kVsiFullScaleFpm,
-               kNeedle);
-    value_center(fb, kCx[2], kCy[1] + kValueDy, s.have_data, s.vs_fpm, false);
+               kVsiZeroDeg + (clampi(vs, -vs_full, vs_full) * kVsiSpanDeg) / vs_full, kNeedle);
+    value_center(fb, kCx[2], kCy[1] + kValueDy, s.have_data, vs, false, 1, metric ? 1 : 0);
 }
 
 }  // namespace skyblip::ui
