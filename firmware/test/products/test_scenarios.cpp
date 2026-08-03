@@ -195,6 +195,11 @@ struct Encounter {
     // The tracker needs two reports from a target before it has a turn rate for
     // it, so everything before this is the model grading a stranger.
     static constexpr uint32_t kSettledMs = 5000;
+    // Recognising the pair only lowers what the tracker GRADES it. What the ear
+    // gets falls one re-notification window later, because a level the device
+    // has already said out loud is only taken back after the contact has been
+    // calmer than it for that whole window (traffic::notify_for).
+    static constexpr uint32_t kQuietFromMs = kSettledMs + traffic::kRenotifyMs;
 
     bool reached[4]{};
     uint32_t first_ms[4]{};
@@ -202,6 +207,13 @@ struct Encounter {
     int32_t first_true_m[4]{};
     uint8_t last_spoken_level{0};
     uint32_t last_spoken_ms{0};
+    // The loudest thing the pilot's ear got, either side of the settling point.
+    // core/annunciation gives every level its own rhythm, so the buzzer is off
+    // as often as it is on and the peak over time is the honest reading: a
+    // single sample can land in the gap between two pulses of an urgent train.
+    uint8_t spoken_peak_before_settle{0};
+    uint8_t spoken_peak_after_settle{0};
+    uint32_t last_spoken_above_info_ms{0};
     uint8_t settled_peak_level{0};
     int32_t min_true_m{999999};
     uint32_t min_true_ms{0};
@@ -224,15 +236,22 @@ Encounter measure(simulator::Simulator& s) {
     uint8_t spoken = 0;
     for (uint32_t t = 0; t <= until; t += simulator::Simulator::kStepMs) {
         s.step(t);
-        if (t % Encounter::kSampleMs != 0) continue;
 
+        // Every step, not every sample: the urgent train's pulses are 90 ms and
+        // a 100 ms sample would step straight over them.
         if (s.alarm_level() != spoken) {
             spoken = s.alarm_level();
             if (spoken != 0) {
                 e.last_spoken_level = spoken;
                 e.last_spoken_ms = t;
+                if (spoken > traffic::kSuppressedLevel) e.last_spoken_above_info_ms = t;
+                uint8_t& peak = t >= Encounter::kQuietFromMs ? e.spoken_peak_after_settle
+                                                             : e.spoken_peak_before_settle;
+                if (spoken > peak) peak = spoken;
             }
         }
+
+        if (t % Encounter::kSampleMs != 0) continue;
 
         const bus::State& state = s.product().state();
         const traffic::Target* target = only_target(state);
@@ -270,6 +289,11 @@ void report(const Encounter& e) {
                                   << " m, true separation=" << e.first_true_m[3] << " m");
     MESSAGE("last annunciated level " << static_cast<int>(e.last_spoken_level)
                                       << " at t=" << e.last_spoken_ms << " ms");
+    MESSAGE("loudest annunciated: " << static_cast<int>(e.spoken_peak_before_settle) << " before "
+                                    << Encounter::kQuietFromMs << " ms, "
+                                    << static_cast<int>(e.spoken_peak_after_settle) << " after; "
+                                    << "last above info at t=" << e.last_spoken_above_info_ms
+                                    << " ms");
     MESSAGE("closest approach: " << e.min_true_m << " m true at t=" << e.min_true_ms
                                  << " ms, published level " << static_cast<int>(e.level_at_min_true)
                                  << ", closest the model ever saw " << e.min_reported_m << " m");
@@ -292,8 +316,9 @@ void report(const Encounter& e) {
 // Today's model says the wrong thing twice. For the first two and a half
 // seconds, before the tracker has two reports to differentiate a turn rate out
 // of, it grades the pair urgent at 130 m of true separation on 2 m/s of closure.
-// From then on the co-circling suppression holds it at info - and it stays at
-// info through the 11 m crossing at 13.9 s. The geometry-only grade underneath
+// From then on the co-circling suppression holds it at info, the buzzer goes
+// quiet one re-notification window later, and both stay that way through the
+// 11 m crossing at 13.9 s. The geometry-only grade underneath
 // is no better: it is urgent for the whole approach and falls to info exactly at
 // the near miss, because at the closest point the range rate is zero by
 // definition.
@@ -316,8 +341,13 @@ TEST_CASE("scenario: two gliders sharing a thermal core pass inside 15 m in sile
     CHECK(e.reached[3]);
     CHECK(e.first_ms[3] < Encounter::kSettledMs);
     CHECK(e.first_true_m[3] > 100);
-    CHECK(e.last_spoken_level == 3);
-    CHECK(e.last_spoken_ms < Encounter::kSettledMs);
+    CHECK(e.spoken_peak_before_settle == 3);
+    CHECK(e.last_spoken_above_info_ms < Encounter::kQuietFromMs);
+    // Nothing louder than info, and in fact nothing at all: info is announced
+    // once per escalation, so a level that stays at 1 is a buzzer that stays
+    // quiet. The pilot hears one false urgent early and then silence through
+    // the near miss.
+    CHECK(e.spoken_peak_after_settle <= traffic::kSuppressedLevel);
 
     // And then silence, all the way through the near miss.
     CHECK(e.settled_peak_level == traffic::kSuppressedLevel);
