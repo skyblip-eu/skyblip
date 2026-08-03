@@ -96,6 +96,12 @@ class ConfigService {
     void on_link_down(const messages::LinkDown& down);
     void on_rx(const messages::RxFrame& frame);
 
+    // Whether anyone is listening. Exported because it is the one fact about
+    // this service that no reply reveals until the gauge happens to move, and a
+    // product test has to be able to assert that a connection reached it.
+    bool link_up() const { return link_up_; }
+    uint16_t session() const { return session_; }
+
     // The values core/power already decided: state of charge, the millivolt
     // reading, whether the charger is holding the rail, and the level
     // core/power's cutoff rule made of the same samples. This service carries

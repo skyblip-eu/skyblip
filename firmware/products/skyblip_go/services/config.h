@@ -42,6 +42,7 @@ class ConfigLinkService : public runtime::Service {
     static constexpr size_t kBlobCap = 64;
 
     void load();
+    void drain_link_events();
     void take_request(uint32_t now_ms);
     void drain_settings(uint32_t now_ms);
     void persist();

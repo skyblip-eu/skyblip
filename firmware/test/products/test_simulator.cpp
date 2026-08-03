@@ -215,6 +215,37 @@ TEST_CASE("simulator: a threat going away does not buzz the motor again") {
     CHECK(h.vibro_ms() == after_escalation);  // unchanged: no pulse on the way down
 }
 
+// The world can connect a phone and take it away again, which is the seam this
+// tree did not have: before it, no host code and no board could raise a link at
+// all, so the unsolicited gauge push could only ever be exercised by calling the
+// service by hand and was dead on a real device.
+TEST_CASE("simulator: a phone connects, the gauge pushes, the phone leaves and it stops") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_battery_mv(4050);
+    run(h, 0, 4000);
+    REQUIRE_FALSE(h.companion_connected());
+
+    h.world().connect_companion();
+    run(h, 4000, 4200);
+    REQUIRE(h.companion_connected());
+    const int before = h.companion_frames(messages::Endpoint::Config);
+
+    h.world().set_battery_mv(3600);
+    run(h, 4200, 9000);
+    const int pushed = h.companion_frames(messages::Endpoint::Config);
+    CHECK(pushed > before);
+
+    h.world().disconnect_companion();
+    run(h, 9000, 9200);
+    REQUIRE_FALSE(h.companion_connected());
+    h.world().set_external_power(true);
+    h.world().set_battery_mv(4100);
+    run(h, 9200, 15000);
+    CHECK(h.companion_frames(messages::Endpoint::Config) == pushed);
+}
+
 // The same call the page's "+ Aircraft" button and the terminal's [j] make. If
 // this passes and the page still shows nothing, the gap is in the shell, not in
 // the receive path.

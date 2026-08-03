@@ -49,6 +49,13 @@ class Simulator {
     World& world() { return world_; }
     platform::host::Platform& platform() { return platform_; }
 
+    // What the device made of the phone the world connected: true only once the
+    // event has travelled platform -> board -> bus -> config service.
+    bool companion_connected() { return product_.config().config().link_up(); }
+    int companion_frames(messages::Endpoint endpoint) {
+        return platform_.link().count_on(endpoint);
+    }
+
     const ui::Framebuffer& panel() { return platform_.chips().epd.framebuffer(); }
     // Firmware intent: the panel itself deep-sleeps between refreshes.
     bool panel_powered() { return product_.screen().powered(); }

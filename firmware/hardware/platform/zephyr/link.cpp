@@ -9,11 +9,13 @@
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/kernel.h>
 
+#include "core/comms/link_session.h"
 #include "core/util/fifo.h"
 
 namespace skyblip::platform::zephyr {
 
 using skyblip::messages::Endpoint;
+using skyblip::messages::LinkEvent;
 using skyblip::messages::RxFrame;
 
 namespace {
@@ -36,15 +38,28 @@ static struct bt_uuid_128 log_uuid = BT_UUID_INIT_128(SKB_UUID(0x0004));
 constexpr uint16_t kNotifyHeaderBytes = 3;
 
 Fifo<RxFrame, 8> g_rx;
+// The same lock the inbound frames use, because it guards the same handover: a
+// Bluetooth callback writes, the service loop reads, and a lifecycle event
+// interleaved with a frame must not tear either of them.
 struct k_spinlock g_lock;
+comms::LinkSession g_session;
 struct bt_conn* g_conn = nullptr;
 bool g_nmea_subscribed = false;
 bool g_cfg_subscribed = false;
 bool g_log_subscribed = false;
 
+uint16_t session_of(struct bt_conn* conn) {
+    return static_cast<uint16_t>(reinterpret_cast<uintptr_t>(conn));
+}
+
+uint16_t payload_from_mtu(uint16_t mtu) {
+    return mtu > kNotifyHeaderBytes ? static_cast<uint16_t>(mtu - kNotifyHeaderBytes)
+                                    : static_cast<uint16_t>(0);
+}
+
 void push_rx(struct bt_conn* conn, Endpoint endpoint, const void* buf, uint16_t len) {
     RxFrame f{};
-    f.session_id = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(conn));
+    f.session_id = session_of(conn);
     f.endpoint = endpoint;
     f.len = len > f.data.size() ? static_cast<uint16_t>(f.data.size()) : len;
     const uint8_t* p = static_cast<const uint8_t*>(buf);
@@ -104,16 +119,43 @@ BT_GATT_SERVICE_DEFINE(skb_svc, BT_GATT_PRIMARY_SERVICE(&svc_uuid),
                                               BT_GATT_PERM_WRITE, nullptr, on_log_write, nullptr),
                        BT_GATT_CCC(log_ccc, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
 
+// INFO: le 04aug26 The three callbacks are the whole producer side, and none of
+// them touches a service: they hand the connection to comms::LinkSession under
+// the spinlock exactly as a config write is handed to g_rx, and the board drains
+// both onto the bus from the service loop. A Bluetooth callback runs on the host
+// stack's own thread, so calling into a service from here would be a second path
+// into core/ with no critical section around it.
 void connected(struct bt_conn* conn, uint8_t err) {
-    if (!err) g_conn = bt_conn_ref(conn);
+    if (err) return;
+    g_conn = bt_conn_ref(conn);
+    k_spinlock_key_t key = k_spin_lock(&g_lock);
+    g_session.connected(session_of(conn), payload_from_mtu(bt_gatt_get_mtu(conn)));
+    k_spin_unlock(&g_lock, key);
 }
 void disconnected(struct bt_conn* conn, uint8_t /*reason*/) {
-    if (g_conn == conn) {
-        bt_conn_unref(g_conn);
-        g_conn = nullptr;
-    }
+    if (g_conn != conn) return;
+    bt_conn_unref(g_conn);
+    g_conn = nullptr;
+    k_spinlock_key_t key = k_spin_lock(&g_lock);
+    g_session.disconnected(session_of(conn));
+    k_spin_unlock(&g_lock, key);
 }
 BT_CONN_CB_DEFINE(conn_cbs) = {.connected = connected, .disconnected = disconnected};
+
+// The central's ATT_EXCHANGE_MTU_REQ, landing after the connection is up: this is
+// where the payload figure is actually learnt, so it is where the refreshed
+// figure goes onto the bus. tx is our side of the pair - what a notification we
+// send may carry.
+void mtu_updated(struct bt_conn* conn, uint16_t tx, uint16_t /*rx*/) {
+    if (g_conn != conn) return;
+    k_spinlock_key_t key = k_spin_lock(&g_lock);
+    g_session.payload_changed(payload_from_mtu(tx));
+    k_spin_unlock(&g_lock, key);
+}
+// Registered rather than section-defined, unlike the connection callbacks above:
+// bt_gatt_cb is a runtime list, and this is the call every Zephyr release offers
+// for it.
+struct bt_gatt_cb gatt_cbs = {.att_mtu_updated = mtu_updated};
 
 const struct bt_data adv[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
@@ -124,6 +166,7 @@ const struct bt_data adv[] = {
 
 Status Link::begin() {
     if (bt_enable(nullptr) != 0) return Status::Down;
+    bt_gatt_cb_register(&gatt_cbs);
     if (bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, adv, ARRAY_SIZE(adv), nullptr, 0) != 0)
         return Status::Down;
     return Status::Ok;
@@ -138,9 +181,7 @@ Status Link::begin() {
 // stops.
 uint16_t Link::payload_bytes() const {
     if (!g_conn) return hal::kMinimumLinkPayload;
-    const uint16_t mtu = bt_gatt_get_mtu(g_conn);
-    const uint16_t payload =
-        mtu > kNotifyHeaderBytes ? static_cast<uint16_t>(mtu - kNotifyHeaderBytes) : 0;
+    const uint16_t payload = payload_from_mtu(bt_gatt_get_mtu(g_conn));
     return payload < hal::kMinimumLinkPayload ? hal::kMinimumLinkPayload : payload;
 }
 
@@ -171,6 +212,13 @@ bool Link::pop_rx(RxFrame& out) {
     if (!r.ok()) return false;
     out = r.value();
     return true;
+}
+
+bool Link::pop_event(LinkEvent& out) {
+    k_spinlock_key_t key = k_spin_lock(&g_lock);
+    const bool got = g_session.pop(out);
+    k_spin_unlock(&g_lock, key);
+    return got;
 }
 
 Link& link() {

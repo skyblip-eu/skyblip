@@ -22,6 +22,12 @@ class Link : public hal::Link {
     // Non-blocking: pop one queued inbound frame (config writes). The shell
     // drains this into App::on_link_rx(). Returns false when empty.
     bool pop_rx(messages::RxFrame& out);
+
+    // The same handover for the connection itself: the Bluetooth callbacks fill
+    // a comms::LinkSession, the board drains it onto bus.link_events beside the
+    // frames. The board calls this on both platforms, so a port that stops
+    // offering it stops building.
+    bool pop_event(messages::LinkEvent& out);
 };
 
 Link& link();
