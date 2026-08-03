@@ -122,6 +122,34 @@ TEST_CASE("radio: carrier sense reads the level on the tuned channel") {
     CHECK(r.rssi_inst() == -48);
 }
 
+// EN 300 220-2 V3.3.1 §4.6.3.2 wants the assessment averaged over an interval,
+// and this part has nothing to average it with: GetRssiInst is an instant by
+// definition (DS 13.5.2) and channel activity detection answers for a LoRa
+// preamble, not a GFSK carrier. So the interval is a run of reads, and one read
+// has to be able to differ from the next.
+TEST_CASE("radio: an assessment interval is a run of reads, each answering for its own instant") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    r.configure_mband(MbandConfig{});
+    r.start_receive();
+
+    const int8_t levels[4] = {-112, -112, -44, -112};
+    chip.set_rssi_sequence(levels, 4);
+    for (int pass = 0; pass < 3; pass++)
+        for (int i = 0; i < 4; i++) {
+            CAPTURE(pass);
+            CAPTURE(i);
+            CHECK(r.rssi_inst() == levels[i]);
+        }
+
+    // With no sequence loaded the chip answers one steady level, as before.
+    chip.set_rssi_sequence(nullptr, 0);
+    chip.rssi_dbm = -97;
+    CHECK(r.rssi_inst() == -97);
+    CHECK(r.rssi_inst() == -97);
+}
+
 TEST_CASE("radio: a delivered packet carries the level it arrived with") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);

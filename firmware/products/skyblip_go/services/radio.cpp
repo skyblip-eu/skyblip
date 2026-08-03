@@ -14,6 +14,10 @@ void RadioService::tick(uint32_t now_ms) {
     context_.state.plan = plan;
     take_carrier_samples();
     collect_outcome(now_ms);
+    // The threshold the next dwell will carry, on the bus for the companion
+    // link: EN 300 220-2 V3.3.1 §4.6.2.3 evidence, published after the outcome
+    // that moved the retry rather than before it.
+    context_.state.carrier_sense_dbm = lbt_threshold_dbm();
 
     const hal::RfMode want = mode_for(plan);
     const bool same_dwell = want == armed_ && plan.freq_hz == armed_freq_;
@@ -32,8 +36,9 @@ int RadioService::phase_ms(uint32_t now_ms) const {
     return static_cast<int>(now_ms % 1000);
 }
 
-// The executor measures, the policy averages. One sample per pass is all the
-// executor can have taken between two of them at a 15 ms minimum backoff.
+// The executor assesses, the policy averages what the assessments report. One
+// assessment per pass is all the executor can have made between two of them at
+// a 15 ms minimum backoff.
 void RadioService::take_carrier_samples() {
     const hal::RfCarrier carrier = context_.roles.rf.carrier();
     if (carrier.samples == seen_carrier_samples_) return;

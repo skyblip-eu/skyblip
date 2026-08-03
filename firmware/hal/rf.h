@@ -41,9 +41,10 @@ struct RfPlan {
     uint32_t backoff_max_ms{250};
 };
 
-// What the executor measured on the tuned channel, and how many measurements it
-// has taken. Averaging them into a noise floor and turning that into a
-// threshold is policy (core/timing/channel.h): the executor only reports.
+// What the executor measured on the tuned channel, and how many clear-channel
+// assessments it has completed. One assessment is a window of readings, not one
+// reading: the interval, the combination and the threshold in front of them are
+// policy (core/timing/channel.h), and the executor only reports the result.
 struct RfCarrier {
     int8_t dbm{0};
     uint32_t samples{0};

@@ -11,6 +11,10 @@ namespace skyblip::comms {
 namespace {
 // Seven counts, comma-joined: cheaper than a JSON array over a FLAT-JSON
 // writer that does not have one, and just as readable on a bench terminal.
+// A bench run collects one PPS edge a second for hours, so a bucket reaches
+// seven figures and the text has to have room for the widest count there is:
+// a histogram that silently loses its last bucket is not evidence.
+constexpr int kBucketsTextCap = timing::SlotTimingStats::kBuckets * 11 + 1;
 int format_buckets(const timing::SlotTimingStats& stats, bool pps, char* out, int cap) {
     int n = 0;
     for (int i = 0; i < timing::SlotTimingStats::kBuckets && n < cap - 1; i++) {
@@ -179,12 +183,12 @@ void ConfigService::send_timing() {
         ack(false, "no_stats");
         return;
     }
-    char pps[96];
-    char dwell[96];
+    char pps[kBucketsTextCap];
+    char dwell[kBucketsTextCap];
     format_buckets(*timing_stats_, true, pps, sizeof(pps));
     format_buckets(*timing_stats_, false, dwell, sizeof(dwell));
 
-    char buf[256];
+    char buf[512];
     json::Writer w(buf, sizeof(buf));
     w.kv_str("cmd", "timing");
     w.kv_str("pps_us", pps);
@@ -196,6 +200,9 @@ void ConfigService::send_timing() {
     w.kv_int("holdover", static_cast<long>(timing_stats_->holdover_events()));
     w.kv_int("missed", static_cast<long>(timing_stats_->missed()));
     w.kv_int("refused", static_cast<long>(timing_stats_->refused()));
+    w.kv_int("carrier_sense_dbm", carrier_sense_dbm_);
+    w.kv_int("carrier_sense_ceiling_dbm", timing::NoiseFloor::kThresholdCeilingDbm);
+    w.kv_int("carrier_sense_us", static_cast<long>(timing::CarrierSense::kAssessmentUs));
     w.finish();
     reply(buf);
 }

@@ -5,6 +5,7 @@
 #include <zephyr/kernel.h>
 
 #include "core/bus/bus.h"
+#include "core/timing/channel.h"
 #include "hal/clock.h"
 #include "hal/rf.h"
 #include "hardware/parts/sx1262/sx1262.h"
@@ -143,11 +144,22 @@ class Rf : public hal::Rf {
         return static_cast<uint64_t>(plan.backoff_min_ms + (backoff_seed_ >> 16) % span) * 1000;
     }
 
-    // One live level, reported and not judged. The average behind it and the
-    // threshold in front of it are core/timing/channel.h's.
+    // One clear-channel assessment, reported and not judged. The chip has no
+    // averaging block, so the interval of EN 300 220-2 V3.3.1 §4.6.3.2 is a run
+    // of GetRssiInst reads spaced across it; the last read is at least
+    // kAssessmentUs after the first whatever a read costs on this SPI bus. The
+    // combination and the threshold in front of it are core/timing/channel.h's.
     int8_t sample_carrier() {
         if (radio_.mode() != parts::RadioMode::Rx) return carrier_.dbm;
-        carrier_.dbm = radio_.rssi_inst();
+        int8_t window[timing::CarrierSense::kSamples];
+        const uint64_t opened_us = clock_.micros();
+        for (uint8_t i = 0; i < timing::CarrierSense::kSamples; i++) {
+            const uint64_t due_us =
+                opened_us + static_cast<uint64_t>(i) * timing::CarrierSense::kSampleSpacingUs;
+            while (clock_.micros() < due_us) k_busy_wait(1);
+            window[i] = radio_.rssi_inst();
+        }
+        carrier_.dbm = timing::CarrierSense::mean_dbm(window, timing::CarrierSense::kSamples);
         carrier_.samples++;
         return carrier_.dbm;
     }

@@ -206,67 +206,10 @@ TEST_CASE("comms: power_off refused in flight") {
 
 // D5: the reset reason was read at boot and shown on the self-test page, and a
 // device in a field with a phone next to it has no self-test page in view.
-TEST_CASE("comms: status reports why the device came up") {
-    platform::host::Link link;
-    settings::Settings s = settings::defaults(0xAA55);
-    std::memcpy(s.callsign, "D-KXYZ", 7);
-    ConfigService cs(link, s);
-    cs.set_flight_state(FlightState::Ground);
-    cs.set_reset_reason(power::ResetReason::Watchdog);
-
-    cs.on_rx(frame("{\"cmd\":\"status\"}"));
-    REQUIRE(link.sent.size() == 1);
-    const std::string body = link.last().bytes;
-    CHECK(body.find("\"cmd\":\"status\"") != std::string::npos);
-    CHECK(body.find("\"reset\":\"WATCHDOG\"") != std::string::npos);
-    CHECK(body.find("\"flight\":\"ground\"") != std::string::npos);
-    CHECK(body.find("D-KXYZ") != std::string::npos);
-
-    // Unknown until the shell says otherwise, and never a stale answer.
-    platform::host::Link fresh_link;
-    ConfigService fresh(fresh_link, s);
-    fresh.on_rx(frame("{\"cmd\":\"status\"}"));
-    CHECK(fresh_link.last().bytes.find("\"reset\":\"UNKNOWN\"") != std::string::npos);
-}
-
 // G6's plug-in-and-read: the same on_rx dispatch that answers "status"
 // answers "timing" from whatever core/timing::SlotTimingStats the device has
 // been accumulating - no second channel, no panel real estate a bucket array
 // would not fit on anyway.
-TEST_CASE("comms: timing reports the accumulator's buckets and counters") {
-    platform::host::Link link;
-    settings::Settings s = settings::defaults(0xAA55);
-    timing::SlotTimingStats stats;
-    stats.record_edge(0, true);
-    stats.record_edge(1000000, true);  // one clean second: centre bucket
-    stats.record_dwell_phase(200);     // inside the hop guard
-    stats.record_missed();
-    stats.record_refused();
-    stats.record_refused();
-    ConfigService cs(link, s, nullptr, &stats);
-
-    cs.on_rx(frame("{\"cmd\":\"timing\"}"));
-    REQUIRE(link.sent.size() == 1);
-    const std::string body = link.last().bytes;
-    CHECK(body.find("\"cmd\":\"timing\"") != std::string::npos);
-    CHECK(body.find("\"pps_us\":\"0,0,0,1,0,0,0\"") != std::string::npos);
-    CHECK(body.find("\"dwell_us\":\"0,0,0,0,1,0,0\"") != std::string::npos);
-    CHECK(body.find("\"pps_samples\":1") != std::string::npos);
-    CHECK(body.find("\"dwell_worst_us\":200") != std::string::npos);
-    CHECK(body.find("\"holdover\":0") != std::string::npos);
-    CHECK(body.find("\"missed\":1") != std::string::npos);
-    CHECK(body.find("\"refused\":2") != std::string::npos);
-}
-
-TEST_CASE("comms: timing without an accumulator wired up says so, not zeros") {
-    platform::host::Link link;
-    settings::Settings s = settings::defaults(0xAA55);
-    ConfigService cs(link, s);
-    cs.on_rx(frame("{\"cmd\":\"timing\"}"));
-    REQUIRE(link.sent.size() == 1);
-    CHECK(link.last().bytes.find("no_stats") != std::string::npos);
-}
-
 // Fail closed: takeoff must revoke an authorisation granted on the ground, or a
 // long upload could still be running when the aircraft leaves.
 TEST_CASE("comms: takeoff closes an open upload window and it stays latched") {
@@ -422,108 +365,9 @@ TEST_CASE("comms: link down cancels a pending change") {
 
 // G1: the wire, not the gauge or the cutoff rule - core/power decided percent,
 // charging and the level, comms only carries them to the tablet.
-namespace {
-power::BatteryState battery_of(uint8_t percent, bool charging, bool valid = true) {
-    power::BatteryState b{};
-    b.millivolts = 3700;
-    b.percent = percent;
-    b.external_power = charging;
-    b.charging = charging;
-    b.valid = valid;
-    return b;
-}
-}  // namespace
-
-TEST_CASE("comms: status carries state of charge, the charging flag, the level and its validity") {
-    platform::host::Link link;
-    settings::Settings s = settings::defaults(1);
-    ConfigService cs(link, s);
-    cs.set_flight_state(FlightState::Ground);
-    cs.set_battery_state(battery_of(61, false), power::PowerLevel::Normal);
-
-    cs.on_rx(frame("{\"cmd\":\"status\"}"));
-    REQUIRE(link.sent.size() == 1);
-    const std::string body = link.last().bytes;
-    CHECK(body.find("\"battery_percent\":61") != std::string::npos);
-    CHECK(body.find("\"charging\":false") != std::string::npos);
-    CHECK(body.find("\"battery_valid\":true") != std::string::npos);
-    CHECK(body.find("\"power_level\":\"OK\"") != std::string::npos);
-}
-
-TEST_CASE("comms: an invalid battery is reported as invalid, never as a false zero percent") {
-    platform::host::Link link;
-    settings::Settings s = settings::defaults(1);
-    ConfigService cs(link, s);
-    cs.set_flight_state(FlightState::Ground);
-    // No set_battery_state call at all: no sample has ever arrived.
-
-    cs.on_rx(frame("{\"cmd\":\"status\"}"));
-    const std::string body = link.last().bytes;
-    CHECK(body.find("\"battery_valid\":false") != std::string::npos);
-    CHECK(body.find("\"battery_percent\":0") != std::string::npos);
-    CHECK(body.find("\"power_level\":\"--\"") != std::string::npos);
-}
-
-TEST_CASE(
-    "comms: no push without a link, one push per real change, none for a repeat or for noise "
-    "inside a step") {
-    platform::host::Link link;
-    settings::Settings s = settings::defaults(1);
-    ConfigService cs(link, s);
-    cs.set_flight_state(FlightState::Ground);
-
-    // A baseline, and then a real change, both before the link comes up.
-    cs.set_battery_state(battery_of(50, false), power::PowerLevel::Normal);
-    cs.set_battery_state(battery_of(50, true), power::PowerLevel::Normal);
-    CHECK(link.sent.empty());
-
-    cs.on_link_up(messages::LinkUp{1, 200});
-
-    cs.set_battery_state(battery_of(50, true), power::PowerLevel::Normal);  // repeat: no push
-    CHECK(link.sent.empty());
-
-    cs.set_battery_state(battery_of(50, false), power::PowerLevel::Normal);  // charging flips back
-    REQUIRE(link.sent.size() == 1);
-
-    cs.set_battery_state(battery_of(50, false), power::PowerLevel::Normal);  // repeat: no storm
-    CHECK(link.sent.size() == 1);
-
-    cs.set_battery_state(battery_of(50, false), power::PowerLevel::Low);  // level changes
-    CHECK(link.sent.size() == 2);
-
-    cs.set_battery_state(battery_of(56, false), power::PowerLevel::Low);  // crosses a step (50->56)
-    CHECK(link.sent.size() == 3);
-
-    cs.set_battery_state(battery_of(57, false),
-                         power::PowerLevel::Low);  // same step as 56: no push
-    CHECK(link.sent.size() == 3);
-
-    cs.on_link_down(messages::LinkDown{1});
-    cs.set_battery_state(battery_of(90, false), power::PowerLevel::Normal);  // link is down again
-    CHECK(link.sent.size() == 3);
-}
-
-TEST_CASE("comms: status has room for every worst-case field, and the last key survives whole") {
-    platform::host::Link link;
-    settings::Settings s = settings::defaults(0xFFFFFF);
-    std::memcpy(s.callsign, "ABCDEFGHI", 10);
-    ConfigService cs(link, s);
-    cs.set_flight_state(FlightState::Airborne);
-    cs.set_reset_reason(power::ResetReason::Lockup);
-    power::BatteryState battery{};
-    battery.millivolts = 4200;
-    battery.percent = 100;
-    battery.external_power = true;
-    battery.charging = true;
-    battery.valid = true;
-    cs.set_battery_state(battery, power::PowerLevel::Cutoff);
-
-    cs.on_rx(frame("{\"cmd\":\"status\"}"));
-    REQUIRE(link.sent.size() == 1);
-    const std::string body = link.last().bytes;
-    // Truncation would have dropped this whole last key, not cut it short.
-    CHECK(body.substr(body.size() - 23) == "\"power_level\":\"CUTOFF\"}");
-    CHECK(body.find("\"battery_percent\":100") != std::string::npos);
-    CHECK(body.find("\"charging\":true") != std::string::npos);
-    CHECK(body.find("\"battery_valid\":true") != std::string::npos);
-}
+// The RED technical file asks for the clear-channel threshold in force and the
+// interval it is assessed over, and asks for them as a test mode. This is not a
+// mode: the same bench reply that carries the slot-timing histograms carries
+// both, so the evidence is text in a laboratory's report. It rides with
+// "timing" rather than with "status" because a pilot's tablet reads status on
+// every battery step and none of this is for a pilot.

@@ -2,6 +2,7 @@
 #define SKYBLIP_HARDWARE_PLATFORM_HOST_RF_H
 
 #include "core/bus/bus.h"
+#include "core/timing/channel.h"
 #include "hal/clock.h"
 #include "hal/rf.h"
 #include "hardware/parts/sx1262/sx1262.h"
@@ -94,11 +95,16 @@ class Rf : public hal::Rf {
         radio_.transmit(plan_.tx, plan_.tx_len);
     }
 
-    // One live level, reported and not judged. The average behind it and the
-    // threshold in front of it are core/timing/channel.h's.
+    // The same clear-channel assessment the silicon executor makes, on a clock
+    // the caller advances: virtual time does not move inside a service pass, so
+    // the EN 300 220-2 V3.3.1 §4.6.3.2 interval is expressed as the run of reads
+    // itself and models::Sx1262 answers each one from its level sequence, which
+    // is what a 160 us window sees on air.
     int8_t sample_carrier() {
         if (radio_.mode() != parts::RadioMode::Rx) return carrier_.dbm;
-        carrier_.dbm = radio_.rssi_inst();
+        int8_t window[timing::CarrierSense::kSamples];
+        for (uint8_t i = 0; i < timing::CarrierSense::kSamples; i++) window[i] = radio_.rssi_inst();
+        carrier_.dbm = timing::CarrierSense::mean_dbm(window, timing::CarrierSense::kSamples);
         carrier_.samples++;
         return carrier_.dbm;
     }

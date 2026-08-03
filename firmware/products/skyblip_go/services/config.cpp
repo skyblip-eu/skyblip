@@ -15,6 +15,9 @@ void ConfigLinkService::tick(uint32_t now_ms) {
     // same thing to the update lockout as it does to the transmitter. Nobody
     // calling this is what left flight_ at Unknown, which refuses everything.
     config_.set_flight_state(comms::flight_state_from(context_.state.own.flight_state));
+    // The radio service is the only writer of the threshold in force, exactly as
+    // core/flight is the only writer of the gate above: read it there.
+    config_.set_carrier_sense(context_.state.carrier_sense_dbm);
 
     // INFO: cf 02aug26 core/power decided what the divider reading means and
     // what a low cell is; this hands the already-decided numbers to the link
