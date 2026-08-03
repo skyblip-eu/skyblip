@@ -20,6 +20,33 @@ int8_t NoiseFloor::dbm() const {
     return static_cast<int8_t>(rounded);
 }
 
+namespace {
+// 10^(-d/10) in units of 1/2^20, for d decibels below the loudest reading in
+// the window. A mean of at most kMaxSamples terms cannot be pulled a whole
+// decibel by anything further down than the last entry, so it contributes zero.
+constexpr uint32_t kPowerRatioQ20[] = {1048576, 832914, 661607, 525533, 417446, 331589,
+                                       263390,  209218, 166188, 132008, 104858, 83291,
+                                       66161,   52553,  41745,  33159,  26339};
+constexpr int kPowerRatioSpanDb = static_cast<int>(sizeof(kPowerRatioQ20) / sizeof(uint32_t));
+}  // namespace
+
+int8_t CarrierSense::mean_dbm(const int8_t* samples, uint8_t n) {
+    if (samples == nullptr || n == 0) return 0;
+    if (n > kMaxSamples) n = kMaxSamples;
+    int8_t peak = samples[0];
+    for (uint8_t i = 1; i < n; i++)
+        if (samples[i] > peak) peak = samples[i];
+    uint32_t sum = 0;
+    for (uint8_t i = 0; i < n; i++) {
+        const int down = static_cast<int>(peak) - static_cast<int>(samples[i]);
+        if (down < kPowerRatioSpanDb) sum += kPowerRatioQ20[down];
+    }
+    const uint32_t mean = sum / n;
+    int down = 0;
+    while (down + 1 < kPowerRatioSpanDb && kPowerRatioQ20[down + 1] >= mean) down++;
+    return static_cast<int8_t>(static_cast<int>(peak) - down);
+}
+
 int8_t NoiseFloor::threshold_dbm(uint8_t retry) const {
     int32_t level =
         static_cast<int32_t>(dbm()) + kClearMarginDb + static_cast<int32_t>(retry) * kRetryStepDb;

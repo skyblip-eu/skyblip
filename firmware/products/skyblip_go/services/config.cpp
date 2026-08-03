@@ -15,6 +15,9 @@ void ConfigLinkService::tick(uint32_t now_ms) {
     // same thing to the update lockout as it does to the transmitter. Nobody
     // calling this is what left flight_ at Unknown, which refuses everything.
     config_.set_flight_state(comms::flight_state_from(context_.state.own.flight_state));
+    // The radio service is the only writer of the threshold in force, exactly as
+    // core/flight is the only writer of the gate above: read it there.
+    config_.set_carrier_sense(context_.state.carrier_sense_dbm);
 
     messages::RxFrame frame{};
     while (context_.bus.link_rx.pop(frame)) config_.on_rx(frame);

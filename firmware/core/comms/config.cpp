@@ -117,7 +117,7 @@ const char* ConfigService::flight_name(FlightState fs) {
 }
 
 void ConfigService::send_status() {
-    char buf[192];
+    char buf[256];
     json::Writer w(buf, sizeof(buf));
     w.kv_str("cmd", "status");
     w.kv_int("addr", static_cast<long>(settings_.device_addr));
@@ -125,6 +125,9 @@ void ConfigService::send_status() {
     w.kv_str("reset", power::to_string(reset_reason_));
     w.kv_str("flight", flight_name(flight_));
     w.kv_bool("upload", upload_allowed());
+    w.kv_int("carrier_sense_dbm", carrier_sense_dbm_);
+    w.kv_int("carrier_sense_ceiling_dbm", timing::NoiseFloor::kThresholdCeilingDbm);
+    w.kv_int("carrier_sense_us", static_cast<long>(timing::CarrierSense::kAssessmentUs));
     w.finish();
     reply(buf);
 }

@@ -120,6 +120,12 @@ class Sx1262 : public io::Spi, public io::Gpio {
     }
     void signal_tx_done() { irq_flags = parts::sx::kIrqTxDone; }
 
+    void set_rssi_sequence(const int8_t* levels, uint8_t n) {
+        rssi_sequence_len = n < kRssiSequenceCap ? n : kRssiSequenceCap;
+        rssi_sequence_at = 0;
+        for (uint8_t i = 0; i < rssi_sequence_len; i++) rssi_sequence[i] = levels[i];
+    }
+
     // The chip's own SetTx timeout running out. A SetTx issued with timeout 0
     // has nothing to run out, which is the PA left keyed for ever.
     bool expire_tx() {
@@ -158,6 +164,14 @@ class Sx1262 : public io::Spi, public io::Gpio {
     // the level the last delivered frame arrived with.
     int8_t rssi_dbm{-110};
     int8_t rx_rssi_dbm{-80};
+    // A clear-channel assessment is a run of GetRssiInst reads over an interval,
+    // so the chip has to be able to answer them differently: a level sequence,
+    // walked one entry per read and repeating, standing in for a channel that
+    // changes inside the window. Empty, every read gets rssi_dbm.
+    static constexpr uint8_t kRssiSequenceCap = 16;
+    int8_t rssi_sequence[kRssiSequenceCap]{};
+    uint8_t rssi_sequence_len{0};
+    uint8_t rssi_sequence_at{0};
     uint8_t sync[8]{};
     uint8_t sync_bits{0};
     uint8_t payload_bytes{0};
@@ -198,6 +212,13 @@ class Sx1262 : public io::Spi, public io::Gpio {
    private:
     static bool bit_at(const uint8_t* bytes, int index) {
         return ((bytes[index >> 3] >> (7 - (index & 7))) & 1u) != 0;
+    }
+
+    int8_t next_rssi_dbm() {
+        if (rssi_sequence_len == 0) return rssi_dbm;
+        const int8_t level = rssi_sequence[rssi_sequence_at];
+        rssi_sequence_at = static_cast<uint8_t>((rssi_sequence_at + 1) % rssi_sequence_len);
+        return level;
     }
 
     void note_fault(Fault f) {
@@ -365,7 +386,7 @@ class Sx1262 : public io::Spi, public io::Gpio {
                 if (seq_ == 3) return 0;
                 return 0;
             case parts::sx::kGetRssiInst:
-                if (seq_ == 2) return static_cast<uint8_t>(-2 * rssi_dbm);
+                if (seq_ == 2) return static_cast<uint8_t>(-2 * next_rssi_dbm());
                 return 0;
             case parts::sx::kGetPacketStatus:
                 if (seq_ == 4) return static_cast<uint8_t>(-2 * rx_rssi_dbm);

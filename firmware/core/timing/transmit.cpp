@@ -43,12 +43,13 @@ Transmitter::Attempt Transmitter::attempt(const SlotPlan& plan, uint32_t utc, ui
     const int slot = next_slot();
     if (Scheduler::slot_of(plan.start_ms) != slot) return a;
 
-    // EN 300 220-2 band h1.4 is 1% of any hour. Listen before talk plus backoff
-    // is what makes us polite, and the budget is what makes us provable: at the
-    // design rate of one 5 ms burst per second we sit at half the allowance, so
-    // an empty budget is a fault, and a faulted transmitter that will not stop
-    // is worse for everyone on the band than a quiet one. It blocks, and the
-    // forced transmission of §D.3 does not get an exemption from it.
+    // EN 300 220-2 V3.3.1 Table 4 band M is 1% of any hour, and that limit is
+    // the channel-access route this product declares: the budget is not a
+    // fallback behind listen-before-talk, it is the mechanism. At the design
+    // rate of one 5 ms burst per second we sit at half the allowance, so an
+    // empty budget is a fault, and a faulted transmitter that will not stop is
+    // worse for everyone on the band than a quiet one. It blocks, and the forced
+    // transmission of §D.3 does not get an exemption from it.
     if (!air_.may_spend(now_ms, kAirTimeMs)) {
         a.over_budget = true;
         return a;

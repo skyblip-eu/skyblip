@@ -229,6 +229,30 @@ TEST_CASE("comms: status reports why the device came up") {
     CHECK(fresh_link.last().bytes.find("\"reset\":\"UNKNOWN\"") != std::string::npos);
 }
 
+// The RED technical file asks for the clear-channel threshold in force and the
+// interval it is assessed over, and asks for them as a test mode. This is not a
+// mode: the status reply a laboratory can already ask for on the bench carries
+// both, so the evidence is text in a report rather than a photograph of a page.
+TEST_CASE("comms: status carries the carrier-sense threshold in force and its interval") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(0xAA55);
+    ConfigService cs(link, s);
+
+    // Before the radio service has said anything, the cold-start threshold.
+    cs.on_rx(frame("{\"cmd\":\"status\"}"));
+    REQUIRE(link.sent.size() == 1);
+    CHECK(link.last().bytes.find("\"carrier_sense_dbm\":-95") != std::string::npos);
+
+    cs.set_carrier_sense(timing::NoiseFloor::kThresholdCeilingDbm);
+    cs.on_rx(frame("{\"cmd\":\"status\"}"));
+    const std::string body = link.last().bytes;
+    CHECK(body.find("\"carrier_sense_dbm\":-82") != std::string::npos);
+    // EN 300 220-2 V3.3.1 §4.6.2.3 and §4.6.3.2, on the wire and not in a build
+    // note: the ceiling nothing may escalate past, and the assessment interval.
+    CHECK(body.find("\"carrier_sense_ceiling_dbm\":-82") != std::string::npos);
+    CHECK(body.find("\"carrier_sense_us\":160") != std::string::npos);
+}
+
 // Fail closed: takeoff must revoke an authorisation granted on the ground, or a
 // long upload could still be running when the aircraft leaves.
 TEST_CASE("comms: takeoff closes an open upload window and it stays latched") {

@@ -5,6 +5,7 @@
 #include "core/messages/messages.h"
 #include "core/power/reset_reason.h"
 #include "core/settings/settings.h"
+#include "core/timing/channel.h"
 #include "hal/dfu.h"
 #include "hal/link.h"
 
@@ -40,6 +41,14 @@ class ConfigService {
 
     void set_flight_state(FlightState fs);
     FlightState flight_state() const { return flight_; }
+
+    // INFO: fc 03aug26 The RED technical file wants the clear-channel threshold
+    // actually in force and the interval it is assessed over, and asks for a
+    // test mode to read them. This is not a mode: the status reply the companion
+    // link already answers on demand carries both, so a laboratory copies two
+    // numbers out of a text frame instead of photographing an e-paper page whose
+    // nine traffic rows are already full. EN 300 220-2 V3.3.1 §4.6.2.3, §4.6.3.2.
+    void set_carrier_sense(int8_t threshold_dbm) { carrier_sense_dbm_ = threshold_dbm; }
 
     // Drives the upload-window timeout. Called once per App::step().
     void tick(uint32_t now_ms);
@@ -95,6 +104,7 @@ class ConfigService {
     settings::Settings& settings_;
     hal::Dfu* dfu_;
     FlightState flight_{FlightState::Unknown};
+    int8_t carrier_sense_dbm_{timing::NoiseFloor::kSeedDbm + timing::NoiseFloor::kClearMarginDb};
     power::ResetReason reset_reason_{power::ResetReason::Unknown};
     bool airborne_latched_{false};
     bool power_off_requested_{false};
