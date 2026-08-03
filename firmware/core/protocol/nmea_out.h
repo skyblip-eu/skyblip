@@ -17,8 +17,11 @@ uint8_t addr_table_to_idtype(uint8_t addr_table);
 int format_pflaa(char* out, size_t cap, const messages::OwnState& own,
                  const messages::AircraftObs& t, uint8_t alarm_level);
 
+// rel_bearing_deg is SIGNED, half a turn either way: the field is, and a value
+// pushed through an unsigned parameter puts a threat off the left wing at 340
+// degrees on an app that reads it as written.
 int format_pflau(char* out, size_t cap, const messages::OwnState& own, int n_targets,
-                 const messages::AircraftObs* threat, uint8_t alarm_level, uint16_t rel_bearing_deg,
+                 const messages::AircraftObs* threat, uint8_t alarm_level, int16_t rel_bearing_deg,
                  int32_t rel_vert_m, int32_t rel_dist_m);
 
 int format_pgrmz(char* out, size_t cap, int32_t alt_ft);

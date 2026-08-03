@@ -84,7 +84,7 @@ int format_pflaa(char* out, size_t cap, const messages::OwnState& own,
 }
 
 int format_pflau(char* out, size_t cap, const messages::OwnState& own, int n_targets,
-                 const messages::AircraftObs* threat, uint8_t alarm_level, uint16_t rel_bearing_deg,
+                 const messages::AircraftObs* threat, uint8_t alarm_level, int16_t rel_bearing_deg,
                  int32_t rel_vert_m, int32_t rel_dist_m) {
     (void)cap;
     int n = 0;
