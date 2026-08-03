@@ -79,7 +79,10 @@ struct OwnState {
     uint8_t flight_state;
 };
 
-enum class Endpoint : uint8_t { Config, Nmea };
+// Log is its own endpoint and not a verb on Config: an offload is thousands of
+// round trips and would otherwise sit in the same queue as the prompt that
+// authorises a firmware upload.
+enum class Endpoint : uint8_t { Config, Nmea, Log };
 
 struct LinkUp {
     uint16_t session_id;

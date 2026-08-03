@@ -22,8 +22,8 @@ struct Rig {
     parts::Ssd1681 epd{chip, chip, chip.dc, chip.rst, chip.busy};
     platform::host::Clock clock;
     runtime::NullRoles null;
-    hal::Roles roles{clock,   null.rf,          null.link, epd,  // epd fills Display
-                     null.kv, null.annunciator, null.dfu};
+    hal::Roles roles{clock,   null.rf,        null.link,        epd,  // epd fills Display
+                     null.kv, null.log_flash, null.annunciator, null.dfu};
     bus::Bus bus{};
     bus::State state{};
     runtime::Context context{roles, bus, state};

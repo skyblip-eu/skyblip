@@ -46,6 +46,10 @@ struct Bus {
     Queue<messages::BaroSample, 2> baro;
     Queue<messages::RfEvent, 8> rf;
     Queue<messages::RxFrame, 4> link_rx;
+    // One writer, one reader, per §5.3: the config service drains link_rx with a
+    // while-pop, so a log command sharing that queue would be read and dropped
+    // by the wrong service.
+    Queue<messages::RxFrame, 2> log_rx;
     Queue<messages::ButtonEvent, 4> input;
     Queue<messages::BatterySample, 2> battery;
 };

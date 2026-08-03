@@ -6,6 +6,7 @@
 #include "hal/clock.h"
 #include "hal/dfu.h"
 #include "hal/display.h"
+#include "hal/flash_region.h"
 #include "hal/kvstore.h"
 #include "hal/link.h"
 #include "hal/rf.h"
@@ -20,6 +21,7 @@ struct Roles {
     Link& link;
     Display& display;
     KvStore& kv;
+    FlashRegion& log_flash;
     Annunciator& annunciator;
     Dfu& dfu;
     Capabilities capabilities{Capability::None};
