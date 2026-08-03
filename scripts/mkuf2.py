@@ -27,8 +27,12 @@ and it does so without complaint. So:
     the bootloader's own fallback DFU. Reversibility is a feature; guard it.
   * A block at or above 0x0EA000 is SILENTLY REFUSED by the bootloader - the
     copy appears to succeed and the device is left with a truncated image.
+  * A block at or above 0x0F4000 would land on the factory bootloader itself.
+    Unreachable today (it is past USER_FLASH_END), and checked anyway so that
+    raising the ceiling can never take the recovery path with it: without that
+    bootloader the device installs nothing without a programmer.
 
-Both are cheap to check here and expensive to discover in the field.
+All three are cheap to check here and expensive to discover in the field.
 """
 import os
 import pathlib
@@ -37,6 +41,7 @@ import sys
 
 SOFTDEVICE_END = 0x00026000
 USER_FLASH_END = 0x000EA000
+UF2_BOOTLOADER_START = 0x000F4000
 UF2_FAMILY_NRF52840 = "0xADA52840"
 
 
@@ -147,6 +152,12 @@ def main():
             f"image starts at 0x{low:06X}, below 0x{SOFTDEVICE_END:06X}. "
             "This would overwrite the factory MBR/SoftDevice. Check that "
             "CONFIG_USE_DT_CODE_PARTITION=y and that boot_partition is at 0x26000."
+        )
+    if high > UF2_BOOTLOADER_START:
+        return fail(
+            f"image ends at 0x{high:06X}, inside the factory UF2 bootloader at "
+            f"0x{UF2_BOOTLOADER_START:06X}. That bootloader is the only way to "
+            "install anything without a programmer; it is never a target."
         )
     if high > USER_FLASH_END:
         return fail(
