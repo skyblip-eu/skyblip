@@ -27,8 +27,11 @@ enum class EventKind : uint8_t {
 };
 
 struct ScenarioAircraft {
-    // "adsl" or "alptas": what this aircraft is equipped with, which is the only
-    // thing that decides whether our shared sync window frames its bursts.
+    // "adsl", "alptas" or "uplink": what this aircraft is equipped with, which
+    // is the only thing that decides whether our shared sync window frames its
+    // bursts. "uplink" is the odd one - it is not equipment at all, it is an
+    // aircraft that only reaches us because a skyPost heard it and relays it on
+    // the O band.
     protocol::System system{protocol::System::AdslDirect};
     double north_m{0};
     double east_m{0};

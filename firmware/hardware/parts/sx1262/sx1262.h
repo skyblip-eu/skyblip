@@ -20,10 +20,18 @@ struct RadioEvent {
     int8_t rssi_dbm{0};
 };
 
-struct MbandConfig {
+// One dwell's worth of modem: where to tune, how the air is modulated there,
+// what to match and how much to read behind the match. Two bands share this
+// part, and they are two modulations, so nothing here is allowed to be a
+// hard-coded M-band figure.
+struct RadioConfig {
     uint32_t freq_hz{868200000};
     uint32_t bitrate{100000};
     uint32_t fdev_hz{50000};
+    uint32_t bandwidth_hz{200000};
+    // The Gaussian filter's BT in hundredths. Zero is an unshaped carrier, which
+    // is what the M band asks for and what the part does out of reset.
+    uint16_t gaussian_bt_e2{0};
     // The detector runs on chips, so both of these are chip counts: the pattern
     // to match and the fixed number of bytes to read behind it.
     const uint8_t* sync{nullptr};
@@ -41,7 +49,7 @@ class Sx1262 {
     Status probe();
 
     Status begin();
-    Status configure_mband(const MbandConfig& cfg);
+    Status configure_radio(const RadioConfig& cfg);
 
     Status transmit(const uint8_t* data, uint8_t len);
     Status start_receive();
@@ -73,10 +81,10 @@ class Sx1262 {
     Status reset_to_standby();
     Status verify_link();
     Status enter_standby();
-    void configure_modulation(const MbandConfig& cfg);
+    void configure_modulation(const RadioConfig& cfg);
     void configure_power();
     void configure_irq();
-    void configure_frame(const MbandConfig& cfg);
+    void configure_frame(const RadioConfig& cfg);
     uint32_t tx_timeout_ticks(uint8_t len) const;
     void recover_tx();
     Status reinit();
@@ -85,7 +93,7 @@ class Sx1262 {
     io::Gpio& gpio_;
     int busy_, reset_, dio1_;
     RadioMode mode_{RadioMode::Sleep};
-    MbandConfig cfg_{};
+    RadioConfig cfg_{};
     bool configured_{false};
     uint32_t ms_since_rx_{0};
     uint32_t reinit_count_{0};
@@ -141,7 +149,26 @@ constexpr uint32_t kXtalHz = 32000000;
 // DS 13.4.6 GFSK modulation params: pulse shape and RX bandwidth are table
 // indices. 0x0A is the 234.3 kHz double-sideband entry.
 constexpr uint8_t kPulseShapeNone = 0x00;
+constexpr uint8_t kGaussianBt0p3 = 0x08;
+constexpr uint8_t kGaussianBt0p5 = 0x09;
+constexpr uint8_t kGaussianBt0p7 = 0x0A;
+constexpr uint8_t kGaussianBt1p0 = 0x0B;
 constexpr uint8_t kRxBandwidth234kHz = 0x0A;
+
+// DS 13.4.6, the double-sideband RX bandwidth table. The driver picks the
+// narrowest entry that still passes the channel it was asked for: too narrow
+// clips the signal, too wide buys noise. Transcribed from the datasheet in the
+// order the part numbers them, and only over the range these two bands use.
+struct RxBandwidthEntry {
+    uint32_t hz;
+    uint8_t index;
+};
+constexpr RxBandwidthEntry kRxBandwidths[] = {
+    {117300, 0x0B}, {156200, 0x1A}, {187200, 0x12}, {234300, 0x0A},
+    {312000, 0x19}, {373600, 0x11}, {467000, 0x09},
+};
+constexpr int kRxBandwidthCount =
+    static_cast<int>(sizeof(kRxBandwidths) / sizeof(kRxBandwidths[0]));
 
 // DS 13.1.14 SetPaConfig for the SX1262 high-power PA. This is also the write
 // that raises the over-current protection to 140 mA.

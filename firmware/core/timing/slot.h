@@ -5,6 +5,8 @@
 
 #include <cstdint>
 
+#include "core/messages/messages.h"
+
 namespace skyblip::timing {
 
 // §C.2: two 200 kHz M-band channels. §C.4: one O-band HDR channel.
@@ -17,6 +19,14 @@ constexpr uint32_t kObandHz = 869525000;
 // two bands at once, so the second is cut where our own ground station stops
 // talking rather than where the slot formally ends: a skyPost uplink burst
 // completes by 390 ms.
+//
+// INFO: fc 05aug26 kGroundEmitEnd is a completion deadline, not a start
+// deadline. A full uplink frame is 10.44 ms of air at §C.4's 200 kbps
+// (protocol::kUplinkBurstUs), so a burst begun at 390 would still be on air at
+// 400, where the radio has already retuned. What this costs us is stated rather
+// than discovered: §C.5 lets a ground station that is not ours begin one as late
+// as 439.56 ms, and a third-party uplink in the back half of its own slot is one
+// this dwell does not hear. test/core/test_uplink.cpp holds the arithmetic.
 //
 // The two M-band dwells are 400 ms and 400 ms, one channel each (§C.2.5 makes
 // traffic alternate channels, so a receiver that never visits 868.4 MHz hears
@@ -48,7 +58,8 @@ constexpr int kHopGuardMs = 1;
 
 constexpr uint32_t kPpsHoldoverMs = 60000;
 
-enum class Band : uint8_t { M, O };
+// One name for the band, spelled where a received burst can carry it.
+using Band = messages::Band;
 
 enum class SlotState : uint8_t {
     UplinkRxO,

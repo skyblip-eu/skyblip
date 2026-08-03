@@ -12,8 +12,11 @@ namespace skyblip::simulator {
 
 struct VirtualAircraft {
     bool used{false};
-    // Which system this aircraft is equipped with. Both are Manchester bursts on
-    // the same two M-band channels, which is exactly why one dwell can hear them.
+    // Which system this aircraft is equipped with. AdslDirect and Alptas are
+    // Manchester bursts on the same two M-band channels, which is exactly why
+    // one dwell can hear them. AdslUplink is not a fit at all: it is an aircraft
+    // this device never hears for itself, reaching it only because a skyPost on
+    // the ground heard it and relays it on the O band.
     protocol::System system{protocol::System::AdslDirect};
     uint32_t addr{0};
     // North and east of the world's origin, not of own-ship: two aircraft that
@@ -105,6 +108,9 @@ class World {
     void service_aircraft(uint32_t now_ms, const messages::OwnState& own);
     void schedule_second(uint64_t epoch_us, const messages::OwnState& own);
     void transmit(VirtualAircraft& aircraft, uint64_t epoch_us, const messages::OwnState& own);
+    void relay(uint64_t epoch_us, const messages::OwnState& own);
+    messages::AircraftObs as_relayed(const VirtualAircraft& aircraft,
+                                     const messages::OwnState& own) const;
     static int8_t rssi_at(double range_m);
     void apply_events(uint32_t now_ms, const bus::State& state);
     void fail(const char* what);
@@ -114,8 +120,15 @@ class World {
     static constexpr uint32_t kPressMs = 60;
     static constexpr uint32_t kBaroPeriodMs = 250;
 
+    // Where the ground station is, so a relayed burst arrives at a level a
+    // receiver can plausibly hear. A skyPost is a fixed site with a mast and
+    // 500 mW e.r.p. (§C.4), not another glider, so it is placed far enough away
+    // to be background and loud enough to be heard.
+    static constexpr double kGroundStationRangeM = 12000;
+
     platform::host::Platform& platform_;
     Air air_{};
+    protocol::AdslUplink uplink_{};
     VirtualAircraft aircraft_[kMaxAircraft]{};
     Scenario scenario_{};
     size_t next_event_{0};

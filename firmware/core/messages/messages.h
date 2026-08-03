@@ -120,14 +120,32 @@ struct DfuRequest {
     uint16_t session_id;
 };
 
+// The two halves of the second the single radio is shared between: ADS-L 4
+// SRD-860 issue 2 §C.2 puts two 200 kHz channels on the M band and §C.4 one HDR
+// channel on the O band. It lives here rather than in core/timing because it
+// travels with a received burst: the dwell that heard one knows which band it
+// was tuned to, and everything downstream would otherwise have to guess.
+enum class Band : uint8_t { M, O };
+
 enum class RfEventType : uint8_t { RxDone, CrcError, TxDone, Missed, TxBusy };
+
+// INFO: fc 05aug26 The longest burst any dwell reads is the O-band uplink frame,
+// an RS(255,223) codeword (§C.4, core/protocol/adsl_uplink.h), and this event is
+// where the executor copies what the radio reported. A buffer shorter than the
+// codeword truncates it, and Reed-Solomon then reports damage the air never did.
+// core/protocol/adsl_uplink.h static_asserts the frame still fits.
+constexpr int kRfEventBytes = 255;
 
 struct RfEvent {
     RfEventType type;
+    // Which dwell reported this, which is what names the system it belongs to.
+    // M by default so a queue entry nobody stamped reads as the band that
+    // carries two systems and is framed rather than trusted.
+    Band band;
     uint8_t len;
     int8_t rssi_dbm;
     uint64_t at_us;
-    std::array<uint8_t, 64> data;
+    std::array<uint8_t, kRfEventBytes> data;
 };
 
 struct BaroSample {

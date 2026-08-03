@@ -41,6 +41,7 @@ uint8_t frame_bytes(System system) {
     switch (system) {
         case System::AdslDirect: return kAdslFrameBytes;
         case System::Alptas: return kAlptasFrameBytes;
+        case System::AdslUplink: return kUplinkFrameBytes;
         case System::Unknown: return 0;
     }
     return 0;
@@ -69,6 +70,20 @@ bool receive_mband(const uint8_t* chips, size_t chip_bytes, Frame& out) {
     for (uint8_t i = 0; i < out.len; i++)
         out.bad_chips = static_cast<uint16_t>(out.bad_chips + __builtin_popcount(out.err[i]));
     return true;
+}
+
+size_t encode_oband(const uint8_t* frame, uint8_t* out) {
+    for (size_t i = 0; i < sizeof(kUplinkSync); i++) out[i] = kUplinkSync[i];
+    for (size_t i = 0; i < kUplinkFrameBytes; i++) out[sizeof(kUplinkSync) + i] = frame[i];
+    return sizeof(kUplinkSync) + kUplinkFrameBytes;
+}
+
+System receive_burst(messages::Band band, const uint8_t* data, size_t len, Frame& out) {
+    if (band == messages::Band::O) {
+        out = Frame{};
+        return len == kUplinkFrameBytes ? System::AdslUplink : System::Unknown;
+    }
+    return receive_mband(data, len, out) ? out.system : System::Unknown;
 }
 
 }  // namespace skyblip::protocol

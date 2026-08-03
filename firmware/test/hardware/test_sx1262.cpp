@@ -26,7 +26,7 @@ TEST_CASE("radio: begin + configure + receive brings the modem to Rx") {
     Sx1262 r = make(chip);
     CHECK(r.begin() == Status::Ok);
     CHECK(r.mode() == RadioMode::Standby);
-    CHECK(r.configure_mband(MbandConfig{}) == Status::Ok);
+    CHECK(r.configure_radio(RadioConfig{}) == Status::Ok);
     CHECK(r.start_receive() == Status::Ok);
     CHECK(r.mode() == RadioMode::Rx);
     CHECK(chip.reset_pulses >= 1);
@@ -36,7 +36,7 @@ TEST_CASE("radio: a queued RX packet is delivered via poll") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     r.start_receive();
     uint8_t pkt[8] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
     chip.queue_rx(pkt, 8);
@@ -52,7 +52,7 @@ TEST_CASE("radio: a CRC-error RX is reported as CrcError, NOT delivered") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     r.start_receive();
     uint8_t pkt[4] = {1, 2, 3, 4};
     chip.queue_rx(pkt, 4, /*crc_error=*/true);
@@ -65,7 +65,7 @@ TEST_CASE("radio: BUSY stuck high is surfaced as a fault, not a hang") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     r.start_receive();
     chip.busy_stuck = true;
     uint8_t buf[32];
@@ -77,7 +77,7 @@ TEST_CASE("radio: health watchdog reinitialises after no-RX timeout (no-RX-in-N 
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     r.start_receive();
     CHECK(r.reinit_count() == 0);
     // 29 s: no reinit yet
@@ -103,7 +103,7 @@ TEST_CASE("radio: what was written to the buffer is what goes on air") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     const uint8_t frame[5] = {0x72, 0x4B, 0x18, 0xAA, 0x55};
     r.transmit(frame, sizeof(frame));
     CHECK_FALSE(chip.receiving);
@@ -123,11 +123,11 @@ TEST_CASE("radio: configure programs the sync window and the fixed read length")
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    MbandConfig cfg{};
+    RadioConfig cfg{};
     cfg.sync = protocol::kSharedSync;
     cfg.sync_bits = protocol::kSharedSyncBits;
     cfg.payload_bytes = protocol::kRxChipBytes;
-    CHECK(r.configure_mband(cfg) == Status::Ok);
+    CHECK(r.configure_radio(cfg) == Status::Ok);
     CHECK(chip.saw_cmd(sx::kWriteRegister));
     CHECK(chip.saw_cmd(sx::kSetPacketParams));
     CHECK(chip.sync[0] == protocol::kSharedSync[0]);
@@ -140,11 +140,11 @@ TEST_CASE("radio: a burst is framed from the chips after the sync window, either
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    MbandConfig cfg{};
+    RadioConfig cfg{};
     cfg.sync = protocol::kSharedSync;
     cfg.sync_bits = protocol::kSharedSyncBits;
     cfg.payload_bytes = protocol::kRxChipBytes;
-    r.configure_mband(cfg);
+    r.configure_radio(cfg);
     r.start_receive();
 
     for (uint32_t sync_word : {protocol::kAdslSyncWord, protocol::kAlptasSyncWord}) {
@@ -171,11 +171,11 @@ TEST_CASE("radio: a burst carrying a sync word the dwell is not armed for is not
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    MbandConfig cfg{};
+    RadioConfig cfg{};
     cfg.sync = protocol::kUplinkSync;
     cfg.sync_bits = protocol::kUplinkSyncBits;
     cfg.payload_bytes = protocol::kRxChipBytes;
-    r.configure_mband(cfg);
+    r.configure_radio(cfg);
     r.start_receive();
 
     uint8_t payload[protocol::kAdslFrameBytes] = {0};
@@ -188,16 +188,16 @@ TEST_CASE("radio: a burst carrying a sync word the dwell is not armed for is not
 }
 
 // A1. The modem is the one part of this chip that cannot be left at its reset
-// defaults: MbandConfig carried a bitrate and a deviation nothing ever wrote.
+// defaults: RadioConfig carried a bitrate and a deviation nothing ever wrote.
 TEST_CASE("radio: the modem is programmed for 100 kbps, 50 kHz deviation, 234.3 kHz, unshaped") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    MbandConfig cfg{};
+    RadioConfig cfg{};
     cfg.sync = protocol::kSharedSync;
     cfg.sync_bits = protocol::kSharedSyncBits;
     cfg.payload_bytes = protocol::kRxChipBytes;
-    REQUIRE(r.configure_mband(cfg) == Status::Ok);
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
     CHECK(chip.modulation_set);
     CHECK(chip.bitrate == 100000);
     CHECK(chip.fdev_hz > 49990);
@@ -210,6 +210,38 @@ TEST_CASE("radio: the modem is programmed for 100 kbps, 50 kHz deviation, 234.3 
     // DS 13.1.4: the packet handler is configured after the modem, not before.
     CHECK(chip.cmd_order(sx::kSetRfFrequency) < chip.cmd_order(sx::kSetModulationParams));
     CHECK(chip.cmd_order(sx::kSetModulationParams) < chip.cmd_order(sx::kSetPacketParams));
+}
+
+// A2. And the other band, which is a different modulation and not merely a
+// different frequency: ADS-L 4 SRD-860 issue 2 §C.4 is 200 kbps GMSK, BT 0.5,
+// in a 250 kHz channel. The driver used to hard-code §C.2's unshaped 100 kbps
+// whatever it was handed, so the O-band dwell retuned the synthesiser and
+// listened at half the rate a skyPost transmits at.
+TEST_CASE("radio: the O band is programmed for 200 kbps GMSK in a 250 kHz channel") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    RadioConfig cfg{};
+    cfg.freq_hz = 869525000;
+    cfg.bitrate = protocol::kUplinkChipRateBps;
+    cfg.fdev_hz = protocol::kUplinkDeviationHz;
+    cfg.bandwidth_hz = protocol::kUplinkChannelBandwidthHz;
+    cfg.gaussian_bt_e2 = protocol::kUplinkGaussianBtE2;
+    cfg.sync = protocol::kUplinkSync;
+    cfg.sync_bits = protocol::kUplinkSyncBits;
+    cfg.payload_bytes = protocol::kUplinkFrameBytes;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.bitrate == 200000);
+    CHECK(chip.fdev_hz > 49990);
+    CHECK(chip.fdev_hz < 50010);
+    CHECK(chip.pulse_shape == sx::kGaussianBt0p5);
+    // The narrowest entry of DS 13.4.6's table that still passes 250 kHz. The
+    // one below it, 234.3 kHz, clips the channel.
+    CHECK(chip.rx_bandwidth == 0x19);
+    CHECK(chip.payload_bytes == protocol::kUplinkFrameBytes);
+    // A whole RS(255,223) codeword is what this band reads, and the packet
+    // handler's length field is exactly wide enough for it.
+    CHECK(chip.payload_bytes == 255);
 }
 
 TEST_CASE("radio: a modem left on its reset defaults frames nothing off the air") {
@@ -231,7 +263,7 @@ TEST_CASE("radio: an IRQ bit that was never unmasked is never reported") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     uint8_t pkt[4] = {1, 2, 3, 4};
     chip.queue_rx(pkt, 4);
     uint8_t buf[32];
@@ -244,7 +276,7 @@ TEST_CASE("radio: the IRQ mask and the DIO1 mask are programmed before the recei
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     CHECK(chip.irq_mask == 0);
     r.start_receive();
     CHECK(chip.cmd_order(sx::kSetDioIrqParams) < chip.cmd_order(sx::kSetRx));
@@ -260,7 +292,7 @@ TEST_CASE("radio: the IRQ mask is programmed before the transmitter is keyed") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     const uint8_t frame[4] = {1, 2, 3, 4};
     REQUIRE(r.transmit(frame, sizeof(frame)) == Status::Ok);
     CHECK(chip.cmd_order(sx::kSetDioIrqParams) < chip.cmd_order(sx::kSetTx));
@@ -277,7 +309,7 @@ TEST_CASE("radio: the PA is the SX1262 high-power configuration, which is also O
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     CHECK(chip.pa_set);
     CHECK(chip.pa_config[0] == 0x04);
     CHECK(chip.pa_config[1] == 0x07);
@@ -295,7 +327,7 @@ TEST_CASE("radio: output power is 14 dBm conducted, which is under 25 mW e.r.p. 
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     CHECK(chip.tx_power_set);
     CHECK(chip.tx_power_dbm == sx::kConductedDbm);
     CHECK(chip.tx_power_dbm == 14);
@@ -336,7 +368,7 @@ TEST_CASE("radio: image rejection is calibrated for 863-870 MHz after the TCXO i
     CHECK(chip.fault == models::Sx1262::Fault::None);
     // Once per band: the second dwell does not pay for it again.
     const int before = chip.cmd_order(sx::kCalibrateImage);
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     CHECK(chip.cmd_order(sx::kCalibrateImage) == before);
 }
 
@@ -346,9 +378,9 @@ TEST_CASE("radio: retuning a receiving radio is bracketed by standby and returns
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    MbandConfig cfg{};
+    RadioConfig cfg{};
     cfg.freq_hz = 868200000;
-    r.configure_mband(cfg);
+    r.configure_radio(cfg);
     r.start_receive();
     REQUIRE(r.mode() == RadioMode::Rx);
 
@@ -356,7 +388,7 @@ TEST_CASE("radio: retuning a receiving radio is bracketed by standby and returns
     for (uint8_t c : chip.cmds_seen)
         if (c == sx::kSetStandby) standbys++;
     cfg.freq_hz = 868400000;
-    REQUIRE(r.configure_mband(cfg) == Status::Ok);
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
     int after = 0;
     for (uint8_t c : chip.cmds_seen)
         if (c == sx::kSetStandby) after++;
@@ -371,7 +403,7 @@ TEST_CASE("radio: a standby-only command issued while the receiver runs is a chi
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     r.start_receive();
     REQUIRE(chip.fault == models::Sx1262::Fault::None);
     const uint8_t retune[5] = {sx::kSetRfFrequency, 0x36, 0x40, 0x00, 0x00};
@@ -402,11 +434,11 @@ TEST_CASE("radio: SetTx carries a timeout past the frame's air time at the confi
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    MbandConfig cfg{};
+    RadioConfig cfg{};
     cfg.sync = protocol::kSharedSync;
     cfg.sync_bits = protocol::kSharedSyncBits;
     cfg.payload_bytes = protocol::kRxChipBytes;
-    r.configure_mband(cfg);
+    r.configure_radio(cfg);
     uint8_t frame[protocol::kAdslFrameBytes] = {0};
     REQUIRE(r.transmit(frame, sizeof(frame)) == Status::Ok);
     CHECK(chip.tx_timeout_ticks != 0);
@@ -440,7 +472,7 @@ TEST_CASE("radio: sleep is a warm start with the RTC off, and an NSS edge brings
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     r.start_receive();
     r.sleep();
     CHECK(r.mode() == RadioMode::Sleep);
@@ -458,7 +490,7 @@ TEST_CASE("radio: a transmission that never completes is recovered to RX and cou
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
-    r.configure_mband(MbandConfig{});
+    r.configure_radio(RadioConfig{});
     r.start_receive();
     const uint8_t frame[4] = {1, 2, 3, 4};
     REQUIRE(r.transmit(frame, sizeof(frame)) == Status::Ok);

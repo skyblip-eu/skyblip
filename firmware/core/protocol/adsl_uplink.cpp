@@ -62,6 +62,20 @@ void unpack_record(const uint8_t* r, messages::AircraftObs& t) {
     t.source = messages::Source::AdslUplink;
     t.emergency = 1;
 }
+
+// The gate between a codeword that satisfied parity and a target on a pilot's
+// screen. RS(255,223) can decode to a valid codeword that is not the one that
+// was sent (test/core/test_uplink.cpp measures how often), and a ground station
+// is one transmitter reaching every aircraft in range: one miscorrected frame
+// would otherwise put a whole screenful of phantoms in front of everybody at
+// once. An address of zero is no aircraft, and a position off the globe is no
+// position.
+bool plausible(const messages::AircraftObs& t) {
+    if (t.addr == 0) return false;
+    if (t.lat_1e7 < -900000000 || t.lat_1e7 > 900000000) return false;
+    if (t.lon_1e7 < -1800000000 || t.lon_1e7 > 1800000000) return false;
+    return true;
+}
 }
 
 Status AdslUplink::encode(const messages::AircraftObs* targets, int n, uint8_t key_index,
@@ -105,7 +119,13 @@ Status AdslUplink::decode(const uint8_t frame[kFrameBytes], messages::AircraftOb
     if (n > kMaxTargets) return Status::Invalid;
     int out = 0;
     for (int i = 0; i < n && out < cap; i++) {
-        unpack_record(data + kHeaderBytes + i * kRecordBytes, targets[out++]);
+        messages::AircraftObs t{};
+        unpack_record(data + kHeaderBytes + i * kRecordBytes, t);
+        if (!plausible(t)) {
+            stats.rejected++;
+            continue;
+        }
+        targets[out++] = t;
     }
     stats.targets = out;
     return Status::Ok;

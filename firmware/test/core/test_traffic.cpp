@@ -91,6 +91,57 @@ TEST_CASE("traffic: dedup merges the same target, fresher and direct win") {
     CHECK(tbl.at(idx)->obs.rx_utc == 100);
 }
 
+// A ground relay is a rebroadcast, so it is always the newer report and always
+// the poorer one. Letting recency decide would walk a target we are hearing
+// perfectly well backwards once a second, for as long as both paths last.
+TEST_CASE("traffic: a relay does not displace a direct reception that is still fresh") {
+    TrafficTable tbl;
+    tbl.update(obs(0x111, 6, 100, messages::Source::AdslDirect), 100);
+    const int idx = tbl.find(6, 0x111);
+    REQUIRE(idx >= 0);
+
+    for (uint32_t later = 101; later <= 100 + kDirectHoldSec; later++) {
+        tbl.update(obs(0x111, 6, later, messages::Source::AdslUplink), later);
+        CHECK(tbl.count() == 1);
+        CHECK(tbl.at(idx)->obs.source == messages::Source::AdslDirect);
+        CHECK(tbl.at(idx)->obs.rx_utc == 100);
+    }
+
+    // And the hold is a hold, not a block: past it the direct track is as stale
+    // as the alarm layer's own patience with a contact, and the relay is the
+    // only thing still reporting this aircraft.
+    const uint32_t past = 100 + kDirectHoldSec + 1;
+    tbl.update(obs(0x111, 6, past, messages::Source::AdslUplink), past);
+    CHECK(tbl.count() == 1);
+    CHECK(tbl.at(idx)->obs.source == messages::Source::AdslUplink);
+    CHECK(tbl.at(idx)->obs.rx_utc == past);
+
+    // A relay never blocks a target of its own, and a direct reception takes it
+    // straight back.
+    tbl.update(obs(0x222, 6, past, messages::Source::AdslUplink), past);
+    CHECK(tbl.count() == 2);
+    tbl.update(obs(0x111, 6, past, messages::Source::AdslDirect), past);
+    CHECK(tbl.at(idx)->obs.source == messages::Source::AdslDirect);
+}
+
+// The hold is core/traffic/alarm.h's own freshness rule wearing a different
+// unit. If one moves, the other has to, and this is what says so.
+TEST_CASE("traffic: the direct hold is the alarm layer's patience with a contact") {
+    CHECK(kDirectHoldSec * 1000 == kAlertMaxAgeMs);
+}
+
+// A ground station relays every aircraft it heard, and it heard us. Own-ship on
+// the radar is a permanent collision with the aircraft the device is bolted to.
+TEST_CASE("traffic: our own address is not traffic, whoever reports it") {
+    TrafficTable tbl;
+    tbl.set_own_address(0xC5D804);
+    CHECK(tbl.update(obs(0xC5D804, 6, 100, messages::Source::AdslUplink), 100) < 0);
+    CHECK(tbl.update(obs(0xC5D804, 6, 100, messages::Source::AdslDirect), 100) < 0);
+    CHECK(tbl.count() == 0);
+    CHECK(tbl.update(obs(0xC5D805, 6, 100, messages::Source::AdslUplink), 100) >= 0);
+    CHECK(tbl.count() == 1);
+}
+
 TEST_CASE("traffic: age-out removes stale entries") {
     TrafficTable tbl;
     tbl.update(obs(0x1, 6, 100), 100);
