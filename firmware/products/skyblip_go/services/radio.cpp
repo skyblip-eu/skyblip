@@ -128,6 +128,10 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
 
     const timing::Transmitter::Attempt a = attempt(slot, now_ms);
     over_budget_ = a.over_budget;
+    // The one place this policy's own refusal is decided: a plan the hour's
+    // air-time budget already refused to arm, counted apart from a dwell that
+    // was armed and then missed its outcome.
+    if (a.over_budget) context_.state.timing_stats.record_refused();
     const uint64_t tx_at_us = epoch_us + static_cast<uint64_t>(a.at_ms) * 1000;
     const bool carries_tx = a.go && tx_at_us >= plan.start_us && tx_at_us < plan.end_us;
     if (carries_tx) {
@@ -147,7 +151,13 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
         plan.backoff_max_ms = timing::Transmitter::kBackoffMaxMs;
     }
 
-    if (context_.roles.rf.arm(plan) != Status::Ok) return;
+    if (context_.roles.rf.arm(plan) != Status::Ok) {
+        // A dwell refused before it could even start: hal::Rf's own "a plan
+        // that cannot complete before its end is refused here rather than
+        // truncated on air", read out on the bench.
+        context_.state.timing_stats.record_missed();
+        return;
+    }
     armed_ = plan.mode;
     armed_freq_ = plan.freq_hz;
     arm_count_++;
@@ -156,18 +166,22 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
         tx_utc_ = slot_utc(now_ms);
         tx_forced_ = a.force;
         tx_end_us_ = plan.end_us;
+        tx_deadline_us_ = tx_at_us;
     }
 }
 
 // The executor reports on the bus, which the traffic service drains into the
 // counters: a transmission that made it, and one the carrier never cleared for.
 void RadioService::collect_outcome(uint32_t now_ms) {
-    // A dwell that ended without either report took the radio with it: the
-    // policy must not stay armed on a burst that will never be reported.
-    if (tx_armed_ && context_.roles.clock.micros() >= tx_end_us_) tx_armed_ = false;
     if (context_.state.tx_ok != seen_tx_ok_) {
         seen_tx_ok_ = context_.state.tx_ok;
         transmitter_.sent(tx_utc_, now_ms, tx_forced_);
+        // The executor's own report against the deadline this dwell was armed
+        // for: both absolute instants on the same clock, so slot 1's wrap
+        // costs this nothing.
+        context_.state.timing_stats.record_dwell_phase(
+            static_cast<int64_t>(context_.state.last_tx_done_at_us) -
+            static_cast<int64_t>(tx_deadline_us_));
         lbt_retry_ = 0;
         tx_armed_ = false;
     }
@@ -179,6 +193,15 @@ void RadioService::collect_outcome(uint32_t now_ms) {
         // one slot; our dwell is one carrier sample per backoff interval, so the
         // escalation is per dwell and §D.3's forced transmission is what ends it).
         if (lbt_retry_ < 0xFF) lbt_retry_++;
+        tx_armed_ = false;
+    }
+    // A dwell that ended without either report above took the radio with it:
+    // the policy must not stay armed on a burst that will never be reported,
+    // and on the bench this is the one outcome no other counter watches for.
+    // Checked last, so a report that arrived this same pass is not also
+    // counted as missed.
+    if (tx_armed_ && context_.roles.clock.micros() >= tx_end_us_) {
+        context_.state.timing_stats.record_missed();
         tx_armed_ = false;
     }
 }

@@ -2,10 +2,25 @@
 
 #include <cstring>
 
+#include "core/util/format.h"
 #include "core/util/json_min.h"
 #include "core/util/span.h"
 
 namespace skyblip::comms {
+
+namespace {
+// Seven counts, comma-joined: cheaper than a JSON array over a FLAT-JSON
+// writer that does not have one, and just as readable on a bench terminal.
+int format_buckets(const timing::SlotTimingStats& stats, bool pps, char* out, int cap) {
+    int n = 0;
+    for (int i = 0; i < timing::SlotTimingStats::kBuckets && n < cap - 1; i++) {
+        if (i > 0) out[n++] = ',';
+        n += fmt_uint(out + n, pps ? stats.pps_bucket(i) : stats.dwell_bucket(i));
+    }
+    out[n] = 0;
+    return n;
+}
+}  // namespace
 
 FlightState flight_state_from(uint8_t adsl_code) {
     switch (static_cast<flight::FlightState>(adsl_code)) {
@@ -129,6 +144,37 @@ void ConfigService::send_status() {
     reply(buf);
 }
 
+// pps_us and dwell_us are the two histograms in kBuckets order: the SX1262's
+// own retune time, core/timing::kHopGuardMs and core/timing::kJitterGuardMs on
+// each side of the centre bucket (core/timing/timing_stats.h). holdover,
+// missed and refused are counted apart from both, on purpose: a fault a
+// histogram cannot bound must not be folded into one that can.
+void ConfigService::send_timing() {
+    if (timing_stats_ == nullptr) {
+        ack(false, "no_stats");
+        return;
+    }
+    char pps[96];
+    char dwell[96];
+    format_buckets(*timing_stats_, true, pps, sizeof(pps));
+    format_buckets(*timing_stats_, false, dwell, sizeof(dwell));
+
+    char buf[256];
+    json::Writer w(buf, sizeof(buf));
+    w.kv_str("cmd", "timing");
+    w.kv_str("pps_us", pps);
+    w.kv_int("pps_worst_us", timing_stats_->pps_worst_us());
+    w.kv_int("pps_samples", static_cast<long>(timing_stats_->pps_samples()));
+    w.kv_str("dwell_us", dwell);
+    w.kv_int("dwell_worst_us", timing_stats_->dwell_worst_us());
+    w.kv_int("dwell_samples", static_cast<long>(timing_stats_->dwell_samples()));
+    w.kv_int("holdover", static_cast<long>(timing_stats_->holdover_events()));
+    w.kv_int("missed", static_cast<long>(timing_stats_->missed()));
+    w.kv_int("refused", static_cast<long>(timing_stats_->refused()));
+    w.finish();
+    reply(buf);
+}
+
 void ConfigService::on_rx(const messages::RxFrame& frame) {
     if (frame.endpoint != messages::Endpoint::Config) return;
     const char* data = reinterpret_cast<const char*>(frame.data.data());
@@ -154,6 +200,11 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
 
     if (std::strcmp(cmd, "status") == 0) {
         send_status();
+        return;
+    }
+
+    if (std::strcmp(cmd, "timing") == 0) {
+        send_timing();
         return;
     }
 

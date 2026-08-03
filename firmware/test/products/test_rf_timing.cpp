@@ -7,6 +7,7 @@
 
 #include "core/gnss/first_fix.h"
 #include "core/timing/slot.h"
+#include "core/timing/timing_stats.h"
 #include "core/timing/transmit.h"
 #include "doctest/doctest.h"
 #include "simulator/simulator.h"
@@ -181,6 +182,60 @@ TEST_CASE("rf: what own-ship put on air decodes back to own-ship state") {
         checked++;
     }
     CHECK(checked > 0);
+}
+
+// G6's wiring, not the bucket arithmetic (core/test_timing.cpp already pins
+// that down): RadioService owns the deadline, TrafficService the executor's
+// report, and this proves the two actually meet in state.timing_stats rather
+// than each keeping a private opinion.
+TEST_CASE("rf: a completed burst lands in the bench's dwell-phase histogram") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_speed_kt(50);
+    run_on(h, past_settling(h), 6000);
+
+    const timing::SlotTimingStats& stats = h.product().state().timing_stats;
+    CHECK(stats.dwell_samples() > 0);
+    CHECK(stats.missed() == 0);
+    CHECK(stats.refused() == 0);
+    // The executor cannot transmit before the deadline it was armed for
+    // (§D.3's listen-before-talk only ever pushes the instant later), and it
+    // cannot still be waiting once the dwell it was armed inside of has ended,
+    // which bounds this well inside one slot's width without pinning a figure
+    // on the LBT backoff draw (core/timing/transmit.h kBackoffMinMs..MaxMs)
+    // that host virtual time is exercising honestly here.
+    CHECK(stats.dwell_worst_us() >= 0);
+    CHECK(stats.dwell_worst_us() < timing::kSlot0End * 1000);
+
+    // host::Pps has no jitter model at all: every edge board.h latched is
+    // exact, so the whole interval histogram sits in the centre bucket.
+    CHECK(stats.pps_samples() > 0);
+    CHECK(stats.pps_bucket(3) == stats.pps_samples());
+    CHECK(stats.holdover_events() == 0);
+}
+
+// The other half of the wiring: whatever already owns the PPS edge
+// (hardware/boards) is what the accumulator's holdover count depends on, and
+// it has to fire on the transition, not on every pass spent unlocked.
+TEST_CASE("rf: losing and regaining PPS through the simulator counts as holdover") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    // host::Pps has no jitter to show, but it does turn over exactly once per
+    // simulated second, which is what the first sample needs.
+    run_on(h, 0, 1200);
+    REQUIRE(h.product().state().timing_stats.pps_samples() >= 1);
+
+    h.world().set_pps_locked(false);
+    run_on(h, 1205, 2000);
+    h.world().set_pps_locked(true);
+    run_on(h, 3210, 2000);
+
+    const timing::SlotTimingStats& stats = h.product().state().timing_stats;
+    CHECK(stats.holdover_events() >= 1);
+    for (int b = 0; b < timing::SlotTimingStats::kBuckets; b++)
+        if (b != 3) CHECK(stats.pps_bucket(b) == 0);
 }
 
 TEST_CASE("rf: without an anchored clock nothing is transmitted") {

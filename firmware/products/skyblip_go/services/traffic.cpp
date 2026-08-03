@@ -12,7 +12,14 @@ void TrafficService::tick(uint32_t now_ms) {
             // A busy band is not a fault: it is the state the media access
             // rules exist for, and the transmit policy has to see it.
             case messages::RfEventType::TxBusy: context_.state.tx_busy++; break;
-            case messages::RfEventType::TxDone: context_.state.tx_ok++; break;
+            // The executor's own timestamp, carried alongside the counter it
+            // already bumps: RadioService owns the deadline this closes
+            // against, and reads it from here rather than a second drain of
+            // the same bus.
+            case messages::RfEventType::TxDone:
+                context_.state.tx_ok++;
+                context_.state.last_tx_done_at_us = event.at_us;
+                break;
         }
     }
     context_.state.traffic.age_out(context_.state.traffic_now(now_ms));

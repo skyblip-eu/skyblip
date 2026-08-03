@@ -229,6 +229,44 @@ TEST_CASE("comms: status reports why the device came up") {
     CHECK(fresh_link.last().bytes.find("\"reset\":\"UNKNOWN\"") != std::string::npos);
 }
 
+// G6's plug-in-and-read: the same on_rx dispatch that answers "status"
+// answers "timing" from whatever core/timing::SlotTimingStats the device has
+// been accumulating - no second channel, no panel real estate a bucket array
+// would not fit on anyway.
+TEST_CASE("comms: timing reports the accumulator's buckets and counters") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(0xAA55);
+    timing::SlotTimingStats stats;
+    stats.record_edge(0, true);
+    stats.record_edge(1000000, true);  // one clean second: centre bucket
+    stats.record_dwell_phase(200);     // inside the hop guard
+    stats.record_missed();
+    stats.record_refused();
+    stats.record_refused();
+    ConfigService cs(link, s, nullptr, &stats);
+
+    cs.on_rx(frame("{\"cmd\":\"timing\"}"));
+    REQUIRE(link.sent.size() == 1);
+    const std::string body = link.last().bytes;
+    CHECK(body.find("\"cmd\":\"timing\"") != std::string::npos);
+    CHECK(body.find("\"pps_us\":\"0,0,0,1,0,0,0\"") != std::string::npos);
+    CHECK(body.find("\"dwell_us\":\"0,0,0,0,1,0,0\"") != std::string::npos);
+    CHECK(body.find("\"pps_samples\":1") != std::string::npos);
+    CHECK(body.find("\"dwell_worst_us\":200") != std::string::npos);
+    CHECK(body.find("\"holdover\":0") != std::string::npos);
+    CHECK(body.find("\"missed\":1") != std::string::npos);
+    CHECK(body.find("\"refused\":2") != std::string::npos);
+}
+
+TEST_CASE("comms: timing without an accumulator wired up says so, not zeros") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(0xAA55);
+    ConfigService cs(link, s);
+    cs.on_rx(frame("{\"cmd\":\"timing\"}"));
+    REQUIRE(link.sent.size() == 1);
+    CHECK(link.last().bytes.find("no_stats") != std::string::npos);
+}
+
 // Fail closed: takeoff must revoke an authorisation granted on the ground, or a
 // long upload could still be running when the aircraft leaves.
 TEST_CASE("comms: takeoff closes an open upload window and it stays latched") {

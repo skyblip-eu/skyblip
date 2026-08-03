@@ -5,6 +5,7 @@
 #include "core/messages/messages.h"
 #include "core/power/reset_reason.h"
 #include "core/settings/settings.h"
+#include "core/timing/timing_stats.h"
 #include "hal/dfu.h"
 #include "hal/link.h"
 
@@ -35,8 +36,9 @@ constexpr uint32_t kConfirmWindowMs = 30u * 1000u;
 
 class ConfigService {
    public:
-    ConfigService(hal::Link& link, settings::Settings& s, hal::Dfu* dfu = nullptr)
-        : link_(link), settings_(s), dfu_(dfu) {}
+    ConfigService(hal::Link& link, settings::Settings& s, hal::Dfu* dfu = nullptr,
+                  const timing::SlotTimingStats* timing_stats = nullptr)
+        : link_(link), settings_(s), dfu_(dfu), timing_stats_(timing_stats) {}
 
     void set_flight_state(FlightState fs);
     FlightState flight_state() const { return flight_; }
@@ -88,12 +90,19 @@ class ConfigService {
     void stage(Pending pending, const char* reason);
     void ack(bool ok, const char* reason);
     void send_status();
+    // The bench's plug-in-and-read for G6: the same on_rx dispatch that
+    // answers "get" and "status" answers "timing" from the one accumulator
+    // core/timing::SlotTimingStats keeps, over the link the phone already has
+    // open - no second channel, no panel real estate a histogram would not
+    // fit on anyway.
+    void send_timing();
     static const char* flight_name(FlightState fs);
     bool on_ground() const { return flight_ == FlightState::Ground; }
 
     hal::Link& link_;
     settings::Settings& settings_;
     hal::Dfu* dfu_;
+    const timing::SlotTimingStats* timing_stats_;
     FlightState flight_{FlightState::Unknown};
     power::ResetReason reset_reason_{power::ResetReason::Unknown};
     bool airborne_latched_{false};

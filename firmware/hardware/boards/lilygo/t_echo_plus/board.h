@@ -115,6 +115,9 @@ class TEchoPlus {
         // it from the millisecond phase threw away up to a millisecond of the
         // 5 ms jitter guard before the plan was even armed.
         state.clock.pps_edge_us = platform_.pps().last_edge_us();
+        // The one place the PPS edge is owned: the bench's interval-error
+        // histogram is fed here rather than by a second reader of the pin.
+        state.timing_stats.record_edge(state.clock.pps_edge_us, state.clock.pps_locked);
     }
 
     typename P::Rf& rf() { return rf_; }
