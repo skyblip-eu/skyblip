@@ -7,6 +7,7 @@
 #include "core/power/cutoff.h"
 #include "core/settings/settings.h"
 #include "core/timing/slot.h"
+#include "core/timing/timing_stats.h"
 #include "core/traffic/table.h"
 
 namespace skyblip::bus {
@@ -16,6 +17,9 @@ struct State {
     messages::OwnState own{};
     timing::ClockState clock{};
     timing::SlotPlan plan{};
+    // The bench accumulator G6 reads out: hardware/boards is the one writer of
+    // the PPS half, products/skyblip_go/services/radio.cpp of the dwell half.
+    timing::SlotTimingStats timing_stats{};
     traffic::TrafficTable traffic{};
     power::BatteryState battery{};
     // What the cutoff monitor made of the same samples the gauge saw. Whoever
@@ -28,6 +32,11 @@ struct State {
     uint32_t rx_bad{0};
     uint32_t tx_ok{0};
     uint32_t tx_busy{0};
+    // The instant the executor actually reported completion for, published by
+    // whoever already drains messages::RfEvent (TrafficService) so the policy
+    // layer that owns the deadline (RadioService) can measure against it
+    // without a second reader of the bus.
+    uint64_t last_tx_done_at_us{0};
     uint32_t gnss_fixes{0};
     uint32_t pressure_pa{0};
     // The altimeter subscale, as the pilot sets it: standard until told otherwise.

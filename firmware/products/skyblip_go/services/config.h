@@ -12,7 +12,8 @@ namespace skyblip::go {
 class ConfigLinkService : public runtime::Service {
    public:
     explicit ConfigLinkService(runtime::Context& ctx)
-        : runtime::Service(ctx), config_(ctx.roles.link, ctx.state.settings, &ctx.roles.dfu) {}
+        : runtime::Service(ctx),
+          config_(ctx.roles.link, ctx.state.settings, &ctx.roles.dfu, &ctx.state.timing_stats) {}
 
     Status setup() override;
     void tick(uint32_t now_ms) override;
