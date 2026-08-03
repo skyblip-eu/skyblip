@@ -40,21 +40,100 @@ void ScreenService::handle_input(uint32_t now_ms) {
         prompt_ = pending;
         dirty_ = true;
         want_full_ = true;
-        if (pending == comms::Pending::None)
-            gesture_.disarm();
-        else
-            gesture_.arm(now_ms);
+        gesture_.disarm();
+        prompt_on_glass_ = false;
     }
+    if (prompt_ != comms::Pending::None && !gesture_.armed()) {
+        // INFO: cf 02aug26 The two conditions that make a press an answer
+        // rather than an accident: the question has reached the glass where it
+        // can be read, and the thumb has stopped. A run of presses that began
+        // before the prompt - pages being cycled, or a value being stepped on
+        // the settings page - keeps the gesture disarmed until it ends, so
+        // nothing already in flight can be spent on an authorisation. With no
+        // panel fitted there is nothing to read and presence is all there is.
+        const bool readable =
+            prompt_on_glass_ || !hal::has(context_.roles.capabilities, hal::Capability::Display);
+        const bool quiet =
+            !pressed_once_ || now_ms - last_press_ms_ >= ui::ConfirmGesture::kDoublePressMs;
+        if (readable && quiet) gesture_.arm(now_ms);
+    }
+
+    sync_editor(now_ms);
 
     messages::ButtonEvent press{};
     while (context_.bus.input.pop(press)) {
-        if (prompt_ == comms::Pending::None) {
-            next_page();
+        last_press_ms_ = now_ms;
+        pressed_once_ = true;
+        if (prompt_ != comms::Pending::None) {
+            if (gesture_.armed()) resolve(gesture_.press(now_ms));
             continue;
         }
-        resolve(gesture_.press(now_ms));
+        if (editor_.active()) {
+            editor_.press(now_ms);
+            continue;
+        }
+        next_page();
+        sync_editor(now_ms);
     }
-    if (prompt_ != comms::Pending::None) resolve(gesture_.tick(now_ms));
+
+    if (prompt_ != comms::Pending::None) {
+        resolve(gesture_.tick(now_ms));
+        return;
+    }
+    step_editor(now_ms);
+}
+
+// INFO: cf 02aug26 The settings page owns the button for as long as it is the
+// page on the glass and nothing is being authorised. A prompt takes it away
+// without asking, which is what makes "a standing prompt wins" true of the
+// button as well as of the ink.
+void ScreenService::sync_editor(uint32_t now_ms) {
+    const bool wanted = page_ == Page::Settings && prompt_ == comms::Pending::None;
+    if (wanted == editor_.active()) return;
+    if (wanted)
+        editor_.enter(now_ms);
+    else
+        editor_.leave();
+}
+
+void ScreenService::step_editor(uint32_t now_ms) {
+    if (!editor_.active()) return;
+
+    ui::SettingsValues current;
+    current.settings = context_.state.settings;
+    current.qnh_pa = context_.state.qnh_pa;
+    ui::SettingsValues next;
+
+    switch (editor_.tick(now_ms, current, next)) {
+        case ui::SettingsAction::Changed:
+            context_.state.settings = next.settings;
+            context_.state.qnh_pa = next.qnh_pa;
+            // INFO: cf 02aug26 One owner of the flash blob. The page changes the
+            // struct the config service was already given a reference to and
+            // says so with the same flag the companion link raises; the write
+            // itself stays in go::ConfigLinkService::persist, so there is never
+            // a second writer and never two versions of the blob.
+            if (config_ != nullptr) config_->note_settings_changed();
+            dirty_ = true;
+            break;
+        case ui::SettingsAction::Moved: dirty_ = true; break;
+        case ui::SettingsAction::Leave:
+            page_ = traffic_page();
+            dirty_ = true;
+            want_full_ = true;
+            break;
+        case ui::SettingsAction::None:
+        default: break;
+    }
+}
+
+// INFO: cf 02aug26 Where the settings page hands the glass back: the first page
+// the mask leaves standing, which is the traffic picture unless a pilot hid it.
+Page ScreenService::traffic_page() const {
+    const uint8_t mask = context_.state.settings.page_mask;
+    for (int i = 0; i < static_cast<int>(Page::Settings); i++)
+        if (mask & (1u << i)) return static_cast<Page>(i);
+    return Page::Radar;
 }
 
 void ScreenService::resolve(ui::Gesture gesture) {
@@ -65,6 +144,7 @@ void ScreenService::resolve(ui::Gesture gesture) {
         config_->cancel();
     prompt_ = comms::Pending::None;
     gesture_.disarm();
+    prompt_on_glass_ = false;
     dirty_ = true;
     want_full_ = true;
 }
@@ -75,6 +155,12 @@ void ScreenService::tick(uint32_t now_ms) {
 
     if (context_.state.alarm_level != last_alarm_) {
         last_alarm_ = context_.state.alarm_level;
+        dirty_ = true;
+    }
+
+    if (page_ == Page::Settings && context_.state.alarm_level >= kAlarmTakesGlass) {
+        editor_.leave();
+        page_ = traffic_page();
         dirty_ = true;
     }
 
@@ -115,6 +201,7 @@ bool ScreenService::decide_full(uint32_t now_ms, bool quiet) const {
 void ScreenService::note_presented(hal::Refresh mode, uint32_t now_ms) {
     std::memcpy(presented_.data(), fb_.data(), ui::Framebuffer::kBytes);
     presented_once_ = true;
+    prompt_on_glass_ = prompt_ != comms::Pending::None;
     last_present_ms_ = now_ms;
     if (mode == hal::Refresh::Full) {
         fasts_since_full_ = 0;
@@ -129,7 +216,8 @@ void ScreenService::next_page() {
     const int n = static_cast<int>(Page::kCount);
     for (int i = 1; i <= n; i++) {
         const int cand = (static_cast<int>(page_) + i) % n;
-        if (context_.state.settings.page_mask & (1u << cand)) {
+        const bool always = cand == static_cast<int>(Page::Settings);
+        if (always || (context_.state.settings.page_mask & (1u << cand))) {
             page_ = static_cast<Page>(cand);
             break;
         }
@@ -166,9 +254,21 @@ void ScreenService::draw_prompt() {
     ui::draw_confirm(fb_, snapshot);
 }
 
+void ScreenService::draw_settings_page() {
+    ui::SettingsSnapshot snapshot;
+    snapshot.values.settings = context_.state.settings;
+    snapshot.values.qnh_pa = context_.state.qnh_pa;
+    snapshot.focus = editor_.focus();
+    ui::draw_settings(fb_, snapshot);
+}
+
 void ScreenService::render() {
     if (prompt_ != comms::Pending::None) {
         draw_prompt();
+        return;
+    }
+    if (page_ == Page::Settings) {
+        draw_settings_page();
         return;
     }
 

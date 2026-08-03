@@ -70,6 +70,17 @@ class ConfigService {
     bool settings_dirty() const { return dirty_; }
     void clear_dirty() { dirty_ = false; }
 
+    // INFO: cf 02aug26 The panel's settings page edits the same struct this
+    // service was handed, one validated field at a time, and this is how it
+    // says so. There is exactly one writer of the flash blob - the product's
+    // ConfigLinkService, on this flag - so the two editors cannot disagree
+    // about what is stored. Deliberately not gated on flight state: a "set"
+    // from a phone is refused unless the device is positively on the ground,
+    // because a phone in a pocket has no proven presence and rewrites the whole
+    // struct in one message. A press on the panel is presence itself and moves
+    // one field, and alarm volume is a thing a pilot needs in the air.
+    void note_settings_changed() { dirty_ = true; }
+
     // Why the device came up. Read once at boot by the shell, reported here so
     // a watchdog bite in the field is diagnosable without the panel in hand.
     void set_reset_reason(power::ResetReason reason) { reset_reason_ = reason; }
