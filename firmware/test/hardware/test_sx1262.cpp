@@ -286,15 +286,26 @@ TEST_CASE("radio: the PA is the SX1262 high-power configuration, which is also O
     CHECK(chip.cmd_order(sx::kSetPaConfig) < chip.cmd_order(sx::kSetTxParams));
 }
 
-TEST_CASE("radio: output power is the 868 MHz SRD 25 mW e.r.p. ceiling, ramped over 200 us") {
+// The register takes conducted power and the law limits radiated power, so what
+// is pinned here is both the number written to the chip and the arithmetic that
+// makes it legal: feed loss out, antenna gain in, dBi referenced back to the
+// dipole the e.r.p. limit is written against. Change the antenna and this is the
+// case that fails.
+TEST_CASE("radio: output power is 14 dBm conducted, which is under 25 mW e.r.p. on our antenna") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
     r.configure_mband(MbandConfig{});
     CHECK(chip.tx_power_set);
-    CHECK(chip.tx_power_dbm == sx::kSrd868ErpLimitDbm);
-    CHECK(chip.tx_power_dbm == 14);  // 25 mW e.r.p., ERC 70-03 band h1.4
+    CHECK(chip.tx_power_dbm == sx::kConductedDbm);
+    CHECK(chip.tx_power_dbm == 14);
     CHECK(chip.ramp_time == sx::kRampTime200Us);
+
+    // 14 dBm conducted, 0.5 dB of feed, a 1.6 dBi whip: 12.95 dBm e.r.p. against
+    // a 14 dBm ceiling (ERC 70-03 band h1.4). A quarter-wave whip sits below a
+    // dipole, so the part runs out of power before the regulation does.
+    CHECK(sx::kResultingErpCentiDb == 1295);
+    CHECK(sx::kResultingErpCentiDb <= sx::kSrd868ErpLimitDbm * 100);
 }
 
 TEST_CASE("radio: a chip whose output power was never programmed refuses to transmit") {

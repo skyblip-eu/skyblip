@@ -151,6 +151,28 @@ constexpr uint8_t kRampTime200Us = 0x04;
 // 25 mW e.r.p., which is 14 dBm. The ceiling, not a chip default.
 constexpr int8_t kSrd868ErpLimitDbm = 14;
 
+// What the chip is told is CONDUCTED power at its own output, and the limit
+// above is radiated, referenced to a half-wave dipole. The two differ by the
+// feed and by the antenna, so the register value is only defensible with the
+// arithmetic written down. Hundredths of a dB, because the dBi-to-dBd step is
+// 2.15 dB and rounding it away is how a compliance argument goes quietly wrong.
+//
+// TODO: fc 03aug26 Both antenna figures are the paper part of gate G8
+// (project/research/antenna-868-go.md: ANT-868-CW-QW-SMA, 1.6 dBi peak, and an
+// unmeasured 0.5 dB allowance for the U.FL-to-SMA feed). Replace them with the
+// VNA measurement before the regulatory file is filed; the assertion below is
+// what tells you the moment the answer stops holding.
+constexpr int16_t kDbiToDbdCentiDb = 215;
+constexpr int16_t kAntennaPeakGainDbiCentiDb = 160;
+constexpr int16_t kFeedLossCentiDb = 50;
+// What SetTxParams is given. A quarter-wave whip sits below a dipole, so the
+// part runs out of power before the regulation does.
+constexpr int8_t kConductedDbm = 14;
+constexpr int16_t kResultingErpCentiDb = static_cast<int16_t>(
+    kConductedDbm * 100 - kFeedLossCentiDb + kAntennaPeakGainDbiCentiDb - kDbiToDbdCentiDb);
+static_assert(kResultingErpCentiDb <= kSrd868ErpLimitDbm * 100,
+              "the programmed conducted power exceeds 25 mW e.r.p. with the declared antenna");
+
 // DS 13.1.12 CalibrateImage, the 863-870 MHz band pair.
 constexpr uint8_t kImageBand863to870[2] = {0xD7, 0xDB};
 

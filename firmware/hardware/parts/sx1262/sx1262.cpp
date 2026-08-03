@@ -145,7 +145,7 @@ void Sx1262::configure_modulation(const MbandConfig& cfg) {
 
 void Sx1262::configure_power() {
     cmd(sx::kSetPaConfig, sx::kPaConfigHighPower, sizeof(sx::kPaConfigHighPower));
-    uint8_t params[2] = {static_cast<uint8_t>(sx::kSrd868ErpLimitDbm), sx::kRampTime200Us};
+    uint8_t params[2] = {static_cast<uint8_t>(sx::kConductedDbm), sx::kRampTime200Us};
     cmd(sx::kSetTxParams, params, sizeof(params));
 }
 
