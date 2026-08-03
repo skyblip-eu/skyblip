@@ -184,6 +184,11 @@ class Product {
         // alive right through the seconds the panel takes to park.
         roles_.rf.abort();
         roles_.rf.sleep();
+        // And now that nothing is armed, the second is nobody's: a settings change
+        // still waiting for a free phase (core/timing/durable_write.h) goes to
+        // flash here rather than dying with the rails. From this point the service
+        // loop no longer runs, so this is the last chance there is.
+        config_.flush_settings(now_ms);
         // Every peripheral that can be left driven is switched off by the owner
         // that drives it, because from here the service loop no longer runs: a
         // buzzer mid-pattern would sound until the rails drop.

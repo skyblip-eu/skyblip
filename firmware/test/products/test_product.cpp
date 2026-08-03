@@ -197,7 +197,10 @@ TEST_CASE("product: settings changed over the link are persisted") {
     rig.platform.link().push_rx(frame);
     rig.run(100, 300);
     rig.product.config().config().confirm();
-    rig.run(300, 400);
+    // The write is a request now, not a call: it coalesces for
+    // DurableWriteWindow::kSettleMs and then waits for a phase of the second the
+    // NVMC may stall the core in. Two seconds is several of both.
+    rig.run(300, 2400);
 
     uint8_t blob[64];
     size_t n = 0;

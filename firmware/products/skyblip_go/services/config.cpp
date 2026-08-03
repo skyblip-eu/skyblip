@@ -1,5 +1,7 @@
 #include "products/skyblip_go/services/config.h"
 
+#include <cstring>
+
 namespace skyblip::go {
 
 Status ConfigLinkService::setup() {
@@ -28,11 +30,37 @@ void ConfigLinkService::tick(uint32_t now_ms) {
     while (context_.bus.link_rx.pop(frame)) config_.on_rx(frame);
 
     config_.tick(now_ms);
-    if (config_.settings_dirty()) {
-        persist();
-        config_.clear_dirty();
-    }
+    drain_settings(now_ms);
     confirm_image_once_healthy();
+}
+
+// The whole of the deferral, and it is short because the policy owns the
+// arithmetic: a request in, a verdict out, and one write when the verdict says so.
+// Taken the moment it is raised, and never held: the blob is read at the instant
+// it is written, so a stream of changes arrives here as a stream of requests and
+// leaves as one write.
+void ConfigLinkService::take_request(uint32_t now_ms) {
+    if (!config_.settings_dirty()) return;
+    config_.clear_dirty();
+    writes_.request(now_ms);
+}
+
+void ConfigLinkService::drain_settings(uint32_t now_ms) {
+    take_request(now_ms);
+    const timing::DurableWriteVerdict verdict =
+        writes_.decide(context_.state.plan, context_.state.dwell, now_ms);
+    if (verdict != timing::DurableWriteVerdict::Place &&
+        verdict != timing::DurableWriteVerdict::Forced)
+        return;
+    persist();
+    writes_.placed(now_ms, verdict == timing::DurableWriteVerdict::Forced);
+}
+
+void ConfigLinkService::flush_settings(uint32_t now_ms) {
+    take_request(now_ms);
+    if (!writes_.pending()) return;
+    persist();
+    writes_.placed(now_ms, /*forced=*/false);
 }
 
 void ConfigLinkService::load() {
@@ -45,13 +73,21 @@ void ConfigLinkService::load() {
     settings::Settings loaded;
     if (is_ok(settings::from_blob(blob, n, loaded)) && is_ok(settings::validate(loaded)))
         context_.state.settings = loaded;
+    if (n <= kBlobCap) {
+        std::memcpy(stored_, blob, n);
+        stored_len_ = n;
+    }
 }
 
 void ConfigLinkService::persist() {
     if (!hal::has(context_.roles.capabilities, hal::Capability::Storage)) return;
     uint8_t blob[kBlobCap];
     settings::to_blob(context_.state.settings, blob, sizeof(blob));
-    context_.roles.kv.write("settings", blob, settings::blob_size());
+    const size_t len = settings::blob_size();
+    if (stored_len_ == len && std::memcmp(stored_, blob, len) == 0) return;
+    if (!is_ok(context_.roles.kv.write("settings", blob, len))) return;
+    std::memcpy(stored_, blob, len);
+    stored_len_ = len;
 }
 
 // A fresh image swapped in by MCUboot is on probation: unless it declares itself

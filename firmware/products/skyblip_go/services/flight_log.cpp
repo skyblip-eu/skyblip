@@ -198,6 +198,16 @@ void FlightLogService::drain() {
     // still worth leaving alone is the direct slot, where own-ship may key the
     // PA: a record is four seconds of slack and a tick is ten milliseconds, so
     // waiting costs nothing and buys the rule its literal reading.
+    //
+    // INFO: fw 04aug26 This guard stays separate from core/timing's
+    // DurableWriteWindow, which the settings blob now goes through, and the reason
+    // is the sentence above: that policy exists to place a CPU stall, and this
+    // write does not make one. Reading it here would buy nothing and cost two
+    // things - a record would have to fit a window sized for an internal page
+    // erase (kWorstWriteMs, in a second that offers it twice), and the log's ring
+    // would drop entries waiting for a phase it has no reason to wait for. The two
+    // policies agree on the one instant that is genuinely shared, the direct slot,
+    // and both read it from the same plan.tx_allowed that core/timing published.
     if (context_.state.plan.tx_allowed) return;
     flight::LogRecord record{};
     while (session_.take(record)) {

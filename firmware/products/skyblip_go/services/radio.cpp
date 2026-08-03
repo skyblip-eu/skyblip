@@ -21,8 +21,20 @@ void RadioService::tick(uint32_t now_ms) {
 
     const hal::RfMode want = mode_for(plan);
     const bool same_dwell = want == armed_ && plan.freq_hz == armed_freq_;
-    if (same_dwell && !transmit_due(plan, now_ms)) return;
-    arm_dwell(plan, now_ms);
+    if (!same_dwell || transmit_due(plan, now_ms)) arm_dwell(plan, now_ms);
+    publish_dwell(now_ms);
+}
+
+// The one place the phase this service arms against leaves it. core/timing's
+// durable-write policy needs the radio's own view of the second, not a second
+// copy of the slot arithmetic, and it needs to know a burst is in flight - which
+// only the arming code and the outcome collector between them can say.
+void RadioService::publish_dwell(uint32_t now_ms) {
+    timing::DwellPhase& dwell = context_.state.dwell;
+    dwell.at_ms = now_ms;
+    dwell.phase_ms = phase_ms(now_ms);
+    dwell.armed = armed_ != hal::RfMode::Idle;
+    dwell.burst_armed = tx_armed_;
 }
 
 // From the latched edge, at the instant it is asked for. Deriving it from a
