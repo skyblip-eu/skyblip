@@ -7,13 +7,17 @@
 #include "ui/input/gesture.h"
 #include "ui/screens/confirm.h"
 #include "ui/screens/radar.h"
+#include "ui/screens/settings.h"
 #include "ui/screens/signal.h"
 #include "ui/screens/sixpack.h"
 #include "ui/screens/status.h"
 
 namespace skyblip::go {
 
-enum class Page : uint8_t { Radar, SixPack, Status, Signal, kCount };
+// Settings is last and, unlike the four before it, is not in settings.page_mask:
+// it is where the mask is changed, so a mask that hid it would be a mask nobody
+// could undo without a phone.
+enum class Page : uint8_t { Radar, SixPack, Status, Signal, Settings, kCount };
 
 class ScreenService : public runtime::Service {
    public:
@@ -24,6 +28,11 @@ class ScreenService : public runtime::Service {
     static constexpr int kFastHardCeiling = 24;
     static constexpr uint32_t kSkyEmptyBeforeFullMs = 60000;
     static constexpr uint32_t kFullEveryMs = 0;  // 0 disables
+
+    // INFO: cf 02aug26 The level at which the radar carries a bearing worth
+    // turning the head for. At or above it the settings page gives the glass
+    // back on its own: a menu in front of converging traffic is a bug.
+    static constexpr uint8_t kAlarmTakesGlass = 2;
 
     using runtime::Service::Service;
 
@@ -45,6 +54,7 @@ class ScreenService : public runtime::Service {
 
     Page page() const { return page_; }
     comms::Pending prompt() const { return prompt_; }
+    const ui::SettingsEditor& editor() const { return editor_; }
     int32_t range_m() const { return range_m_; }
     bool backlight() const { return backlight_; }
     bool powered() const { return powered_; }
@@ -55,8 +65,12 @@ class ScreenService : public runtime::Service {
    private:
     void render();
     void draw_prompt();
+    void draw_settings_page();
     void handle_input(uint32_t now_ms);
+    void sync_editor(uint32_t now_ms);
+    void step_editor(uint32_t now_ms);
     void resolve(ui::Gesture gesture);
+    Page traffic_page() const;
     bool decide_full(uint32_t now_ms, bool quiet) const;
     void note_presented(hal::Refresh mode, uint32_t now_ms);
 
@@ -68,6 +82,16 @@ class ScreenService : public runtime::Service {
     comms::ConfigService* config_{nullptr};
     comms::Pending prompt_{comms::Pending::None};
     ui::ConfirmGesture gesture_{};
+    ui::SettingsEditor editor_{};
+
+    // INFO: cf 02aug26 What arms the authorising gesture: the prompt has
+    // reached the glass, and the thumb has been still for a whole double-press
+    // window. A pilot stepping a value on the settings page taps faster than
+    // that, so a prompt landing mid-stream cannot be answered by the presses
+    // already on their way - it has to be read first, and then answered.
+    uint32_t last_press_ms_{0};
+    bool pressed_once_{false};
+    bool prompt_on_glass_{false};
 
     ui::Framebuffer fb_{};
     ui::Framebuffer presented_{};

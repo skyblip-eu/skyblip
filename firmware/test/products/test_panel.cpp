@@ -28,9 +28,12 @@ TEST_CASE("product: a button press switches page and the layout swap lands full"
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Signal);
 
-    // Every page is on the rotation by default, and the rotation closes.
+    // Every page is on the rotation by default, and the settings page closes
+    // it. From there the button belongs to the rows rather than to the
+    // rotation, and the way back to the traffic picture is walking them out -
+    // which is test/products/test_settings_page.cpp's business.
     rig.press(t);
-    CHECK(rig.product.screen().page() == go::Page::Radar);
+    CHECK(rig.product.screen().page() == go::Page::Settings);
 }
 
 TEST_CASE("product: page_mask disables pages so the button skips them") {
@@ -40,8 +43,12 @@ TEST_CASE("product: page_mask disables pages so the button skips them") {
     uint32_t t = 100;
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
+
+    // The mask has no bit for the settings page and never will: it is where the
+    // mask itself is changed, so hiding it would be a decision nothing on the
+    // device could undo.
     rig.press(t);
-    CHECK(rig.product.screen().page() == go::Page::Radar);
+    CHECK(rig.product.screen().page() == go::Page::Settings);
 }
 
 TEST_CASE("product: powering the panel down leaves the wordmark on it") {
