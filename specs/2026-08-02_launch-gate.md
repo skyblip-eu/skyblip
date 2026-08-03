@@ -19,7 +19,9 @@ Six findings came out of closing it that were not on the list and matter more th
 - **Nothing published a BLE connection event**, so the battery push this list asked for was dead code on silicon, a standing prompt survived the phone that asked for it, and a confirmed upload window stayed open for its full ten minutes after the phone walked away. That last one is a security hole, not a papercut.
 - **`$PFLAA`/`$PFLAU`/`$PGRMZ` have no producer.** The formatter is written and tested, the endpoint is routed, the characteristic exists, and no service ever sends a sentence: a pilot who pairs a tablet today sees nothing. The claim at the top of this section 0 was false when this document was written.
 
-The last four were found by integration. Each is closed on its own branch, and each is a case the host suite could not fail on before, which is the pattern worth noticing: every one of them lived in the seam between a service and the platform.
+- **The O-band dwell could not have heard a skyPost.** Row 1.1 claims ADS-L uplink reception as ours and ahead of both references. The decoder is written and tested and had no product caller; worse, the dwell was armed with the M-band's sync byte, a 64-byte event buffer for a 255-byte codeword, and 100 kbps unshaped where clause C.4 says 200 kbps GMSK in 250 kHz. Three independent reasons it would have received nothing. All three are fixed, the chip model now refuses a burst sent at a rate the modem is not framing, and `scenarios/ground_relay.json` is the fixture.
+
+The last five were found by integration. Each is closed on its own branch, and each is a case the host suite could not fail on before, which is the pattern worth noticing: every one of them lived in the seam between a service and the platform.
 
 **Position, unchanged: ADS-L on the wire, ALP-TAS on the wire and on the output, simultaneously.** Every gap below is judged against that, not against "be SoftRF". A gap we choose not to close is recorded as deferred so review does not reopen it.
 
