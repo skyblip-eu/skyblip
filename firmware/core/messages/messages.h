@@ -97,6 +97,18 @@ struct LinkDown {
     uint16_t session_id;
 };
 
+// INFO: le 04aug26 One tagged event on one queue, not a queue of LinkUp beside a
+// queue of LinkDown: a connection is an ordered lifecycle, and an Up read before
+// the Down that came first leaves a service pushing at a link that is gone. Two
+// queues cannot promise that order. On Down, payload_bytes carries nothing.
+enum class LinkEventType : uint8_t { Up, Down };
+
+struct LinkEvent {
+    LinkEventType type;
+    uint16_t session_id;
+    uint16_t payload_bytes;
+};
+
 struct RxFrame {
     uint16_t session_id;
     Endpoint endpoint;

@@ -85,6 +85,12 @@ class World {
     void set_external_power(bool on) { platform_.battery().external_power = on; }
     void press_button() { press_pending_ = true; }
 
+    // The pilot's phone walking up and walking away. It drives the platform's own
+    // comms::LinkSession, which is the object Zephyr's connection callbacks drive
+    // on silicon, so the device learns about the central the same way either side.
+    void connect_companion(uint16_t session_id = 1) { platform_.link().raise_link(session_id); }
+    void disconnect_companion() { platform_.link().drop_link(); }
+
     int failures() const { return failures_; }
     const char* first_failure() const { return failure_[0] == 0 ? nullptr : failure_; }
     bool finished(uint32_t now_ms) const {

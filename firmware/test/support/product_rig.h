@@ -104,6 +104,13 @@ struct Rig {
 
     bus::State& state() { return product.state(); }
 
+    // A central connects, and a central goes away, through the platform's own
+    // link model. Nothing here reaches into a service: the event travels
+    // platform -> board -> bus -> config service, which is the path silicon uses.
+    void raise_link(uint16_t session_id = 1) { platform.link().raise_link(session_id); }
+    void drop_link() { platform.link().drop_link(); }
+    bool link_up() { return product.config().config().link_up(); }
+
     // The companion app's side of the link, arriving where the board polls it.
     void send(const char* json) {
         messages::RxFrame frame{};

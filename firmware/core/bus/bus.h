@@ -45,6 +45,11 @@ struct Bus {
     Queue<gnss::GnssFix, 2> gnss;
     Queue<messages::BaroSample, 2> baro;
     Queue<messages::RfEvent, 8> rf;
+    // The connection itself, ahead of the bytes that travel over it: the config
+    // service is the single reader, because it is the one that holds what a link
+    // being up or gone means (a standing prompt, an upload window, the gauge it
+    // pushes unsolicited).
+    Queue<messages::LinkEvent, 4> link_events;
     Queue<messages::RxFrame, 4> link_rx;
     // One writer, one reader, per §5.3: the config service drains link_rx with a
     // while-pop, so a log command sharing that queue would be read and dropped

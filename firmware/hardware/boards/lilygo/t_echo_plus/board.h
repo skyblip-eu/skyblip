@@ -84,6 +84,12 @@ class TEchoPlus {
     void poll(bus::State& state, uint32_t now_ms) {
         rf_.service(now_ms);
 
+        // The connection before the bytes: a frame from a session whose Up is
+        // still queued behind it would be answered by a service that does not yet
+        // believe there is anyone there.
+        messages::LinkEvent link_event;
+        while (platform_.link().pop_event(link_event)) bus_.link_events.push(link_event);
+
         messages::RxFrame frame;
         while (platform_.link().pop_rx(frame)) {
             if (frame.endpoint == messages::Endpoint::Log)

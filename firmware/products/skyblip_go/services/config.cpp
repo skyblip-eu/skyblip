@@ -11,6 +11,7 @@ Status ConfigLinkService::setup() {
 }
 
 void ConfigLinkService::tick(uint32_t now_ms) {
+    drain_link_events();
     // INFO: cf 02aug26 The gate's one source of truth. core/flight owns the
     // decision and publishes the ADS-L G.1.4 code on the bus; this reads it
     // there rather than keeping a second opinion, so "on the ground" means the
@@ -32,6 +33,22 @@ void ConfigLinkService::tick(uint32_t now_ms) {
     config_.tick(now_ms);
     drain_settings(now_ms);
     confirm_image_once_healthy();
+}
+
+// INFO: le 04aug26 The single reader of the connection, drained once per pass and
+// first, because everything below it is said about a link: the standing prompt a
+// disconnect cancels, the upload window it closes, and the gauge that only
+// pushes while somebody is listening. Nothing published these events until the
+// board raised them from the platform; the host suite was green because every
+// case called on_link_up() by hand.
+void ConfigLinkService::drain_link_events() {
+    messages::LinkEvent event{};
+    while (context_.bus.link_events.pop(event)) {
+        if (event.type == messages::LinkEventType::Up)
+            config_.on_link_up(messages::LinkUp{event.session_id, event.payload_bytes});
+        else
+            config_.on_link_down(messages::LinkDown{event.session_id});
+    }
 }
 
 // The whole of the deferral, and it is short because the policy owns the
