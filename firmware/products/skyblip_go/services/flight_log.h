@@ -41,6 +41,13 @@ class FlightLogService : public runtime::Service {
     // frontier. Read by the test that says it does not scan the whole thing.
     uint32_t recovery_bytes_read() const { return recovery_bytes_read_; }
 
+    // INFO: fc 04aug26 Replies this service could not put on the link: one too
+    // big for the negotiated payload, one a formatter refused to truncate, one the
+    // controller would not take. No record is lost with them - the tablet names
+    // the index it wants, so nothing is consumed here until it asks again - but a
+    // transfer that stalls has to be a number somewhere.
+    uint32_t link_drops() const { return link_drops_; }
+
    private:
     struct SessionInfo {
         uint32_t session_id{0};
@@ -70,6 +77,10 @@ class FlightLogService : public runtime::Service {
     void answer_read(uint32_t session_id, uint32_t from);
     void reply(const char* json, int len);
     void ack(bool ok, const char* reason);
+    // What one frame may carry on the link as it stands, and the writer cap that
+    // follows from it.
+    int payload() const;
+    int reply_cap() const;
     void begin_erase();
     void step_erase();
     bool on_ground() const;
@@ -85,6 +96,7 @@ class FlightLogService : public runtime::Service {
 
     uint32_t records_written_{0};
     uint32_t recovery_bytes_read_{0};
+    uint32_t link_drops_{0};
     uint32_t erase_remaining_{0};
     uint32_t erase_next_{0};
     // The session whose sector is currently claimed. Kept apart from the

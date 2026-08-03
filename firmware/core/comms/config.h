@@ -1,6 +1,7 @@
 #ifndef SKYBLIP_CORE_COMMS_CONFIG_H
 #define SKYBLIP_CORE_COMMS_CONFIG_H
 
+#include "core/comms/timing_report.h"
 #include "core/flight/state.h"
 #include "core/messages/messages.h"
 #include "core/power/battery.h"
@@ -43,6 +44,15 @@ constexpr uint32_t kConfirmWindowMs = 30u * 1000u;
 // only by a step this wide, a charging flip, or a level change - three signals
 // a pilot actually cares about, not the ADC's noise floor.
 constexpr uint8_t kBatteryPushStepPercent = 5;
+
+// INFO: fc 04aug26 The smallest ATT payload a single-frame reply is built to fit.
+// An iOS central commonly settles at ATT_MTU 185, three of which are the
+// notification header, so 182 is the narrowest real phone in the field and every
+// reply that a pilot's app depends on is sized under it at its worst case rather
+// than against a local buffer. hal::kMinimumLinkPayload (20) is lower still and
+// is what BLE guarantees; a link that comes up there gets a counted refusal, not
+// a notification the controller will fail.
+constexpr int kSmallestSupportedPayload = 182;
 
 class ConfigService {
    public:
@@ -130,8 +140,16 @@ class ConfigService {
 
     const char* pending_json() const { return pending_buf_; }
 
+    // INFO: fc 04aug26 Every frame this service could not put on the link: one
+    // that would not fit the negotiated payload, one the controller refused, and
+    // one a writer left incomplete. Silence towards a phone is a fault worth a
+    // number, and the pilot-facing push is the one path that also retries.
+    uint32_t link_drops() const { return link_drops_; }
+
    private:
-    void reply(const char* json);
+    Status reply(const char* json);
+    Status reply(const char* json, int len);
+    int payload() const;
     void stage(Pending pending, const char* reason);
     void ack(bool ok, const char* reason);
     void send_status();
@@ -154,6 +172,7 @@ class ConfigService {
     power::BatteryState battery_{};
     power::PowerLevel power_level_{power::PowerLevel::Unknown};
     bool link_up_{false};
+    bool status_push_due_{false};
     bool airborne_latched_{false};
     bool power_off_requested_{false};
     bool log_erase_requested_{false};
@@ -161,6 +180,7 @@ class ConfigService {
     bool dirty_{false};
     bool upload_window_open_{false};
     uint16_t session_{0};
+    uint32_t link_drops_{0};
     uint32_t now_ms_{0};
     uint32_t window_opened_ms_{0};
     uint32_t pending_since_ms_{0};

@@ -5,6 +5,7 @@
 
 #include "core/flight/log_record.h"
 #include "doctest/doctest.h"
+#include "hal/link.h"
 #include "test/support/product_rig.h"
 
 using namespace skyblip;
@@ -84,6 +85,66 @@ std::string list_count(Rig& rig, uint32_t& t) {
 // judges. 50 m/s is 200 quarter-metres per second; standing still is zero.
 void taxi(Rig& rig, uint32_t& t, uint32_t seconds) { rig.seconds(t, seconds, 0, 300); }
 void fly(Rig& rig, uint32_t& t, uint32_t seconds) { rig.seconds(t, seconds, 200, 800); }
+
+// What one walk of a whole session observed. Kept as a value so a case can say
+// what the negotiated payload changed about the transfer without repeating it.
+struct Offload {
+    uint32_t records{0};
+    int chunks{0};
+    int widest_frame{0};
+    int most_records_in_a_chunk{0};
+    bool eof{false};
+    bool ordered{true};
+    bool decoded{true};
+};
+
+// The transfer as a tablet performs it: ask for the index you want next, verify
+// every record against the checksum the flash wrote, stop at eof.
+Offload offload(Rig& rig, uint32_t& t, uint32_t session) {
+    Offload walk{};
+    uint32_t from = 0;
+    uint32_t last_utc = 0;
+    while (!walk.eof && walk.chunks < 400) {
+        char command[96];
+        std::snprintf(command, sizeof(command), "{\"cmd\":\"read\",\"session\":%u,\"from\":%u}",
+                      session, from);
+        rig.platform.link().clear();
+        rig.send_log(command);
+        rig.run(t, t + 100);
+        t += 100;
+        const platform::host::Link::Frame* chunk = last_log_frame(rig);
+        if (chunk == nullptr || chunk->bytes.find("\"cmd\":\"chunk\"") == std::string::npos) {
+            walk.decoded = false;
+            return walk;
+        }
+        if (static_cast<int>(chunk->bytes.size()) > walk.widest_frame)
+            walk.widest_frame = static_cast<int>(chunk->bytes.size());
+
+        const int n = std::atoi(field(chunk->bytes, "n").c_str());
+        if (n > walk.most_records_in_a_chunk) walk.most_records_in_a_chunk = n;
+        uint8_t raw[comms::kLogChunkRawBytes];
+        const int bytes = base64_decode(field(chunk->bytes, "data"), raw, sizeof(raw));
+        if (bytes != n * static_cast<int>(flight::kLogRecordBytes)) walk.decoded = false;
+
+        for (int i = 0; i < n; i++) {
+            flight::LogRecord record{};
+            // Every record carries the checksum it was written with, so the
+            // transfer is verified against the flash and not against the link.
+            if (flight::decode_log_record(raw + i * flight::kLogRecordBytes, session, record) !=
+                Status::Ok) {
+                walk.decoded = false;
+                return walk;
+            }
+            if (record.utc < last_utc) walk.ordered = false;
+            last_utc = record.utc;
+            walk.records++;
+        }
+        from += static_cast<uint32_t>(n);
+        walk.eof = field(chunk->bytes, "eof") == "true";
+        walk.chunks++;
+    }
+    return walk;
+}
 
 }  // namespace
 
@@ -244,49 +305,78 @@ TEST_CASE("flight log: the tablet lists a flight and reads it back five records 
     // The read is asked for one chunk at a time, carrying the index it wants:
     // the next command IS the acknowledgement, so a dropped connection resumes
     // by asking again.
-    uint32_t from = 0;
-    int chunks = 0;
-    uint32_t decoded_records = 0;
-    bool eof = false;
-    uint32_t last_utc = 0;
-    while (!eof && chunks < 200) {
-        char command[96];
-        std::snprintf(command, sizeof(command), "{\"cmd\":\"read\",\"session\":%u,\"from\":%u}",
-                      session, from);
-        rig.platform.link().clear();
-        rig.send_log(command);
-        rig.run(t, t + 100);
-        t += 100;
-        const auto* chunk = last_log_frame(rig);
-        REQUIRE(chunk != nullptr);
-        REQUIRE(chunk->bytes.find("\"cmd\":\"chunk\"") != std::string::npos);
+    const int per_chunk = comms::log_records_per_chunk(rig.platform.link().payload_bytes());
+    // The host link comes up as a phone that negotiated ATT_MTU 247, which is
+    // the size the abandoned fixed five was chosen against.
+    CHECK(per_chunk == 5);
 
-        const int n = std::atoi(field(chunk->bytes, "n").c_str());
-        CHECK(n <= comms::kLogRecordsPerChunk);
-        uint8_t raw[comms::kLogChunkRawBytes];
-        const int bytes = base64_decode(field(chunk->bytes, "data"), raw, sizeof(raw));
-        CHECK(bytes == n * static_cast<int>(flight::kLogRecordBytes));
+    const Offload walk = offload(rig, t, session);
+    CHECK(walk.eof);
+    CHECK(walk.decoded);
+    CHECK(walk.ordered);
+    CHECK(walk.records == written);
+    CHECK(walk.most_records_in_a_chunk == per_chunk);
+    CHECK(walk.chunks == static_cast<int>((written + per_chunk - 1) / per_chunk));
+    CHECK(rig.product.flight_log().link_drops() == 0);
+}
 
-        for (int i = 0; i < n; i++) {
-            flight::LogRecord record{};
-            // Every record carries the checksum it was written with, so the
-            // transfer is verified against the flash and not against the link.
-            REQUIRE(flight::decode_log_record(raw + i * flight::kLogRecordBytes, session, record) ==
-                    Status::Ok);
-            CHECK(record.utc >= last_utc);
-            last_utc = record.utc;
-            decoded_records++;
-        }
-        from += static_cast<uint32_t>(n);
-        eof = field(chunk->bytes, "eof") == "true";
-        chunks++;
-    }
+TEST_CASE(
+    "flight log: the offload completes on an iPhone's payload, and in a quarter the frames on"
+    " a large one") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    taxi(rig, t, 20);
+    fly(rig, t, 80);
+    taxi(rig, t, 40);
+    const uint32_t session = rig.product.flight_log().session_id();
+    const uint32_t written = rig.product.flight_log().records_written();
+    REQUIRE(written > 20);
 
-    CHECK(eof);
-    CHECK(decoded_records == written);
-    // The last record of a flight that ended says so.
-    CHECK(chunks == static_cast<int>((written + comms::kLogRecordsPerChunk - 1) /
-                                     comms::kLogRecordsPerChunk));
+    // An iOS central commonly settles at ATT_MTU 185, three bytes of which are
+    // the notification header. Nothing in the transfer may exceed what it said.
+    rig.platform.link().declare_payload_bytes(comms::kSmallestSupportedPayload);
+    const Offload small = offload(rig, t, session);
+    CHECK(small.eof);
+    CHECK(small.decoded);
+    CHECK(small.records == written);
+    CHECK(small.widest_frame <= comms::kSmallestSupportedPayload);
+    CHECK(small.most_records_in_a_chunk == 3);
+    CHECK(small.chunks == static_cast<int>((written + 2) / 3));
+
+    // The same flight over a link that negotiated the whole L2CAP MTU: the same
+    // records, four times as many per frame, a quarter of the round trips. This
+    // is the half of the bug that was costing throughput rather than breaking.
+    rig.platform.link().declare_payload_bytes(495);
+    const Offload large = offload(rig, t, session);
+    CHECK(large.eof);
+    CHECK(large.decoded);
+    CHECK(large.records == written);
+    CHECK(large.widest_frame <= 495);
+    CHECK(large.most_records_in_a_chunk == comms::kLogRecordsPerChunkMax);
+    CHECK(large.chunks == static_cast<int>((written + comms::kLogRecordsPerChunkMax - 1) /
+                                           comms::kLogRecordsPerChunkMax));
+    CHECK(large.chunks <= small.chunks / 3 + 1);
+
+    // Nothing was refused at either end of the range, and nothing was truncated:
+    // both walks decoded every record against the checksum the flash holds.
+    CHECK(rig.product.flight_log().link_drops() == 0);
+    CHECK(rig.platform.link().refused_oversize == 0);
+
+    // And a link that never got past what BLE guarantees is told nothing at all
+    // rather than handed a chunk with no data in it: not one record fits twenty
+    // bytes, the refusal is counted, and nothing reaches the port.
+    rig.platform.link().declare_payload_bytes(hal::kMinimumLinkPayload);
+    const uint32_t drops_before = rig.product.flight_log().link_drops();
+    rig.platform.link().clear();
+    char command[96];
+    std::snprintf(command, sizeof(command), "{\"cmd\":\"read\",\"session\":%u,\"from\":0}",
+                  session);
+    rig.send_log(command);
+    rig.run(t, t + 100);
+    CHECK(last_log_frame(rig) == nullptr);
+    CHECK(rig.product.flight_log().link_drops() > drops_before);
+    CHECK(rig.platform.link().refused_oversize == 0);
 }
 
 TEST_CASE("flight log: an offload is refused in the air, on the same gate a settings change is") {

@@ -6,7 +6,9 @@
 // chunk at a time, carrying the index it wants next. That makes the transfer
 // acknowledged by construction - the next command IS the acknowledgement - and
 // resumable at no cost: a dropped connection is a tablet that asks again from
-// the last index it kept.
+// the last index it kept. It is also what makes a failed send harmless here: a
+// chunk that never left consumed nothing on the device, so the tablet asking for
+// the same index again is the whole recovery.
 #ifndef SKYBLIP_CORE_COMMS_LOG_LINK_H
 #define SKYBLIP_CORE_COMMS_LOG_LINK_H
 
@@ -28,17 +30,34 @@ struct LogRequest {
     bool understood{false};
 };
 
-// One reply, one frame. 256 bytes is what messages::RxFrame carries and what a
-// BLE notify reaches with a negotiated MTU; nothing here is allowed to need two.
-constexpr int kLogReplyCap = 256;
+// INFO: fc 04aug26 The widest frame this dialect can be asked to build, which is
+// a buffer bound and not a promise: what actually goes out is cut to the payload
+// hal::Link::payload_bytes() reports. Room for the largest chunk a link that
+// negotiated ATT_MTU 498 can carry.
+constexpr int kLogReplyCap = 512;
 
-// INFO: cf 03aug26 Five records: 120 raw bytes become 160 base64 characters,
-// which with the envelope leaves ~20 bytes of slack in a 256-byte frame. Raw
-// bytes are what travels, CRC and all, so the host verifies each record against
-// the same checksum the flash holds - the transfer is checked end to end rather
-// than hop by hop.
-constexpr int kLogRecordsPerChunk = 5;
-constexpr int kLogChunkRawBytes = kLogRecordsPerChunk * static_cast<int>(flight::kLogRecordBytes);
+// INFO: cf 03aug26 Raw bytes are what travels, CRC and all, so the host verifies
+// each record against the same checksum the flash holds - the transfer is checked
+// end to end rather than hop by hop.
+//
+// INFO: fc 04aug26 How many of them ride in one chunk is derived from the
+// negotiated payload, not fixed at five: five was chosen against a 256-byte
+// buffer, which an iPhone's 182 bytes cannot carry and a large-MTU phone would be
+// short-changed by. Twelve is the ceiling because that is what a 498-byte ATT_MTU
+// reaches; the base64 of 24 raw bytes is exactly 32 characters, so the arithmetic
+// below is exact rather than an estimate.
+constexpr int kLogRecordsPerChunkMax = 12;
+constexpr int kLogChunkRawBytes =
+    kLogRecordsPerChunkMax * static_cast<int>(flight::kLogRecordBytes);
+constexpr int kLogChunkBase64PerRecord = static_cast<int>(flight::kLogRecordBytes) / 3 * 4;
+
+// The chunk envelope at its widest: the longest session id and record index the
+// partition can produce, the two-digit count, and an empty data string.
+constexpr int kLogChunkEnvelopeBytes = 83;
+
+// How many records a chunk may carry over a link that negotiated this payload.
+// Zero means not even one fits, which is a refusal for the caller to count.
+int log_records_per_chunk(int payload_bytes);
 
 LogRequest parse_log_request(const messages::RxFrame& frame);
 

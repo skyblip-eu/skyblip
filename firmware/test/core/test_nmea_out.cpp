@@ -7,8 +7,10 @@
 #include <cstring>
 #include <string>
 
+#include "core/comms/config.h"
 #include "core/protocol/nmea_out.h"
 #include "doctest/doctest.h"
+#include "hal/link.h"
 
 using namespace skyblip;
 using namespace skyblip::protocol;
@@ -105,4 +107,38 @@ TEST_CASE("nmea: category mapping ADS-L glider -> ALP-TAS 1") {
     CHECK(addr_table_to_idtype(5) == 1);  // ICAO
     CHECK(addr_table_to_idtype(6) == 2);  // FLARM
     CHECK(addr_table_to_idtype(0) == 0);  // random
+}
+
+TEST_CASE("nmea: the widest sentence these can produce still fits the narrowest payload") {
+    // There is no sender on this endpoint yet. When there is, it goes through
+    // hal::Link::send like the other two, which refuses a frame longer than the
+    // negotiated payload - so what these can produce at their widest is a budget
+    // worth pinning now rather than discovering on someone's iPhone.
+    messages::OwnState own = own_at(-899999999, -1799999999, -999);
+    own.utc_valid = true;
+    messages::AircraftObs t{};
+    t.valid_pos = true;
+    t.addr = 0xFFFFFF;
+    t.addr_table = 0x06;
+    t.lat_1e7 = 899999999;
+    t.lon_1e7 = 1799999999;
+    t.alt_m = 99999;
+    t.track_c9 = 511;
+    t.speed_q = 65535;
+    t.climb_e8 = 32767;
+    t.has_speed = true;
+    t.has_climb = true;
+    t.aircraft_cat = 11;
+    t.flight_state = 2;
+
+    char buf[256];
+    const int traffic = format_pflaa(buf, sizeof(buf), own, t, 3);
+    CHECK(traffic > 0);
+    CHECK(traffic <= comms::kSmallestSupportedPayload);
+    const int status = format_pflau(buf, sizeof(buf), own, 99, &t, 3, 359, -99999, 999999);
+    CHECK(status > 0);
+    CHECK(status <= comms::kSmallestSupportedPayload);
+    // And neither fits what BLE merely guarantees, which is why a sender here
+    // cannot assume a frame is a sentence.
+    CHECK(traffic > hal::kMinimumLinkPayload);
 }

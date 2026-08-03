@@ -117,8 +117,7 @@ Status from_blob(const uint8_t* in, size_t len, Settings& out) {
     return Status::Ok;
 }
 
-int to_json(const Settings& s, char* buf, int cap) {
-    json::Writer w(buf, cap);
+void write_json_fields(json::Writer& w, const Settings& s) {
     w.kv_int("version", s.version);
     w.kv_int("addr", static_cast<long>(s.device_addr));
     w.kv_int("addr_table", s.addr_table);
@@ -129,6 +128,11 @@ int to_json(const Settings& s, char* buf, int cap) {
     w.kv_int("units", static_cast<long>(s.units));
     w.kv_int("page_mask", s.page_mask);
     w.kv_str("callsign", s.callsign);
+}
+
+int to_json(const Settings& s, char* buf, int cap) {
+    json::Writer w(buf, cap);
+    write_json_fields(w, s);
     return w.finish();
 }
 

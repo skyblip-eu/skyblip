@@ -266,15 +266,28 @@ const FlightLogService::SessionInfo* FlightLogService::find(uint32_t session_id)
     return nullptr;
 }
 
+int FlightLogService::payload() const {
+    return static_cast<int>(context_.roles.link.payload_bytes());
+}
+
+int FlightLogService::reply_cap() const {
+    const int room = payload() + 1;
+    return room < comms::kLogReplyCap ? room : comms::kLogReplyCap;
+}
+
 void FlightLogService::reply(const char* json, int len) {
-    if (len <= 0) return;
-    context_.roles.link.send(
-        messages::Endpoint::Log,
-        ConstByteSpan(reinterpret_cast<const uint8_t*>(json), static_cast<size_t>(len)));
+    if (len <= 0 || len > payload()) {
+        link_drops_++;
+        return;
+    }
+    if (!is_ok(context_.roles.link.send(
+            messages::Endpoint::Log,
+            ConstByteSpan(reinterpret_cast<const uint8_t*>(json), static_cast<size_t>(len)))))
+        link_drops_++;
 }
 
 void FlightLogService::ack(bool ok, const char* reason) {
-    reply(reply_, comms::format_log_ack(reply_, comms::kLogReplyCap, ok, reason));
+    reply(reply_, comms::format_log_ack(reply_, reply_cap(), ok, reason));
 }
 
 void FlightLogService::serve_link() {
@@ -327,8 +340,8 @@ void FlightLogService::handle(const comms::LogRequest& request) {
 // anyone noticing, so the tablet asks for the count and then for each line.
 void FlightLogService::answer_list(bool has_index, uint32_t index) {
     if (!has_index) {
-        reply(reply_, comms::format_log_count(reply_, comms::kLogReplyCap, session_count_,
-                                              index_truncated_));
+        reply(reply_,
+              comms::format_log_count(reply_, reply_cap(), session_count_, index_truncated_));
         return;
     }
     if (index >= session_count_) {
@@ -336,7 +349,7 @@ void FlightLogService::answer_list(bool has_index, uint32_t index) {
         return;
     }
     const SessionInfo& entry = index_[index];
-    reply(reply_, comms::format_log_session(reply_, comms::kLogReplyCap, index, session_count_,
+    reply(reply_, comms::format_log_session(reply_, reply_cap(), index, session_count_,
                                             entry.session_id, entry.records, entry.closed));
 }
 
@@ -351,17 +364,26 @@ void FlightLogService::answer_read(uint32_t session_id, uint32_t from) {
         return;
     }
     if (from >= entry->records) {
-        reply(reply_, comms::format_log_chunk(reply_, comms::kLogReplyCap, session_id, from, chunk_,
-                                              0, true));
+        reply(reply_,
+              comms::format_log_chunk(reply_, reply_cap(), session_id, from, chunk_, 0, true));
+        return;
+    }
+
+    // INFO: fc 04aug26 The chunk is as many records as this link's payload holds,
+    // which is a throughput win at the top of the range and the difference
+    // between working and not at the bottom of it: the fixed five were sized
+    // against a 236-byte guess, and an iPhone carries 182.
+    const int per_chunk = comms::log_records_per_chunk(payload());
+    if (per_chunk == 0) {
+        ack(false, "payload");
         return;
     }
 
     const uint32_t slots = ring_.slots_per_sector();
     const uint32_t count = ring_.sector_count();
     const uint32_t available = entry->records - from;
-    const uint32_t wanted = available < static_cast<uint32_t>(comms::kLogRecordsPerChunk)
-                                ? available
-                                : static_cast<uint32_t>(comms::kLogRecordsPerChunk);
+    const uint32_t wanted =
+        available < static_cast<uint32_t>(per_chunk) ? available : static_cast<uint32_t>(per_chunk);
     for (uint32_t i = 0; i < wanted; i++) {
         const uint32_t index = from + i;
         const uint32_t sector = (entry->first_sector + index / slots) % count;
@@ -373,7 +395,7 @@ void FlightLogService::answer_read(uint32_t session_id, uint32_t from) {
         }
     }
     reply(reply_,
-          comms::format_log_chunk(reply_, comms::kLogReplyCap, session_id, from, chunk_,
+          comms::format_log_chunk(reply_, reply_cap(), session_id, from, chunk_,
                                   static_cast<int>(wanted), from + wanted >= entry->records));
 }
 
