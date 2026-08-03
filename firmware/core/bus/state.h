@@ -6,7 +6,10 @@
 #include "core/power/battery.h"
 #include "core/power/cutoff.h"
 #include "core/settings/settings.h"
+#include "core/timing/channel.h"
+#include "core/timing/durable_write.h"
 #include "core/timing/slot.h"
+#include "core/timing/timing_stats.h"
 #include "core/traffic/table.h"
 
 namespace skyblip::bus {
@@ -16,6 +19,14 @@ struct State {
     messages::OwnState own{};
     timing::ClockState clock{};
     timing::SlotPlan plan{};
+    // Where the radio believes it is inside the second it is arming, stamped with
+    // the pass it said so on. The radio service is the only writer; whoever needs
+    // to know whether the core may be stalled reads it here rather than deriving
+    // the phase a second time (core/timing/durable_write.h).
+    timing::DwellPhase dwell{};
+    // The bench accumulator G6 reads out: hardware/boards is the one writer of
+    // the PPS half, products/skyblip_go/services/radio.cpp of the dwell half.
+    timing::SlotTimingStats timing_stats{};
     traffic::TrafficTable traffic{};
     power::BatteryState battery{};
     // What the cutoff monitor made of the same samples the gauge saw. Whoever
@@ -24,10 +35,33 @@ struct State {
     power::PowerLevel power_level{power::PowerLevel::Unknown};
 
     uint8_t alarm_level{0};
+    // INFO: fc 03aug26 The carrier-sense threshold the next dwell will carry,
+    // published because EN 300 220-2 V3.3.1 §4.6.2.3 evidence has to be readable
+    // on a bench. The radio service is the only writer; before it has run this
+    // is the cold-start threshold, which is what the dwell would carry too.
+    int8_t carrier_sense_dbm{timing::NoiseFloor::kSeedDbm + timing::NoiseFloor::kClearMarginDb};
+
     uint32_t rx_ok{0};
     uint32_t rx_bad{0};
     uint32_t tx_ok{0};
     uint32_t tx_busy{0};
+    // INFO: fc 05aug26 The O-band uplink is its own path and is counted apart
+    // from the M band's: every frame that arrived in the uplink dwell, the ones
+    // Reed-Solomon refused, and the aircraft the rest of them put in the table.
+    // The third is smaller than the aircraft the frames carried whenever the
+    // ground station relayed one back that the table refuses - own-ship, or an
+    // aircraft we are hearing better first-hand. Until 2026-08-05 an uplink
+    // frame reached protocol::receive_mband, failed to frame as either M-band
+    // system and landed in rx_bad: the whole feature was absent and its absence
+    // looked like radio noise, which is what hid it.
+    uint32_t uplink_frames{0};
+    uint32_t uplink_bad{0};
+    uint32_t uplink_targets{0};
+    // The instant the executor actually reported completion for, published by
+    // whoever already drains messages::RfEvent (TrafficService) so the policy
+    // layer that owns the deadline (RadioService) can measure against it
+    // without a second reader of the bus.
+    uint64_t last_tx_done_at_us{0};
     uint32_t gnss_fixes{0};
     uint32_t pressure_pa{0};
     // The altimeter subscale, as the pilot sets it: standard until told otherwise.

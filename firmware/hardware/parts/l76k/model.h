@@ -32,6 +32,10 @@ class L76k : public io::Uart {
     uint16_t hdop_e2{90};
     int32_t speed_kt{45};
     int32_t track_deg{90};
+    // INFO: fc 03aug26 Degrees per second, positive to the right. The track this
+    // model emits is the only thing own-ship can differentiate a turn rate out
+    // of, so a thermalling own-ship is expressed here and nowhere else.
+    double turn_dps{0};
     int32_t climb_mps_e1{0};  // tenths of m/s, applied to alt over time
     uint32_t utc_sod{12 * 3600 + 34 * 60 + 56};
 
@@ -92,15 +96,21 @@ class L76k : public io::Uart {
         if (dt < solution_period_ms) return;
         last_ms_ = now_ms;
 
-        // Integrate position along the current track at the current speed.
+        // Integrate position along the current track at the current speed. In a
+        // turn that is the track halfway through the step, or the path is a
+        // polygon drawn outside the circle actually flown.
         const double v_mps = speed_kt * 0.514444;
         const double secs = dt / 1000.0;
-        const double rad = track_deg * 3.14159265358979 / 180.0;
+        const double rad = (track_deg + turn_dps * secs * 0.5) * 3.14159265358979 / 180.0;
         const double north_m = v_mps * std::cos(rad) * secs;
         const double east_m = v_mps * std::sin(rad) * secs;
         lat_1e7 += static_cast<int32_t>(north_m * 1e7 / 111320.0);
         const double coslat = std::cos(lat_1e7 / 1e7 * 3.14159265358979 / 180.0);
         if (coslat > 0.01) lat_lon_advance(east_m, coslat);
+        turned_deg_ += turn_dps * secs;
+        const int32_t whole_deg = static_cast<int32_t>(turned_deg_);
+        turned_deg_ -= whole_deg;
+        track_deg = ((track_deg + whole_deg) % 360 + 360) % 360;
         // Metres per solution, not per second: at 5 Hz a 3 m/s climb is 0.6 m a
         // step, and truncating that to an integer would report level flight.
         climbed_m_ += climb_mps_e1 * secs / 10.0;
@@ -122,6 +132,7 @@ class L76k : public io::Uart {
 
     uint32_t sod_ms_{0};
     double climbed_m_{0};
+    double turned_deg_{0};
     char command_[kCommandCap]{};
     int command_len_{0};
 

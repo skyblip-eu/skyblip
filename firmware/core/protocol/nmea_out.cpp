@@ -25,11 +25,22 @@ uint8_t adsl_cat_to_alptas(uint8_t c) {
     return c < 18 ? kMap[c] : 0;
 }
 
-uint8_t addr_table_to_idtype(uint8_t t) {
-    if (t == 0x05) return 1;
-    if (t == 0x06) return 2;
-    return 0;
-}
+// INFO: fc 03aug26 ADS-L 4 SRD860 issue 2's address table is 0-4 self-minted/
+// random, 5 ICAO, 6 FLARM, 7 OGN (core/settings/address.h). $PFLAA's IDType
+// carries only three values, and SkyDemon refuses the sentence for anything but
+// 1 or 2 (oss/SoftRF-moshe-braner/.../libraries/OGN/ads-l.h:657-658: "if
+// (AddrType==5) AddrType=1; else AddrType=2; // SkyDemon only accepts 1 or 2").
+// Leaving a self-minted address at IDType 0 draws nothing on that app at all,
+// which is the one failure worth never causing again. Between the two values
+// left, 1 (ICAO) claims a permanent, registry-issued identity for an address we
+// mint fresh every flight; 2 (FLARM) claims a device-class kinship that is at
+// least true of the mechanism - transient and self-assigned - so everything
+// that is not ICAO becomes FLARM. What that costs: an OGN tracker's address (7)
+// and our own random one (0-4) both draw on the tablet as if they were FLARM,
+// which is a lie about provenance too - just a cheaper one than claiming ICAO,
+// because nothing downstream correlates a FLARM ID against an aircraft
+// register the way it might an ICAO one.
+uint8_t addr_table_to_idtype(uint8_t t) { return t == 0x05 ? 1 : 2; }
 
 bool relative_ned(const messages::OwnState& own, const messages::AircraftObs& t, int32_t& north_m,
                   int32_t& east_m, int32_t& up_m) {
@@ -84,7 +95,7 @@ int format_pflaa(char* out, size_t cap, const messages::OwnState& own,
 }
 
 int format_pflau(char* out, size_t cap, const messages::OwnState& own, int n_targets,
-                 const messages::AircraftObs* threat, uint8_t alarm_level, uint16_t rel_bearing_deg,
+                 const messages::AircraftObs* threat, uint8_t alarm_level, int16_t rel_bearing_deg,
                  int32_t rel_vert_m, int32_t rel_dist_m) {
     (void)cap;
     int n = 0;
@@ -118,12 +129,98 @@ int format_pflau(char* out, size_t cap, const messages::OwnState& own, int n_tar
     return nmea_finish(out, n);
 }
 
-int format_pgrmz(char* out, size_t cap, int32_t alt_ft) {
+int format_pgrmz(char* out, size_t cap, int32_t alt_ft, bool fix_valid) {
     (void)cap;
     int n = 0;
     n += fmt_string(out + n, "$PGRMZ,");
     n += fmt_int(out + n, alt_ft, 1, 0, true);
-    n += fmt_string(out + n, ",F,2");
+    n += fmt_string(out + n, ",F,");
+    out[n++] = fix_valid ? '3' : '1';
+    return nmea_finish(out, n);
+}
+
+namespace {
+
+// The inverse of the epoch core/gnss/nmea.cpp builds from a $GPRMC date and
+// time: own.utc keeps no calendar fields of its own, so writing one back out
+// means undoing the conversion. Howard Hinnant's civil_from_days, exact over
+// the whole range a uint32_t epoch can name.
+void civil_from_epoch(uint32_t utc, int& year, int& month, int& day, int& hh, int& mm, int& ss) {
+    const uint32_t sod = utc % 86400u;
+    hh = static_cast<int>(sod / 3600u);
+    mm = static_cast<int>((sod / 60u) % 60u);
+    ss = static_cast<int>(sod % 60u);
+    const int64_t z = static_cast<int64_t>(utc / 86400u) + 719468;
+    const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+    const uint32_t doe = static_cast<uint32_t>(z - era * 146097);
+    const uint32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const int64_t y = static_cast<int64_t>(yoe) + era * 400;
+    const uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const uint32_t mp = (5 * doy + 2) / 153;
+    day = static_cast<int>(doy - (153 * mp + 2) / 5 + 1);
+    month = static_cast<int>(mp) + (mp < 10 ? 3 : -9);
+    year = static_cast<int>(y + (month <= 2 ? 1 : 0));
+}
+
+int put_hhmmss(char* out, uint32_t utc) {
+    const uint32_t sod = utc % 86400u;
+    int n = 0;
+    n += fmt_uint(out + n, sod / 3600u, 2);
+    n += fmt_uint(out + n, (sod / 60u) % 60u, 2);
+    n += fmt_uint(out + n, sod % 60u, 2);
+    return n;
+}
+
+}  // namespace
+
+int format_gprmc(char* out, size_t cap, const messages::OwnState& own) {
+    (void)cap;
+    if (!own.fix_valid || !own.utc_valid) return 0;
+    int year, month, day, hh, mm, ss;
+    civil_from_epoch(own.utc, year, month, day, hh, mm, ss);
+    int n = 0;
+    n += fmt_string(out + n, "$GPRMC,");
+    n += fmt_uint(out + n, static_cast<uint32_t>(hh), 2);
+    n += fmt_uint(out + n, static_cast<uint32_t>(mm), 2);
+    n += fmt_uint(out + n, static_cast<uint32_t>(ss), 2);
+    n += fmt_string(out + n, ",A,");
+    n += fmt_nmea_lat(out + n, own.lat_1e7);
+    out[n++] = ',';
+    n += fmt_nmea_lon(out + n, own.lon_1e7);
+    out[n++] = ',';
+    // Ground speed is knots on this sentence, and own.speed_q is quarter
+    // metres/second: knots = (speed_q/4) * 3600/1852, kept to one decimal.
+    const uint32_t knots_e1 = (static_cast<uint32_t>(own.speed_q) * 2250u + 231u) / 463u;
+    n += fmt_uint(out + n, knots_e1, 1, 1);
+    out[n++] = ',';
+    n += fmt_uint(out + n, to_degrees(Cordic9(own.track_c9)).v, 1);
+    out[n++] = ',';
+    n += fmt_uint(out + n, static_cast<uint32_t>(day), 2);
+    n += fmt_uint(out + n, static_cast<uint32_t>(month), 2);
+    n += fmt_uint(out + n, static_cast<uint32_t>(year % 100), 2);
+    n += fmt_string(out + n, ",,,A");
+    return nmea_finish(out, n);
+}
+
+int format_gpgga(char* out, size_t cap, const messages::OwnState& own) {
+    (void)cap;
+    if (!own.fix_valid || !own.utc_valid) return 0;
+    int n = 0;
+    n += fmt_string(out + n, "$GPGGA,");
+    n += put_hhmmss(out + n, own.utc);
+    out[n++] = ',';
+    n += fmt_nmea_lat(out + n, own.lat_1e7);
+    out[n++] = ',';
+    n += fmt_nmea_lon(out + n, own.lon_1e7);
+    n += fmt_string(out + n, ",1,");
+    n += fmt_uint(out + n, own.sats, 2);
+    out[n++] = ',';
+    n += fmt_uint(out + n, own.hdop_e2, 3, 2);
+    out[n++] = ',';
+    n += fmt_int(out + n, own.alt_msl_m, 1, 0, true);
+    n += fmt_string(out + n, ",M,");
+    n += fmt_int(out + n, own.alt_m - own.alt_msl_m, 1, 0, true);
+    n += fmt_string(out + n, ",M,,");
     return nmea_finish(out, n);
 }
 

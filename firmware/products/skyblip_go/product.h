@@ -4,8 +4,11 @@
 #include "core/power/reset_reason.h"
 #include "core/power/shutdown.h"
 #include "hardware/boards/lilygo/t_echo_plus/board.h"
+#include "products/skyblip_go/features.h"
 #include "products/skyblip_go/services/alarm.h"
 #include "products/skyblip_go/services/config.h"
+#include "products/skyblip_go/services/flight_log.h"
+#include "products/skyblip_go/services/nmea.h"
 #include "products/skyblip_go/services/ownship.h"
 #include "products/skyblip_go/services/power.h"
 #include "products/skyblip_go/services/radio.h"
@@ -15,25 +18,6 @@
 #include "ui/screens/boot.h"
 
 namespace skyblip::go {
-
-enum class Feature : uint32_t {
-    AdslRx = 1u << 0,
-    UplinkRx = 1u << 1,
-    AdslTx = 1u << 6,
-    // Receive only: the same M-band dwell as AdslRx, framed by the sync window
-    // the two systems share (core/protocol/air.h). We never transmit it.
-    AlptasRx = 1u << 7,
-    Radar = 1u << 2,
-    Alarms = 1u << 3,
-    Instruments = 1u << 4,
-    CompanionLink = 1u << 5,
-};
-
-constexpr Feature kFeatures = static_cast<Feature>(
-    static_cast<uint32_t>(Feature::AdslRx) | static_cast<uint32_t>(Feature::UplinkRx) |
-    static_cast<uint32_t>(Feature::Radar) | static_cast<uint32_t>(Feature::Alarms) |
-    static_cast<uint32_t>(Feature::Instruments) | static_cast<uint32_t>(Feature::CompanionLink) |
-    static_cast<uint32_t>(Feature::AdslTx) | static_cast<uint32_t>(Feature::AlptasRx));
 
 // What this product cannot fly without, and what it can lose and keep flying.
 constexpr hal::Capabilities kRequired = hal::Capability::Rf | hal::Capability::Gnss;
@@ -76,6 +60,13 @@ class Product {
         // companion link's state machine. Wired before anything can ask for an
         // authorisation there is no way to grant.
         screen_.attach_config(config_.config());
+        // Erasing every flight on the device is authorised where a firmware
+        // upload is: one prompt machine, one gesture, one place to look.
+        flight_log_.attach_config(config_.config());
+        // Whether a tablet is there is one fact with one owner. The sentences
+        // start on the same connection that opens the config channel and stop
+        // on the same disconnection, because both read it from the same place.
+        nmea_.attach_config(config_.config());
 
         const Status board = board_.begin();
         reset_reason_ = power::classify(platform_.system_power().reset_causes());
@@ -109,7 +100,7 @@ class Product {
             }
         }
         shutdown_.tick(now_ms, platform_.button_down());
-        drive_shutdown();
+        drive_shutdown(now_ms);
     }
 
     hal::Capabilities capabilities() const { return board_.capabilities(); }
@@ -144,8 +135,10 @@ class Product {
     RadioService& radio() { return radio_; }
     TrafficService& traffic() { return traffic_; }
     AlarmService& alarm() { return alarm_; }
+    NmeaService& nmea() { return nmea_; }
     ScreenService& screen() { return screen_; }
     ConfigLinkService& config() { return config_; }
+    FlightLogService& flight_log() { return flight_log_; }
 
    private:
     void show_boot_page() {
@@ -170,7 +163,7 @@ class Product {
         roles_.display.present(boot_fb_, hal::Refresh::Full, 0);
     }
 
-    void drive_shutdown() {
+    void drive_shutdown(uint32_t now_ms) {
         const power::ShutdownPhase phase = shutdown_.phase();
         if (phase == acted_phase_) return;
         acted_phase_ = phase;
@@ -179,6 +172,15 @@ class Product {
         // alive right through the seconds the panel takes to park.
         roles_.rf.abort();
         roles_.rf.sleep();
+        // And now that nothing is armed, the second is nobody's: a settings change
+        // still waiting for a free phase (core/timing/durable_write.h) goes to
+        // flash here rather than dying with the rails. From this point the service
+        // loop no longer runs, so this is the last chance there is.
+        config_.flush_settings(now_ms);
+        // Every peripheral that can be left driven is switched off by the owner
+        // that drives it, because from here the service loop no longer runs: a
+        // buzzer mid-pattern would sound until the rails drop.
+        alarm_.park(now_ms);
         screen_.set_power(false);
     }
 
@@ -193,15 +195,23 @@ class Product {
     OwnshipService ownship_{ctx_};
     PowerService power_{ctx_};
     RadioService radio_{ctx_};
-    TrafficService traffic_{ctx_};
+    TrafficService traffic_{ctx_, kFeatures};
     AlarmService alarm_{ctx_};
+    NmeaService nmea_{ctx_, kFeatures};
+    FlightLogService flight_log_{ctx_};
     ScreenService screen_{ctx_};
 
-    static constexpr int kServiceCount = 7;
-    runtime::Service* services_[kServiceCount]{&config_,  &ownship_, &power_, &radio_,
-                                               &traffic_, &alarm_,   &screen_};
+    // The log ticks after own-ship has published the fix and after the radio has
+    // published the slot plan it defers to, and before the screen, which is the
+    // only service that may spend a whole pass pushing pixels.
+    // The tablet is told after the table and the levels for this pass are
+    // settled and after the config service has drained the connection, and
+    // before the two services that may spend a pass on flash or on pixels.
+    static constexpr int kServiceCount = 9;
+    runtime::Service* services_[kServiceCount]{
+        &config_, &ownship_, &power_, &radio_, &traffic_, &alarm_, &nmea_, &flight_log_, &screen_};
     static constexpr const char* kServiceNames[kServiceCount] = {
-        "config", "ownship", "power", "radio", "traffic", "alarm", "screen"};
+        "config", "ownship", "power", "radio", "traffic", "alarm", "nmea", "flight_log", "screen"};
     runtime::Loop loop_{services_, kServiceCount, kServiceNames};
 
     ui::Framebuffer boot_fb_{};

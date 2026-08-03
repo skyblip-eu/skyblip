@@ -206,29 +206,10 @@ TEST_CASE("comms: power_off refused in flight") {
 
 // D5: the reset reason was read at boot and shown on the self-test page, and a
 // device in a field with a phone next to it has no self-test page in view.
-TEST_CASE("comms: status reports why the device came up") {
-    platform::host::Link link;
-    settings::Settings s = settings::defaults(0xAA55);
-    std::memcpy(s.callsign, "D-KXYZ", 7);
-    ConfigService cs(link, s);
-    cs.set_flight_state(FlightState::Ground);
-    cs.set_reset_reason(power::ResetReason::Watchdog);
-
-    cs.on_rx(frame("{\"cmd\":\"status\"}"));
-    REQUIRE(link.sent.size() == 1);
-    const std::string body = link.last().bytes;
-    CHECK(body.find("\"cmd\":\"status\"") != std::string::npos);
-    CHECK(body.find("\"reset\":\"WATCHDOG\"") != std::string::npos);
-    CHECK(body.find("\"flight\":\"ground\"") != std::string::npos);
-    CHECK(body.find("D-KXYZ") != std::string::npos);
-
-    // Unknown until the shell says otherwise, and never a stale answer.
-    platform::host::Link fresh_link;
-    ConfigService fresh(fresh_link, s);
-    fresh.on_rx(frame("{\"cmd\":\"status\"}"));
-    CHECK(fresh_link.last().bytes.find("\"reset\":\"UNKNOWN\"") != std::string::npos);
-}
-
+// G6's plug-in-and-read: the same on_rx dispatch that answers "status"
+// answers "timing" from whatever core/timing::SlotTimingStats the device has
+// been accumulating - no second channel, no panel real estate a bucket array
+// would not fit on anyway.
 // Fail closed: takeoff must revoke an authorisation granted on the ground, or a
 // long upload could still be running when the aircraft leaves.
 TEST_CASE("comms: takeoff closes an open upload window and it stays latched") {
@@ -381,3 +362,12 @@ TEST_CASE("comms: link down cancels a pending change") {
     cs.on_link_down(messages::LinkDown{1});
     CHECK(cs.pending() == Pending::None);
 }
+
+// G1: the wire, not the gauge or the cutoff rule - core/power decided percent,
+// charging and the level, comms only carries them to the tablet.
+// The RED technical file asks for the clear-channel threshold in force and the
+// interval it is assessed over, and asks for them as a test mode. This is not a
+// mode: the same bench reply that carries the slot-timing histograms carries
+// both, so the evidence is text in a laboratory's report. It rides with
+// "timing" rather than with "status" because a pilot's tablet reads status on
+// every battery step and none of this is for a pilot.

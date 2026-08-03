@@ -6,6 +6,7 @@
 #include "hardware/parts/bme280/model.h"
 #include "hardware/platform/host/annunciator.h"
 #include "hardware/platform/host/clock.h"
+#include "hardware/platform/host/flash_region.h"
 #include "hardware/platform/host/io.h"
 #include "hardware/platform/host/kvstore.h"
 #include "hardware/platform/host/link.h"
@@ -100,6 +101,7 @@ class Platform {
     explicit Platform(hal::Capabilities fitted = kFullyFitted) : fitted_(fitted) {
         baro_.present = hal::has(fitted, hal::Capability::Baro);
         battery_.present = hal::has(fitted, hal::Capability::Battery);
+        log_flash_.set_present(hal::has(fitted, hal::Capability::Storage));
     }
 
     Status begin() { return Status::Ok; }
@@ -115,6 +117,7 @@ class Platform {
     host::Clock& clock() { return clock_; }
     host::Link& link() { return link_; }
     host::KvStore& kv() { return kv_; }
+    host::FlashRegion& log_flash() { return log_flash_; }
     host::Annunciator& annunciator() { return annunciator_; }
     host::Dfu& dfu() { return dfu_; }
     host::Baro& baro() { return baro_; }
@@ -138,6 +141,7 @@ class Platform {
     host::Clock clock_{};
     host::Link link_{};
     host::KvStore kv_{};
+    host::FlashRegion log_flash_{};
     host::Annunciator annunciator_{};
     host::Dfu dfu_{};
     host::Baro baro_{};

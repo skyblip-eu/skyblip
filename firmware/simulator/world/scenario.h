@@ -19,6 +19,7 @@ enum class EventKind : uint8_t {
     ExternalPower,
     Button,
     Altitude,
+    Speed,
     Track,
     Aircraft,
     ExpectAlarmMin,
@@ -26,14 +27,20 @@ enum class EventKind : uint8_t {
 };
 
 struct ScenarioAircraft {
-    // "adsl" or "alptas": what this aircraft is equipped with, which is the only
-    // thing that decides whether our shared sync window frames its bursts.
+    // "adsl", "alptas" or "uplink": what this aircraft is equipped with, which
+    // is the only thing that decides whether our shared sync window frames its
+    // bursts. "uplink" is the odd one - it is not equipment at all, it is an
+    // aircraft that only reaches us because a skyPost heard it and relays it on
+    // the O band.
     protocol::System system{protocol::System::AdslDirect};
     double north_m{0};
     double east_m{0};
     double up_m{0};
     double speed_mps{30};
     double track_deg{270};
+    // Degrees per second, positive to the right: this aircraft holds a steady
+    // turn instead of a straight line, which is what thermalling is.
+    double turn_dps{0};
     // Where in the second this aircraft transmits and on which M-band channel.
     // Left alone it behaves like a conforming transmitter. Pinned, it is how a
     // slot-timing bug becomes a committed fixture.
@@ -57,6 +64,7 @@ struct Scenario {
     int32_t alt_m{1000};
     int32_t speed_kt{45};
     int32_t track_deg{90};
+    int32_t turn_dps{0};
     uint32_t duration_ms{0};
     std::vector<ScenarioAircraft> aircraft;
     std::vector<ScenarioEvent> events;

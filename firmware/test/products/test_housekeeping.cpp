@@ -315,9 +315,12 @@ TEST_CASE("product: a page press does not authorise a firmware upload") {
     t += 200;
     REQUIRE(rig.product.screen().page() == go::Page::SixPack);
 
+    // Long enough for the question to have reached the glass: a press only
+    // counts towards an answer once the prompt is on the panel and the thumb
+    // has stopped, so a page press made before either is simply dropped.
     rig.send("{\"cmd\":\"dfu\"}");
-    rig.run(t, t + 500);
-    t += 500;
+    rig.run(t, t + 3000);
+    t += 3000;
     REQUIRE(rig.config().pending() == comms::Pending::Dfu);
 
     // ... and pages again, exactly as before, on a device that is now asking
@@ -345,8 +348,8 @@ TEST_CASE("product: two presses on the ground are what open the upload window") 
     rig.on_ground(t);
 
     rig.send("{\"cmd\":\"dfu\"}");
-    rig.run(t, t + 500);
-    t += 500;
+    rig.run(t, t + 3000);
+    t += 3000;
     REQUIRE(rig.config().pending() == comms::Pending::Dfu);
     REQUIRE_FALSE(rig.config().upload_allowed());
 
@@ -364,8 +367,8 @@ TEST_CASE("product: two presses on the ground are what open the upload window") 
     rig.airborne(t);
     CHECK_FALSE(rig.config().upload_allowed());
     rig.send("{\"cmd\":\"dfu\"}");
-    rig.run(t, t + 500);
-    t += 500;
+    rig.run(t, t + 3000);
+    t += 3000;
     rig.double_press(t);
     rig.run(t, t + 200);
     CHECK_FALSE(rig.config().upload_allowed());

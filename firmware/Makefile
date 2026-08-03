@@ -129,7 +129,11 @@ watch:
 clean:
 	rm -rf $(BUILD)
 
-# Header dependencies for BOTH object trees. Without the web half, editing a
-# .h left the stale .o in place and the browser kept running old code.
+# Header dependencies for ALL THREE object trees. Without the web half, editing
+# a .h left the stale .o in place and the browser kept running old code; without
+# the simulator half, the terminal frontend was the one translation unit no
+# other target compiles, so renaming a driver method left it linking against a
+# symbol that no longer existed.
 -include $(OBJ:.o=.d)
+-include $(SIMULATOR_OBJ:.o=.d)
 -include $(WEB_OBJ:.o=.d)

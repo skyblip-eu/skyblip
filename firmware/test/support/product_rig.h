@@ -39,6 +39,42 @@ struct Rig {
         product.bus().gnss.push(f);
     }
 
+    // 2026-08-02T00:00:00Z. A fix with no UTC cannot name a session, so the
+    // helpers below carry one and advance it a second at a time.
+    static constexpr uint32_t kUtcBase = 1785628800;
+
+    // A solution as a receiver reports one in flight: moving, timed, and
+    // referenced to both datums. core/flight decides what it means.
+    void push_timed_fix(uint16_t speed_q, int32_t alt_msl_m) {
+        gnss::GnssFix f{};
+        f.valid = true;
+        f.utc_valid = true;
+        f.utc = kUtcBase + utc_offset_s;
+        f.lat_1e7 = 485000000 + static_cast<int32_t>(utc_offset_s) * 3000;
+        f.lon_1e7 = 85000000;
+        f.alt_msl_m = alt_msl_m;
+        f.alt_m = alt_msl_m + gnss::kDefaultGeoidSeparationM;
+        f.geoid_separation_measured = true;
+        f.speed_q = speed_q;
+        f.track_c9 = 128;
+        f.sats = 10;
+        f.hdop_e2 = 100;
+        f.updates = ++fix_updates;
+        product.bus().gnss.push(f);
+    }
+
+    // One second of the world: a solution, then the passes that follow it.
+    void second(uint32_t& t, uint16_t speed_q, int32_t alt_msl_m) {
+        push_timed_fix(speed_q, alt_msl_m);
+        run(t, t + 950);
+        t += 1000;
+        utc_offset_s++;
+    }
+
+    void seconds(uint32_t& t, uint32_t n, uint16_t speed_q, int32_t alt_msl_m) {
+        for (uint32_t i = 0; i < n; i++) second(t, speed_q, alt_msl_m);
+    }
+
     void push_baro(int32_t alt_cm, uint32_t at_ms) {
         product.bus().baro.push(messages::BaroSample{flight::alt_cm_to_pressure(alt_cm), at_ms});
     }
@@ -60,7 +96,20 @@ struct Rig {
         }
     }
 
+    // The authorising gesture: two presses inside ui::ConfirmGesture's window.
+    void double_press(uint32_t& t) {
+        press(t);
+        press(t);
+    }
+
     bus::State& state() { return product.state(); }
+
+    // A central connects, and a central goes away, through the platform's own
+    // link model. Nothing here reaches into a service: the event travels
+    // platform -> board -> bus -> config service, which is the path silicon uses.
+    void raise_link(uint16_t session_id = 1) { platform.link().raise_link(session_id); }
+    void drop_link() { platform.link().drop_link(); }
+    bool link_up() { return product.config().config().link_up(); }
 
     // The companion app's side of the link, arriving where the board polls it.
     void send(const char* json) {
@@ -70,6 +119,19 @@ struct Rig {
         std::memcpy(frame.data.data(), json, frame.len);
         platform.link().push_rx(frame);
     }
+
+    // The same app on the log endpoint, which is a separate characteristic and
+    // a separate queue.
+    void send_log(const char* json) {
+        messages::RxFrame frame{};
+        frame.endpoint = messages::Endpoint::Log;
+        frame.len = static_cast<uint16_t>(std::strlen(json));
+        std::memcpy(frame.data.data(), json, frame.len);
+        platform.link().push_rx(frame);
+    }
+
+    uint32_t utc_offset_s{0};
+    uint32_t fix_updates{0};
 };
 
 // A board with no fitted barometer: the samples in these cases are pushed by

@@ -31,11 +31,12 @@ struct Pass {
     bus::State state{};
     platform::host::Rf rf{radio, platform.clock(), bus.rf};
     runtime::NullRoles null{};
-    hal::Roles roles{platform.clock(), rf,       null.link,           null.display, null.kv,
-                     null.annunciator, null.dfu, hal::Capability::Rf, 0x0ABBCC};
+    hal::Roles roles{
+        platform.clock(), rf,       null.link,           null.display, null.kv, null.log_flash,
+        null.annunciator, null.dfu, hal::Capability::Rf, 0x0ABBCC};
     runtime::Context context{roles, bus, state};
     go::RadioService radio_service{context};
-    go::TrafficService traffic_service{context};
+    go::TrafficService traffic_service{context, go::kFeatures};
 
     Status begin() {
         const Status s = rf.begin();
@@ -152,12 +153,12 @@ TEST_CASE("rf: the SetTx timeout is the transmit watchdog, and the next dwell is
     models::Sx1262 chip;
     parts::Sx1262 radio(chip, chip, chip.busy_pin, chip.reset_pin, chip.dio1_pin);
     REQUIRE(radio.begin() == Status::Ok);
-    parts::MbandConfig cfg{};
+    parts::RadioConfig cfg{};
     cfg.freq_hz = timing::kMband0Hz;
     cfg.sync = protocol::kSharedSync;
     cfg.sync_bits = protocol::kSharedSyncBits;
     cfg.payload_bytes = protocol::kRxChipBytes;
-    REQUIRE(radio.configure_mband(cfg) == Status::Ok);
+    REQUIRE(radio.configure_radio(cfg) == Status::Ok);
     radio.start_receive();
 
     uint8_t frame[protocol::kAdslFrameBytes] = {0};
@@ -170,7 +171,7 @@ TEST_CASE("rf: the SetTx timeout is the transmit watchdog, and the next dwell is
     // And a TxDone that never came and a timeout nobody polled still leave the
     // transmitter off before the next channel opens.
     cfg.freq_hz = timing::kMband1Hz;
-    REQUIRE(radio.configure_mband(cfg) == Status::Ok);
+    REQUIRE(radio.configure_radio(cfg) == Status::Ok);
     CHECK(chip.standby);
     CHECK_FALSE(chip.receiving);
     CHECK(radio.mode() == parts::RadioMode::Standby);
@@ -256,11 +257,54 @@ TEST_CASE("rf: a channel that is never clear is counted, and each refusal buys 3
     // The floor is a measurement now, and it has moved off the seed.
     CHECK(pass.radio_service.noise_floor().samples() > 3);
     CHECK(pass.radio_service.noise_floor().dbm() > timing::NoiseFloor::kSeedDbm);
-    // Floor plus margin plus 3 dB for every dwell that gave up.
-    const int expected =
+    // Floor plus margin plus 3 dB for every dwell that gave up, and never past
+    // the ceiling EN 300 220-2 V3.3.1 §4.6.2.3 puts on it.
+    const int asked =
         pass.radio_service.noise_floor().dbm() + timing::NoiseFloor::kClearMarginDb +
         static_cast<int>(pass.radio_service.gave_up_count()) * timing::NoiseFloor::kRetryStepDb;
+    const int expected = asked < timing::NoiseFloor::kThresholdCeilingDbm
+                             ? asked
+                             : timing::NoiseFloor::kThresholdCeilingDbm;
     CHECK(pass.radio_service.lbt_threshold_dbm() == expected);
+    CHECK(pass.radio_service.lbt_threshold_dbm() <= timing::NoiseFloor::kThresholdCeilingDbm);
+    // A neighbour at -50 dBm asks for far more tolerance than the clause allows,
+    // so this site is exactly where the clamp is the reason nothing goes out.
+    CHECK(asked > timing::NoiseFloor::kThresholdCeilingDbm);
+    // And the threshold in force is on the bus for the companion link to read.
+    CHECK(pass.state.carrier_sense_dbm == pass.radio_service.lbt_threshold_dbm());
+}
+
+// EN 300 220-2 V3.3.1 §4.6.3.2: the assessment is averaged over at least 160 us.
+// One instantaneous read used to decide it, so a burst that happened to be off
+// air at that instant licensed a transmission on top of the rest of it.
+TEST_CASE("rf: a channel busy for part of the window is busy, whatever the first read said") {
+    Pass pass;
+    REQUIRE(pass.begin() == Status::Ok);
+
+    // A quiet channel with a neighbour occupying one ninth of every window. Read
+    // once at the first instant this is -115 dBm and clear by any threshold;
+    // averaged as power it is well above the cold-start threshold of -95 dBm.
+    const int8_t window[timing::CarrierSense::kSamples] = {-115, -115, -115, -115, -45,
+                                                           -115, -115, -115, -115};
+    pass.chip.set_rssi_sequence(window, timing::CarrierSense::kSamples);
+    CHECK(window[0] < timing::NoiseFloor::kSeedDbm + timing::NoiseFloor::kClearMarginDb);
+
+    for (uint64_t t = 0; t <= 2900000; t += 10000) pass.whole_pass(t);
+
+    CHECK(pass.state.tx_ok == 0);
+    CHECK(pass.radio_service.gave_up_count() >= 2);
+    // The floor the policy averages is the window's figure, not the quiet read.
+    CHECK(pass.radio_service.noise_floor().dbm() > window[0]);
+
+    CHECK_FALSE(pass.chip.saw_cmd(parts::sx::kSetTx));
+
+    // The same channel read only at the quiet instant keys the PA instead.
+    Pass single;
+    REQUIRE(single.begin() == Status::Ok);
+    single.chip.rssi_dbm = window[0];
+    for (uint64_t t = 0; t <= 2900000; t += 10000) single.whole_pass(t);
+    CHECK(single.chip.saw_cmd(parts::sx::kSetTx));
+    CHECK(single.radio_service.gave_up_count() == 0);
 }
 
 // The 30 s no-RX reinitialisation lived in parts::Sx1262::service(), which only

@@ -5,6 +5,7 @@
 #include <zephyr/kernel.h>
 
 #include "core/bus/bus.h"
+#include "core/timing/channel.h"
 #include "hal/clock.h"
 #include "hal/rf.h"
 #include "hardware/parts/sx1262/sx1262.h"
@@ -33,7 +34,7 @@ class Rf : public hal::Rf {
     Status begin() override {
         Status s = radio_.begin();
         if (s != Status::Ok) return s;
-        s = radio_.configure_mband(parts::MbandConfig{});
+        s = radio_.configure_radio(parts::RadioConfig{});
         if (s != Status::Ok) return s;
         tid_ = k_thread_create(&thread_, stack_, K_THREAD_STACK_SIZEOF(stack_), entry, this,
                                nullptr, nullptr,
@@ -125,15 +126,25 @@ class Rf : public hal::Rf {
 
     void start(const hal::RfPlan& plan) {
         radio_.wake();
-        if (plan.freq_hz != 0) {
-            parts::MbandConfig cfg{};
-            cfg.freq_hz = plan.freq_hz;
-            cfg.sync = plan.sync;
-            cfg.sync_bits = plan.sync_bits;
-            cfg.payload_bytes = plan.rx_len;
-            radio_.configure_mband(cfg);
-        }
+        band_ = plan.mode == hal::RfMode::RxOband ? messages::Band::O : messages::Band::M;
+        if (plan.freq_hz != 0) radio_.configure_radio(dwell_config(plan));
         radio_.start_receive();
+    }
+
+    // The whole modem, not just the synthesiser: the two bands are two
+    // modulations (ADS-L 4 SRD-860 issue 2 §C.2 against §C.4) and the plan
+    // carries both halves.
+    static parts::RadioConfig dwell_config(const hal::RfPlan& plan) {
+        parts::RadioConfig cfg{};
+        cfg.freq_hz = plan.freq_hz;
+        if (plan.bitrate != 0) cfg.bitrate = plan.bitrate;
+        if (plan.fdev_hz != 0) cfg.fdev_hz = plan.fdev_hz;
+        if (plan.bandwidth_hz != 0) cfg.bandwidth_hz = plan.bandwidth_hz;
+        cfg.gaussian_bt_e2 = plan.gaussian_bt_e2;
+        cfg.sync = plan.sync;
+        cfg.sync_bits = plan.sync_bits;
+        cfg.payload_bytes = plan.rx_len;
+        return cfg;
     }
 
     // §C.2 backoff interval, drawn per failed carrier sample.
@@ -143,11 +154,22 @@ class Rf : public hal::Rf {
         return static_cast<uint64_t>(plan.backoff_min_ms + (backoff_seed_ >> 16) % span) * 1000;
     }
 
-    // One live level, reported and not judged. The average behind it and the
-    // threshold in front of it are core/timing/channel.h's.
+    // One clear-channel assessment, reported and not judged. The chip has no
+    // averaging block, so the interval of EN 300 220-2 V3.3.1 §4.6.3.2 is a run
+    // of GetRssiInst reads spaced across it; the last read is at least
+    // kAssessmentUs after the first whatever a read costs on this SPI bus. The
+    // combination and the threshold in front of it are core/timing/channel.h's.
     int8_t sample_carrier() {
         if (radio_.mode() != parts::RadioMode::Rx) return carrier_.dbm;
-        carrier_.dbm = radio_.rssi_inst();
+        int8_t window[timing::CarrierSense::kSamples];
+        const uint64_t opened_us = clock_.micros();
+        for (uint8_t i = 0; i < timing::CarrierSense::kSamples; i++) {
+            const uint64_t due_us =
+                opened_us + static_cast<uint64_t>(i) * timing::CarrierSense::kSampleSpacingUs;
+            while (clock_.micros() < due_us) k_busy_wait(1);
+            window[i] = radio_.rssi_inst();
+        }
+        carrier_.dbm = timing::CarrierSense::mean_dbm(window, timing::CarrierSense::kSamples);
         carrier_.samples++;
         return carrier_.dbm;
     }
@@ -169,13 +191,10 @@ class Rf : public hal::Rf {
                     next_carrier_sample_us = now_us + backoff_us(plan);
                 }
             }
-            uint8_t buf[64];
-            const parts::RadioEvent ev = radio_.poll(buf, sizeof(buf));
+            const parts::RadioEvent ev = radio_.poll(rx_.data.data(), messages::kRfEventBytes);
             switch (ev.type) {
                 case parts::RadioEventType::None: k_usleep(kSpinUs); continue;
-                case parts::RadioEventType::RxDone:
-                    emit(messages::RfEventType::RxDone, buf, ev.len, ev.rssi_dbm);
-                    break;
+                case parts::RadioEventType::RxDone: push_rx(ev); break;
                 case parts::RadioEventType::CrcError: emit(messages::RfEventType::CrcError); break;
                 case parts::RadioEventType::TxDone:
                     completed = true;
@@ -190,14 +209,27 @@ class Rf : public hal::Rf {
             emit(transmitted ? messages::RfEventType::Missed : messages::RfEventType::TxBusy);
     }
 
-    void emit(messages::RfEventType type, const uint8_t* data = nullptr, uint8_t len = 0,
-              int8_t rssi = 0) {
+    // The frame is already in the event that will carry it. An O-band uplink
+    // codeword is 255 bytes, and staging one on this thread's 2 KB stack as well
+    // as on the queue would be the same bytes twice. The band the dwell was
+    // armed for travels with it: the O band carries one system and the M band
+    // two, and only the arming knows which of them this burst is.
+    void push_rx(const parts::RadioEvent& ev) {
+        rx_.type = messages::RfEventType::RxDone;
+        rx_.band = band_;
+        rx_.len = ev.len;
+        rx_.rssi_dbm = ev.rssi_dbm;
+        rx_.at_us = clock_.micros();
+        out_.push(rx_);
+    }
+
+    void emit(messages::RfEventType type, uint8_t len = 0, int8_t rssi = 0) {
         messages::RfEvent e{};
         e.type = type;
+        e.band = band_;
         e.len = len;
         e.rssi_dbm = rssi;
         e.at_us = clock_.micros();
-        for (uint8_t i = 0; i < len && i < e.data.size(); i++) e.data[i] = data[i];
         out_.push(e);
     }
 
@@ -206,6 +238,8 @@ class Rf : public hal::Rf {
     bus::Queue<messages::RfEvent, 8>& out_;
     hal::RfPlan plan_{};
     hal::RfCarrier carrier_{};
+    messages::RfEvent rx_{};
+    messages::Band band_{messages::Band::M};
     uint32_t backoff_seed_{0x5eed1262u};
     uint64_t health_us_{0};
     struct k_sem armed_{};

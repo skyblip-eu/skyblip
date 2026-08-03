@@ -91,6 +91,57 @@ TEST_CASE("traffic: dedup merges the same target, fresher and direct win") {
     CHECK(tbl.at(idx)->obs.rx_utc == 100);
 }
 
+// A ground relay is a rebroadcast, so it is always the newer report and always
+// the poorer one. Letting recency decide would walk a target we are hearing
+// perfectly well backwards once a second, for as long as both paths last.
+TEST_CASE("traffic: a relay does not displace a direct reception that is still fresh") {
+    TrafficTable tbl;
+    tbl.update(obs(0x111, 6, 100, messages::Source::AdslDirect), 100);
+    const int idx = tbl.find(6, 0x111);
+    REQUIRE(idx >= 0);
+
+    for (uint32_t later = 101; later <= 100 + kDirectHoldSec; later++) {
+        tbl.update(obs(0x111, 6, later, messages::Source::AdslUplink), later);
+        CHECK(tbl.count() == 1);
+        CHECK(tbl.at(idx)->obs.source == messages::Source::AdslDirect);
+        CHECK(tbl.at(idx)->obs.rx_utc == 100);
+    }
+
+    // And the hold is a hold, not a block: past it the direct track is as stale
+    // as the alarm layer's own patience with a contact, and the relay is the
+    // only thing still reporting this aircraft.
+    const uint32_t past = 100 + kDirectHoldSec + 1;
+    tbl.update(obs(0x111, 6, past, messages::Source::AdslUplink), past);
+    CHECK(tbl.count() == 1);
+    CHECK(tbl.at(idx)->obs.source == messages::Source::AdslUplink);
+    CHECK(tbl.at(idx)->obs.rx_utc == past);
+
+    // A relay never blocks a target of its own, and a direct reception takes it
+    // straight back.
+    tbl.update(obs(0x222, 6, past, messages::Source::AdslUplink), past);
+    CHECK(tbl.count() == 2);
+    tbl.update(obs(0x111, 6, past, messages::Source::AdslDirect), past);
+    CHECK(tbl.at(idx)->obs.source == messages::Source::AdslDirect);
+}
+
+// The hold is core/traffic/alarm.h's own freshness rule wearing a different
+// unit. If one moves, the other has to, and this is what says so.
+TEST_CASE("traffic: the direct hold is the alarm layer's patience with a contact") {
+    CHECK(kDirectHoldSec * 1000 == kAlertMaxAgeMs);
+}
+
+// A ground station relays every aircraft it heard, and it heard us. Own-ship on
+// the radar is a permanent collision with the aircraft the device is bolted to.
+TEST_CASE("traffic: our own address is not traffic, whoever reports it") {
+    TrafficTable tbl;
+    tbl.set_own_address(0xC5D804);
+    CHECK(tbl.update(obs(0xC5D804, 6, 100, messages::Source::AdslUplink), 100) < 0);
+    CHECK(tbl.update(obs(0xC5D804, 6, 100, messages::Source::AdslDirect), 100) < 0);
+    CHECK(tbl.count() == 0);
+    CHECK(tbl.update(obs(0xC5D805, 6, 100, messages::Source::AdslUplink), 100) >= 0);
+    CHECK(tbl.count() == 1);
+}
+
 TEST_CASE("traffic: age-out removes stale entries") {
     TrafficTable tbl;
     tbl.update(obs(0x1, 6, 100), 100);
@@ -258,6 +309,37 @@ TEST_CASE("alarm: a target that has gone quiet stops driving the annunciator") {
     CHECK(spoken == 2);
 }
 
+// What the buzzer follows. notify says "say it now"; this says "and this is
+// what still stands", which is the difference between a tone with a cadence and
+// a tone nobody remembers to stop.
+TEST_CASE("alarm: the announced level rises with the contact and falls only when it has") {
+    AlarmTracker tracker;
+    const messages::OwnState own = flying(30, 0);
+
+    uint32_t t = 1000;
+    REQUIRE(tracker.update(own, neighbour(own, 400, 0, 0, 30, 180, t), t).assessment.level == 3);
+    CHECK(int(tracker.announced_level(t)) == 3);
+
+    // The contact opens out to the info ring. The tracker holds what it said
+    // for a re-notification window, so a target sliding across a ring boundary
+    // is not announced twice a second...
+    t += 100;
+    REQUIRE(tracker.update(own, neighbour(own, 2800, 0, 0, 20, 0, t), t).assessment.level == 1);
+    CHECK(int(tracker.announced_level(t)) == 3);
+
+    // ...and then it lets go, which is the moment the tone must change.
+    for (int i = 0; i < 25; i++) {
+        t += 100;
+        tracker.update(own, neighbour(own, 2800, 0, 0, 20, 0, t), t);
+    }
+    CHECK(int(tracker.announced_level(t)) == 1);
+
+    // A target nobody has heard from announces nothing at all: the same five
+    // second window the reminders live in, so the buzzer stops when the sky
+    // goes quiet rather than when the table finally forgets.
+    CHECK(int(tracker.announced_level(t + kAlertMaxAgeMs + 1)) == 0);
+}
+
 // Two gliders working the same core are close, co-altitude and converging by
 // any straight-line model, several times a minute, for as long as the climb
 // lasts. That is the case the pilot least wants an alarm for, and the one a
@@ -333,4 +415,73 @@ TEST_CASE("alarm: a neighbour holding station is quietened, and turning in undoe
     CHECK(d.suppression == Suppression::None);
     CHECK(d.assessment.level == 3);
     CHECK(d.notify);
+}
+
+// Decision 5.3, the same limitation as scenarios/circling_gaggle.json but with
+// the radio and the fix stream taken out, so the numbers are arithmetic rather
+// than a replay. Two gliders circle one thermal at 45 kt and 13 deg/s: a 102 m
+// radius and a 28 s circle, which is what a glider climbing in a thermal flies
+// (radius = v^2 / (g tan(bank)); 23.1 m/s at 29 deg of bank is 102 m, and
+// core/traffic/alarm.h's own kCirclingTurnDps band already assumes it). Their
+// cores are 75 m apart and they are 34 deg out of phase, so the separation
+// breathes between 135 m and about 15 m once per circle while both fly a steady,
+// correct, perfectly ordinary thermalling turn.
+//
+// What is pinned here is what the model does: it holds the pair at info through
+// the whole convergence, because a pair matched in turn rate and direction
+// inside kGaggleRangeM is suppressed on the strength of the turn match alone -
+// there is nothing in the model that knows where either circle is centred. The
+// same suppression is what makes the device usable in a gaggle at all. Separating
+// the 15 m pass from the 135 m stand-off needs both curved paths projected
+// forward, which is the v1.1 work, and the day it lands this case must alarm.
+TEST_CASE("alarm: two gliders on offset circles converge to 15 m and stay at info") {
+    AlarmTracker tracker;
+    const double kPi = 3.14159265358979;
+    const double radius_m = 102.0;
+    const double own_centre_east_m = 102.0;
+    const double target_centre_east_m = own_centre_east_m + 24.4;
+    const double target_centre_north_m = 70.9;
+    const int16_t turn_dps = 13;
+
+    double min_separation_m = 1e9;
+    uint32_t min_at_ms = 0;
+    uint8_t level_at_min = 0;
+    Suppression suppression_at_min = Suppression::None;
+    uint8_t raw_peak_level = 0;
+
+    for (int second = 0; second <= 20; second++) {
+        const uint32_t t = 1000 + static_cast<uint32_t>(second) * 1000;
+        const double own_phase = (270 + turn_dps * second) * kPi / 180.0;
+        const double target_phase = (304 + turn_dps * second) * kPi / 180.0;
+        const double own_east = own_centre_east_m + radius_m * std::sin(own_phase);
+        const double own_north = radius_m * std::cos(own_phase);
+        const double target_east = target_centre_east_m + radius_m * std::sin(target_phase);
+        const double target_north = target_centre_north_m + radius_m * std::cos(target_phase);
+        const double separation_m =
+            std::sqrt((target_east - own_east) * (target_east - own_east) +
+                      (target_north - own_north) * (target_north - own_north));
+
+        const messages::OwnState own = flying(23, turn_dps * second, turn_dps);
+        const messages::AircraftObs target =
+            neighbour(own, static_cast<int>(target_north - own_north),
+                      static_cast<int>(target_east - own_east), 0, 23, 34 + turn_dps * second, t);
+        const uint8_t raw_level = assess(own, target).level;
+        if (raw_level > raw_peak_level) raw_peak_level = raw_level;
+        const AlarmTracker::Decision d = tracker.update(own, target, t);
+        if (separation_m < min_separation_m) {
+            min_separation_m = separation_m;
+            min_at_ms = t;
+            level_at_min = d.assessment.level;
+            suppression_at_min = d.suppression;
+        }
+    }
+
+    MESSAGE("closest approach " << min_separation_m << " m at t=" << min_at_ms << " ms, level "
+                                << static_cast<int>(level_at_min));
+    CHECK(min_separation_m < 20);
+    CHECK(level_at_min == kSuppressedLevel);
+    CHECK(suppression_at_min == Suppression::CoCircling);
+    // And the geometry alone, with no memory of the turn, is no better: it grades
+    // the same encounter urgent - at the far end of it as loudly as at the near.
+    CHECK(raw_peak_level == 3);
 }

@@ -18,9 +18,17 @@ BUILD := build
 
 build:
 	@$(MAKE) --no-print-directory -C $(FIRMWARE) browser
-	@mkdir -p $(BUILD)
+	@mkdir -p $(BUILD)/scenarios
 	cp index.html $(BUILD)/
 	cp $(WASM_DIR)/skyblip_simulator.js $(WASM_DIR)/skyblip_simulator.wasm $(BUILD)/
+	# The scenarios are the firmware's, and the page fetches them at runtime, so
+	# they have to be under the server root: outside it every fetch was a 404 and
+	# the page silently offered a menu that could not load anything. The manifest
+	# is what stops the menu and the directory drifting apart again.
+	cp $(FIRMWARE)/scenarios/*.json $(BUILD)/scenarios/
+	cd $(FIRMWARE)/scenarios && ls *.json | python3 -c \
+	  'import json,sys; print(json.dumps(sorted(l.strip() for l in sys.stdin)))' \
+	  > $(CURDIR)/$(BUILD)/scenarios/index.json
 
 # Auto-reload needs node; python3 serves the same files with a manual refresh.
 serve:

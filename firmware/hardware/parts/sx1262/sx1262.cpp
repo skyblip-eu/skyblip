@@ -124,9 +124,31 @@ void Sx1262::read_register(uint16_t addr, uint8_t* out, size_t n) {
     spi_.select(false);
 }
 
+namespace {
+
+// The narrowest entry of DS 13.4.6's table that still passes the channel, or
+// the widest the part has if nothing does.
+uint8_t rx_bandwidth_index(uint32_t bandwidth_hz) {
+    for (int i = 0; i < sx::kRxBandwidthCount; i++)
+        if (sx::kRxBandwidths[i].hz >= bandwidth_hz) return sx::kRxBandwidths[i].index;
+    return sx::kRxBandwidths[sx::kRxBandwidthCount - 1].index;
+}
+
+// DS 13.4.6 pulse shape: an index, not a number, so the BT the caller asked for
+// is matched to the one the part actually has.
+uint8_t pulse_shape_index(uint16_t gaussian_bt_e2) {
+    if (gaussian_bt_e2 == 0) return sx::kPulseShapeNone;
+    if (gaussian_bt_e2 <= 30) return sx::kGaussianBt0p3;
+    if (gaussian_bt_e2 <= 50) return sx::kGaussianBt0p5;
+    if (gaussian_bt_e2 <= 70) return sx::kGaussianBt0p7;
+    return sx::kGaussianBt1p0;
+}
+
+}  // namespace
+
 // DS 13.4.6 SetModulationParams, GFSK, in the datasheet's order: bit rate,
 // pulse shape, RX bandwidth, frequency deviation.
-void Sx1262::configure_modulation(const MbandConfig& cfg) {
+void Sx1262::configure_modulation(const RadioConfig& cfg) {
     const uint32_t bitrate = cfg.bitrate != 0 ? cfg.bitrate : 100000u;
     const uint32_t br = static_cast<uint32_t>(32ULL * sx::kXtalHz / bitrate);
     const uint32_t fdev =
@@ -135,8 +157,8 @@ void Sx1262::configure_modulation(const MbandConfig& cfg) {
     params[0] = static_cast<uint8_t>(br >> 16);
     params[1] = static_cast<uint8_t>(br >> 8);
     params[2] = static_cast<uint8_t>(br);
-    params[3] = sx::kPulseShapeNone;
-    params[4] = sx::kRxBandwidth234kHz;
+    params[3] = pulse_shape_index(cfg.gaussian_bt_e2);
+    params[4] = rx_bandwidth_index(cfg.bandwidth_hz);
     params[5] = static_cast<uint8_t>(fdev >> 16);
     params[6] = static_cast<uint8_t>(fdev >> 8);
     params[7] = static_cast<uint8_t>(fdev);
@@ -145,7 +167,7 @@ void Sx1262::configure_modulation(const MbandConfig& cfg) {
 
 void Sx1262::configure_power() {
     cmd(sx::kSetPaConfig, sx::kPaConfigHighPower, sizeof(sx::kPaConfigHighPower));
-    uint8_t params[2] = {static_cast<uint8_t>(sx::kSrd868ErpLimitDbm), sx::kRampTime200Us};
+    uint8_t params[2] = {static_cast<uint8_t>(sx::kConductedDbm), sx::kRampTime200Us};
     cmd(sx::kSetTxParams, params, sizeof(params));
 }
 
@@ -158,7 +180,7 @@ void Sx1262::configure_irq() {
     cmd(sx::kSetDioIrqParams, params, sizeof(params));
 }
 
-void Sx1262::configure_frame(const MbandConfig& cfg) {
+void Sx1262::configure_frame(const RadioConfig& cfg) {
     if (cfg.sync_bits == 0) return;
     write_register(sx::kSyncWordRegister, cfg.sync, (cfg.sync_bits + 7u) / 8u);
     // DS 13.4.6 SetPacketParams, GFSK, in the datasheet's order.
@@ -178,7 +200,7 @@ void Sx1262::configure_frame(const MbandConfig& cfg) {
 // INFO: wr 02aug26 DS 13.1: SetPacketType and SetRfFrequency are standby-only
 // commands, and the previous dwell leaves the chip in continuous RX. Bracket the
 // whole sequence and hand the caller back the mode it had.
-Status Sx1262::configure_mband(const MbandConfig& cfg) {
+Status Sx1262::configure_radio(const RadioConfig& cfg) {
     const RadioMode was = mode_;
     if (was != RadioMode::Standby && enter_standby() != Status::Ok) return Status::Timeout;
     cfg_ = cfg;
@@ -329,7 +351,7 @@ Status Sx1262::reinit() {
     reinit_count_++;
     Status s = begin();
     if (s != Status::Ok) return s;
-    s = configure_mband(cfg_);
+    s = configure_radio(cfg_);
     if (s != Status::Ok) return s;
     return start_receive();
 }

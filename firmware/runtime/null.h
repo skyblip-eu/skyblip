@@ -4,6 +4,7 @@
 #include "hal/annunciator.h"
 #include "hal/dfu.h"
 #include "hal/display.h"
+#include "hal/flash_region.h"
 #include "hal/kvstore.h"
 #include "hal/link.h"
 #include "hal/rf.h"
@@ -35,6 +36,16 @@ class NullKvStore : public hal::KvStore {
     Status erase(const char*) override { return Status::Ok; }
 };
 
+class NullFlashRegion : public hal::FlashRegion {
+   public:
+    bool ready() const override { return false; }
+    uint32_t sector_bytes() const override { return 0; }
+    uint32_t sector_count() const override { return 0; }
+    Status read(uint32_t, uint8_t*, uint32_t) override { return Status::Down; }
+    Status write(uint32_t, const uint8_t*, uint32_t) override { return Status::Down; }
+    Status erase_sector(uint32_t) override { return Status::Down; }
+};
+
 class NullDfu : public hal::Dfu {
    public:
     void trigger() override {}
@@ -52,6 +63,7 @@ struct NullRoles {
     NullAnnunciator annunciator;
     NullLink link;
     NullKvStore kv;
+    NullFlashRegion log_flash;
     NullDfu dfu;
     NullRf rf;
 };

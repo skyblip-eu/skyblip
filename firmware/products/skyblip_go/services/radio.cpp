@@ -14,11 +14,27 @@ void RadioService::tick(uint32_t now_ms) {
     context_.state.plan = plan;
     take_carrier_samples();
     collect_outcome(now_ms);
+    // The threshold the next dwell will carry, on the bus for the companion
+    // link: EN 300 220-2 V3.3.1 §4.6.2.3 evidence, published after the outcome
+    // that moved the retry rather than before it.
+    context_.state.carrier_sense_dbm = lbt_threshold_dbm();
 
     const hal::RfMode want = mode_for(plan);
     const bool same_dwell = want == armed_ && plan.freq_hz == armed_freq_;
-    if (same_dwell && !transmit_due(plan, now_ms)) return;
-    arm_dwell(plan, now_ms);
+    if (!same_dwell || transmit_due(plan, now_ms)) arm_dwell(plan, now_ms);
+    publish_dwell(now_ms);
+}
+
+// The one place the phase this service arms against leaves it. core/timing's
+// durable-write policy needs the radio's own view of the second, not a second
+// copy of the slot arithmetic, and it needs to know a burst is in flight - which
+// only the arming code and the outcome collector between them can say.
+void RadioService::publish_dwell(uint32_t now_ms) {
+    timing::DwellPhase& dwell = context_.state.dwell;
+    dwell.at_ms = now_ms;
+    dwell.phase_ms = phase_ms(now_ms);
+    dwell.armed = armed_ != hal::RfMode::Idle;
+    dwell.burst_armed = tx_armed_;
 }
 
 // From the latched edge, at the instant it is asked for. Deriving it from a
@@ -32,8 +48,9 @@ int RadioService::phase_ms(uint32_t now_ms) const {
     return static_cast<int>(now_ms % 1000);
 }
 
-// The executor measures, the policy averages. One sample per pass is all the
-// executor can have taken between two of them at a 15 ms minimum backoff.
+// The executor assesses, the policy averages what the assessments report. One
+// assessment per pass is all the executor can have made between two of them at
+// a 15 ms minimum backoff.
 void RadioService::take_carrier_samples() {
     const hal::RfCarrier carrier = context_.roles.rf.carrier();
     if (carrier.samples == seen_carrier_samples_) return;
@@ -79,17 +96,28 @@ hal::RfMode RadioService::mode_for(const timing::SlotPlan& plan) {
 }
 
 // The M band carries two systems past one sync window. The O band carries the
-// ground station's uplink and nothing else.
+// ground station's uplink and nothing else. Both halves of a dwell are set
+// here: what to listen for, and the modulation to listen with - §C.4 runs at
+// twice §C.2's chip rate through a Gaussian filter and a wider receiver, so a
+// dwell that only moved the synthesiser was tuned to the O band and deaf on it.
 void RadioService::listen_for(timing::Band band, hal::RfPlan& plan) {
     if (band == timing::Band::O) {
         plan.sync = protocol::kUplinkSync;
         plan.sync_bits = protocol::kUplinkSyncBits;
-        plan.rx_len = static_cast<uint8_t>(protocol::AdslUplink::kFrameBytes);
+        plan.rx_len = protocol::kUplinkFrameBytes;
+        plan.bitrate = protocol::kUplinkChipRateBps;
+        plan.fdev_hz = protocol::kUplinkDeviationHz;
+        plan.bandwidth_hz = protocol::kUplinkChannelBandwidthHz;
+        plan.gaussian_bt_e2 = protocol::kUplinkGaussianBtE2;
         return;
     }
     plan.sync = protocol::kSharedSync;
     plan.sync_bits = protocol::kSharedSyncBits;
     plan.rx_len = protocol::kRxChipBytes;
+    plan.bitrate = protocol::kMbandChipRateBps;
+    plan.fdev_hz = protocol::kMbandDeviationHz;
+    plan.bandwidth_hz = protocol::kMbandChannelBandwidthHz;
+    plan.gaussian_bt_e2 = protocol::kMbandGaussianBtE2;
 }
 
 // The dwell already armed carries this second's burst, or there is none to
@@ -128,6 +156,10 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
 
     const timing::Transmitter::Attempt a = attempt(slot, now_ms);
     over_budget_ = a.over_budget;
+    // The one place this policy's own refusal is decided: a plan the hour's
+    // air-time budget already refused to arm, counted apart from a dwell that
+    // was armed and then missed its outcome.
+    if (a.over_budget) context_.state.timing_stats.record_refused();
     const uint64_t tx_at_us = epoch_us + static_cast<uint64_t>(a.at_ms) * 1000;
     const bool carries_tx = a.go && tx_at_us >= plan.start_us && tx_at_us < plan.end_us;
     if (carries_tx) {
@@ -147,7 +179,13 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
         plan.backoff_max_ms = timing::Transmitter::kBackoffMaxMs;
     }
 
-    if (context_.roles.rf.arm(plan) != Status::Ok) return;
+    if (context_.roles.rf.arm(plan) != Status::Ok) {
+        // A dwell refused before it could even start: hal::Rf's own "a plan
+        // that cannot complete before its end is refused here rather than
+        // truncated on air", read out on the bench.
+        context_.state.timing_stats.record_missed();
+        return;
+    }
     armed_ = plan.mode;
     armed_freq_ = plan.freq_hz;
     arm_count_++;
@@ -156,18 +194,22 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
         tx_utc_ = slot_utc(now_ms);
         tx_forced_ = a.force;
         tx_end_us_ = plan.end_us;
+        tx_deadline_us_ = tx_at_us;
     }
 }
 
 // The executor reports on the bus, which the traffic service drains into the
 // counters: a transmission that made it, and one the carrier never cleared for.
 void RadioService::collect_outcome(uint32_t now_ms) {
-    // A dwell that ended without either report took the radio with it: the
-    // policy must not stay armed on a burst that will never be reported.
-    if (tx_armed_ && context_.roles.clock.micros() >= tx_end_us_) tx_armed_ = false;
     if (context_.state.tx_ok != seen_tx_ok_) {
         seen_tx_ok_ = context_.state.tx_ok;
         transmitter_.sent(tx_utc_, now_ms, tx_forced_);
+        // The executor's own report against the deadline this dwell was armed
+        // for: both absolute instants on the same clock, so slot 1's wrap
+        // costs this nothing.
+        context_.state.timing_stats.record_dwell_phase(
+            static_cast<int64_t>(context_.state.last_tx_done_at_us) -
+            static_cast<int64_t>(tx_deadline_us_));
         lbt_retry_ = 0;
         tx_armed_ = false;
     }
@@ -179,6 +221,15 @@ void RadioService::collect_outcome(uint32_t now_ms) {
         // one slot; our dwell is one carrier sample per backoff interval, so the
         // escalation is per dwell and §D.3's forced transmission is what ends it).
         if (lbt_retry_ < 0xFF) lbt_retry_++;
+        tx_armed_ = false;
+    }
+    // A dwell that ended without either report above took the radio with it:
+    // the policy must not stay armed on a burst that will never be reported,
+    // and on the bench this is the one outcome no other counter watches for.
+    // Checked last, so a report that arrived this same pass is not also
+    // counted as missed.
+    if (tx_armed_ && context_.roles.clock.micros() >= tx_end_us_) {
+        context_.state.timing_stats.record_missed();
         tx_armed_ = false;
     }
 }

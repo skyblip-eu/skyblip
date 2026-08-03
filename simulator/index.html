@@ -173,9 +173,6 @@
         <div class="row">
           <select id="scenario" onchange="SIM.loadScenario(this.value)">
             <option value="">- none (free flight) -</option>
-            <option value="../../../scenarios/head_on.json">head-on converging glider</option>
-            <option value="../../../scenarios/gnss_loss.json">fix lost then regained</option>
-            <option value="../../../scenarios/mixed_traffic.json">ADS-L and ALP-TAS neighbours</option>
           </select>
         </div>
         <div class="hint" id="modehint">mode: dev, every control visible</div>
@@ -382,14 +379,33 @@ Module.onRuntimeInitialized = () => {
   };
   SIM.loadScenario = async url => {
     if (!url) { location.reload(); return; }
-    const text = await (await fetch(url)).text();
+    const reply = await fetch(url);
+    if (!reply.ok) { $('modehint').textContent = 'scenario missing: ' + url; return; }
+    const text = await reply.text();
     if (!f.loadScenario(text, text.length)) { $('modehint').textContent = 'scenario rejected'; return; }
     SIM.applyMode();
   };
+
+  // The menu is built from what the firmware actually holds, listed by the
+  // simulator's own build step, so a scenario committed next door shows up here
+  // without anyone remembering to add a line.
+  SIM.listScenarios = async () => {
+    const menu = $('scenario');
+    const reply = await fetch('scenarios/index.json');
+    if (!reply.ok) { $('modehint').textContent = 'no scenario manifest: run make build'; return; }
+    for (const file of await reply.json()) {
+      const scenario = await (await fetch('scenarios/' + file)).json();
+      const option = document.createElement('option');
+      option.value = 'scenarios/' + file;
+      option.textContent = scenario.name || file;
+      menu.appendChild(option);
+    }
+  };
+  SIM.listScenarios();
   SIM.applyMode();
   SIM.clearTraffic = () => f.clearTraffic();
 
-  const PAGES = ['radar', '6-pack', 'status', 'signal'];
+  const PAGES = ['radar', '6-pack', 'status', 'signal', 'settings'];
   const ALARM = ['none', 'info', 'important', 'URGENT'];
 
   const bandCanvas = $('band'), band = bandCanvas.getContext('2d');

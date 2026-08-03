@@ -12,13 +12,22 @@ namespace skyblip::simulator {
 
 struct VirtualAircraft {
     bool used{false};
-    // Which system this aircraft is equipped with. Both are Manchester bursts on
-    // the same two M-band channels, which is exactly why one dwell can hear them.
+    // Which system this aircraft is equipped with. AdslDirect and Alptas are
+    // Manchester bursts on the same two M-band channels, which is exactly why
+    // one dwell can hear them. AdslUplink is not a fit at all: it is an aircraft
+    // this device never hears for itself, reaching it only because a skyPost on
+    // the ground heard it and relays it on the O band.
     protocol::System system{protocol::System::AdslDirect};
     uint32_t addr{0};
+    // North and east of the world's origin, not of own-ship: two aircraft that
+    // both manoeuvre only describe one encounter if they fly over the same
+    // ground. up_m stays own-relative, as the air in one thermal is.
     double north_m{0}, east_m{0}, up_m{0};
     double speed_mps{30};
     double track_deg{270};
+    // Degrees per second, positive to the right: a target holding a steady turn,
+    // which is what a glider in a thermal is doing.
+    double turn_dps{0};
     int32_t climb_e8{0};
     // Where in the second this aircraft transmits, and on which M-band channel.
     // Below zero it picks its own instant per second the way a conforming
@@ -44,15 +53,20 @@ class World {
 
     int add_aircraft(double north_m, double east_m, double up_m, double speed_mps = 30,
                      double track_deg = 270, int phase_ms = -1, int slot = -1,
-                     protocol::System system = protocol::System::AdslDirect);
+                     protocol::System system = protocol::System::AdslDirect, double turn_dps = 0);
     int add_threat(protocol::System system = protocol::System::AdslDirect) {
         return add_aircraft(600, 200, 30, 40, 200, -1, -1, system);
     }
     void clear_aircraft();
     int aircraft_count() const;
+    // Where the world says the two aircraft actually are, which is not what the
+    // firmware knows: the device only ever has the target's last report.
+    const VirtualAircraft* aircraft_at(int index) const;
+    double separation_m(int index) const;
 
     Air& air() { return air_; }
     models::L76k& gnss() { return platform_.chips().gnss; }
+    const models::L76k& gnss() const { return platform_.chips().gnss; }
     models::Bme280& baro() { return platform_.baro().chip; }
     platform::host::Platform& platform() { return platform_; }
 
@@ -74,6 +88,12 @@ class World {
     void set_external_power(bool on) { platform_.battery().external_power = on; }
     void press_button() { press_pending_ = true; }
 
+    // The pilot's phone walking up and walking away. It drives the platform's own
+    // comms::LinkSession, which is the object Zephyr's connection callbacks drive
+    // on silicon, so the device learns about the central the same way either side.
+    void connect_companion(uint16_t session_id = 1) { platform_.link().raise_link(session_id); }
+    void disconnect_companion() { platform_.link().drop_link(); }
+
     int failures() const { return failures_; }
     const char* first_failure() const { return failure_[0] == 0 ? nullptr : failure_; }
     bool finished(uint32_t now_ms) const {
@@ -82,9 +102,15 @@ class World {
 
    private:
     void service_button(uint32_t now_ms);
+    void set_origin();
+    double own_north_m() const;
+    double own_east_m() const;
     void service_aircraft(uint32_t now_ms, const messages::OwnState& own);
     void schedule_second(uint64_t epoch_us, const messages::OwnState& own);
     void transmit(VirtualAircraft& aircraft, uint64_t epoch_us, const messages::OwnState& own);
+    void relay(uint64_t epoch_us, const messages::OwnState& own);
+    messages::AircraftObs as_relayed(const VirtualAircraft& aircraft,
+                                     const messages::OwnState& own) const;
     static int8_t rssi_at(double range_m);
     void apply_events(uint32_t now_ms, const bus::State& state);
     void fail(const char* what);
@@ -94,8 +120,15 @@ class World {
     static constexpr uint32_t kPressMs = 60;
     static constexpr uint32_t kBaroPeriodMs = 250;
 
+    // Where the ground station is, so a relayed burst arrives at a level a
+    // receiver can plausibly hear. A skyPost is a fixed site with a mast and
+    // 500 mW e.r.p. (§C.4), not another glider, so it is placed far enough away
+    // to be background and loud enough to be heard.
+    static constexpr double kGroundStationRangeM = 12000;
+
     platform::host::Platform& platform_;
     Air air_{};
+    protocol::AdslUplink uplink_{};
     VirtualAircraft aircraft_[kMaxAircraft]{};
     Scenario scenario_{};
     size_t next_event_{0};
@@ -104,6 +137,9 @@ class World {
     uint32_t last_baro_ms_{0};
     uint32_t airmass_qnh_pa_{flight::kIsaSeaLevelPa};
     uint32_t press_until_ms_{0};
+    int32_t origin_lat_1e7_{0};
+    int32_t origin_lon_1e7_{0};
+    bool origin_set_{false};
     uint32_t scheduled_sec_{0};
     bool scheduled_{false};
     int failures_{0};

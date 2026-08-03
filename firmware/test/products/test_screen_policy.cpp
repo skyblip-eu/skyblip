@@ -22,8 +22,8 @@ struct Rig {
     parts::Ssd1681 epd{chip, chip, chip.dc, chip.rst, chip.busy};
     platform::host::Clock clock;
     runtime::NullRoles null;
-    hal::Roles roles{clock,   null.rf,          null.link, epd,  // epd fills Display
-                     null.kv, null.annunciator, null.dfu};
+    hal::Roles roles{clock,   null.rf,        null.link,        epd,  // epd fills Display
+                     null.kv, null.log_flash, null.annunciator, null.dfu};
     bus::Bus bus{};
     bus::State state{};
     runtime::Context context{roles, bus, state};
@@ -150,6 +150,31 @@ TEST_CASE("screen policy: a page change prefers a full refresh, but not during a
     rig.screen.next_page();
     rig.run_seconds(t, 2);
     CHECK_FALSE(rig.chip.last_full);  // same swap under alarm: stays fast
+}
+
+// The settings page is the one page that keeps the button to itself, so it is
+// the one page that has to be able to give it back without being asked.
+TEST_CASE("screen policy: converging traffic takes the settings page back off the glass") {
+    Rig rig;
+    uint32_t t = 0;
+    rig.run_seconds(t, 3);
+    for (int i = 0; i < 4; i++) rig.screen.next_page();
+    REQUIRE(rig.screen.page() == go::Page::Settings);
+    rig.run_seconds(t, 2);
+    REQUIRE(rig.screen.editor().active());
+
+    // An advisory is not worth taking a pilot's page away.
+    rig.alarm(1);
+    rig.run_seconds(t, 2);
+    CHECK(rig.screen.page() == go::Page::Settings);
+
+    // A bearing worth turning the head for is. The menu goes, the traffic
+    // picture comes back, and no wash flashes while the alarm stands.
+    rig.alarm(go::ScreenService::kAlarmTakesGlass);
+    rig.run_seconds(t, 2);
+    CHECK(rig.screen.page() == go::Page::Radar);
+    CHECK_FALSE(rig.screen.editor().active());
+    CHECK_FALSE(rig.chip.last_full);
 }
 
 TEST_CASE("screen policy: presents wait for the panel, none is issued mid-refresh") {

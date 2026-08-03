@@ -53,6 +53,7 @@ class RadioService : public runtime::Service {
     timing::Transmitter::Attempt attempt(const timing::SlotPlan& plan, uint32_t now_ms) const;
     bool transmit_due(const timing::SlotPlan& plan, uint32_t now_ms) const;
     void arm_dwell(const timing::SlotPlan& plan, uint32_t now_ms);
+    void publish_dwell(uint32_t now_ms);
     void collect_outcome(uint32_t now_ms);
     void take_carrier_samples();
 
@@ -65,6 +66,10 @@ class RadioService : public runtime::Service {
     uint32_t armed_freq_{0};
     uint32_t arm_count_{0};
     uint64_t tx_end_us_{0};
+    // The deadline core/timing::Transmitter chose for the burst this dwell
+    // carries: what the bench's dwell-phase histogram measures the executor's
+    // report against.
+    uint64_t tx_deadline_us_{0};
     uint32_t tx_utc_{0};
     uint32_t seen_tx_ok_{0};
     uint32_t seen_tx_busy_{0};

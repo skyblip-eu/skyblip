@@ -79,14 +79,34 @@ struct OwnState {
     uint8_t flight_state;
 };
 
-enum class Endpoint : uint8_t { Config, Nmea };
+// Log is its own endpoint and not a verb on Config: an offload is thousands of
+// round trips and would otherwise sit in the same queue as the prompt that
+// authorises a firmware upload.
+enum class Endpoint : uint8_t { Config, Nmea, Log };
 
+// INFO: fc 04aug26 Payload, not MTU: the two differ by the three bytes of
+// notification header, which is exactly the off-by-three that makes a frame an
+// iPhone refuses. hal::Link::payload_bytes() is the authority because it stays
+// current through a late MTU exchange; this field is the same number at the
+// moment the link came up, in the same unit, so the tree carries one figure.
 struct LinkUp {
     uint16_t session_id;
-    uint16_t mtu;
+    uint16_t payload_bytes;
 };
 struct LinkDown {
     uint16_t session_id;
+};
+
+// INFO: le 04aug26 One tagged event on one queue, not a queue of LinkUp beside a
+// queue of LinkDown: a connection is an ordered lifecycle, and an Up read before
+// the Down that came first leaves a service pushing at a link that is gone. Two
+// queues cannot promise that order. On Down, payload_bytes carries nothing.
+enum class LinkEventType : uint8_t { Up, Down };
+
+struct LinkEvent {
+    LinkEventType type;
+    uint16_t session_id;
+    uint16_t payload_bytes;
 };
 
 struct RxFrame {
@@ -100,14 +120,32 @@ struct DfuRequest {
     uint16_t session_id;
 };
 
+// The two halves of the second the single radio is shared between: ADS-L 4
+// SRD-860 issue 2 §C.2 puts two 200 kHz channels on the M band and §C.4 one HDR
+// channel on the O band. It lives here rather than in core/timing because it
+// travels with a received burst: the dwell that heard one knows which band it
+// was tuned to, and everything downstream would otherwise have to guess.
+enum class Band : uint8_t { M, O };
+
 enum class RfEventType : uint8_t { RxDone, CrcError, TxDone, Missed, TxBusy };
+
+// INFO: fc 05aug26 The longest burst any dwell reads is the O-band uplink frame,
+// an RS(255,223) codeword (§C.4, core/protocol/adsl_uplink.h), and this event is
+// where the executor copies what the radio reported. A buffer shorter than the
+// codeword truncates it, and Reed-Solomon then reports damage the air never did.
+// core/protocol/adsl_uplink.h static_asserts the frame still fits.
+constexpr int kRfEventBytes = 255;
 
 struct RfEvent {
     RfEventType type;
+    // Which dwell reported this, which is what names the system it belongs to.
+    // M by default so a queue entry nobody stamped reads as the band that
+    // carries two systems and is framed rather than trusted.
+    Band band;
     uint8_t len;
     int8_t rssi_dbm;
     uint64_t at_us;
-    std::array<uint8_t, 64> data;
+    std::array<uint8_t, kRfEventBytes> data;
 };
 
 struct BaroSample {

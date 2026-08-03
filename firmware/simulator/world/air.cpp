@@ -17,8 +17,8 @@ const char* channel_name(uint32_t freq_hz) {
 }
 }  // namespace
 
-void Air::emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint8_t len,
-               int8_t rssi_dbm) {
+void Air::emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint16_t len,
+               int8_t rssi_dbm, uint32_t bitrate) {
     for (Burst& b : burst_) {
         if (b.used) continue;
         b = Burst{};
@@ -26,7 +26,9 @@ void Air::emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint8_t l
         b.at_us = at_us;
         b.freq_hz = freq_hz;
         b.rssi_dbm = rssi_dbm;
-        b.len = len > sizeof(b.chips) ? static_cast<uint8_t>(sizeof(b.chips)) : len;
+        b.bitrate = bitrate;
+        b.len = len > sizeof(b.chips) ? static_cast<uint16_t>(sizeof(b.chips)) : len;
+        b.air_time_us = air_time_us(b.len, bitrate);
         std::memcpy(b.chips, chips, b.len);
         return;
     }
@@ -49,7 +51,7 @@ void Air::step(uint64_t now_us, models::Sx1262& radio) {
         for (Burst& other : burst_) {
             if (&other == &b || !other.used || !other.started) continue;
             if (!tuned_to(other.freq_hz, b.freq_hz)) continue;
-            if (b.at_us < other.at_us + kAirTimeUs) {
+            if (b.at_us < other.at_us + other.air_time_us) {
                 b.collided = true;
                 other.collided = true;
             }
@@ -57,7 +59,7 @@ void Air::step(uint64_t now_us, models::Sx1262& radio) {
     }
 
     for (Burst& b : burst_) {
-        if (!b.used || !b.started || now_us < b.at_us + kAirTimeUs) continue;
+        if (!b.used || !b.started || now_us < b.at_us + b.air_time_us) continue;
         if (b.mine) {
             log(b, AirEvent::Tx);
         } else if (!b.heard) {
@@ -66,8 +68,8 @@ void Air::step(uint64_t now_us, models::Sx1262& radio) {
         } else if (b.collided) {
             collisions_++;
             log(b, AirEvent::Collision);
-            radio.receive_air(b.chips, b.len, /*crc_error=*/true, b.rssi_dbm);
-        } else if (radio.receive_air(b.chips, b.len, /*crc_error=*/false, b.rssi_dbm)) {
+            radio.receive_air(b.chips, b.len, /*crc_error=*/true, b.rssi_dbm, b.bitrate);
+        } else if (radio.receive_air(b.chips, b.len, /*crc_error=*/false, b.rssi_dbm, b.bitrate)) {
             heard_++;
             log(b, AirEvent::Rx);
         } else {
@@ -88,7 +90,7 @@ void Air::take_own_transmission(uint64_t now_us, models::Sx1262& radio) {
     uint8_t chips[protocol::kTxChipBytes] = {0};
     uint8_t len = 0;
     if (!radio.take_tx(chips, len)) return;
-    if (len > sizeof(chips)) len = sizeof(chips);
+    if (len > sizeof(chips)) len = static_cast<uint8_t>(sizeof(chips));
     emit(now_us, radio.freq_hz, chips, len, 0);
     for (Burst& b : burst_)
         if (b.used && !b.started && b.at_us == now_us && b.freq_hz == radio.freq_hz) b.mine = true;
@@ -100,7 +102,7 @@ void Air::set_carrier(uint64_t now_us, models::Sx1262& radio) {
     int8_t level = kNoiseFloorDbm;
     for (const Burst& b : burst_) {
         if (!b.used || b.mine) continue;
-        if (now_us < b.at_us || now_us >= b.at_us + kAirTimeUs) continue;
+        if (now_us < b.at_us || now_us >= b.at_us + b.air_time_us) continue;
         if (!tuned_to(radio.freq_hz, b.freq_hz)) continue;
         if (b.rssi_dbm > level) level = b.rssi_dbm;
     }
@@ -117,6 +119,7 @@ void Air::log(const Burst& b, AirEvent event) {
     r.event = event;
     r.rssi_dbm = b.rssi_dbm;
     r.len = b.len;
+    r.bitrate = b.bitrate;
     std::memcpy(r.chips, b.chips, b.len);
     count_++;
 }
@@ -126,6 +129,12 @@ bool Air::framed(const AirRecord& record, protocol::Frame& out) {
     models::Sx1262::deliver_after_sync(record.chips, record.len, protocol::kSharedSync,
                                        protocol::kSharedSyncBits, payload, sizeof(payload));
     return protocol::receive_mband(payload, sizeof(payload), out);
+}
+
+bool Air::framed_uplink(const AirRecord& record, uint8_t* frame) {
+    return models::Sx1262::deliver_after_sync(record.chips, record.len, protocol::kUplinkSync,
+                                              protocol::kUplinkSyncBits, frame,
+                                              protocol::kUplinkFrameBytes) != 0;
 }
 
 const AirRecord& Air::record(int i) const {
@@ -150,11 +159,29 @@ int Air::format(int i, char* out, int cap) const {
         return 0;
     }
     const AirRecord& r = record(i);
-    const int head = std::snprintf(out, static_cast<size_t>(cap), "%4u ms %s %s %3d dBm %02u B ",
+    const int head = std::snprintf(out, static_cast<size_t>(cap), "%4u ms %s %s %3d dBm %3u B ",
                                    r.phase_ms, channel_name(r.freq_hz),
                                    kEventName[static_cast<int>(r.event)], r.rssi_dbm, r.len);
 
     const size_t left = static_cast<size_t>(cap - head);
+
+    // The O band carries one thing and it is not Manchester-coded, so it is read
+    // its own way: how many aircraft the ground station put in the frame, which
+    // is the number a relay is worth judging by.
+    if (tuned_to(r.freq_hz, timing::kObandHz)) {
+        uint8_t frame_bytes[protocol::kUplinkFrameBytes] = {0};
+        if (!framed_uplink(r, frame_bytes))
+            return head + std::snprintf(out + head, left, "unframed");
+        protocol::AdslUplink codec;
+        messages::AircraftObs relayed[protocol::AdslUplink::kMaxTargets];
+        protocol::AdslUplink::DecodeStats stats{};
+        if (codec.decode(frame_bytes, relayed, protocol::AdslUplink::kMaxTargets, stats) !=
+            Status::Ok)
+            return head + std::snprintf(out + head, left, "UPLINK RS BAD");
+        return head + std::snprintf(out + head, left, "UPLINK %d aircraft, %d corrected",
+                                    stats.targets, stats.corrected);
+    }
+
     protocol::Frame frame{};
     if (!framed(r, frame)) return head + std::snprintf(out + head, left, "unframed");
 

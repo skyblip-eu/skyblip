@@ -91,7 +91,10 @@ TEST_CASE("simulator: a converging aircraft raises the collision alarm and buzze
     run(h, 2000, 6000);
 
     CHECK(h.product().state().traffic.count() >= 1);
-    CHECK(int(h.alarm_level()) > 0);  // annunciator was driven
+    // An alarm is a pattern, so the buzzer is off as often as it is on: what is
+    // being announced is the thing that stands, and the instantaneous pitch
+    // step is only ever true inside a beep.
+    CHECK(int(h.announcing_level()) > 0);  // annunciator was driven
 }
 
 TEST_CASE("simulator: clearing traffic empties the table and silences the alarm") {
@@ -184,12 +187,12 @@ TEST_CASE("simulator: an escalating threat buzzes and, from 'important', vibrate
     // motor - a pilot who feels every passing glider stops feeling anything.
     h.world().add_aircraft(2500, 0, 0, 20, 90);
     run(h, 2000, 5000);
-    if (h.alarm_level() == 1) CHECK(h.vibro_ms() == 0);
+    if (h.announcing_level() == 1) CHECK(h.vibro_ms() == 0);
 
     // Now something close and converging: important or urgent, so it must vibrate.
     h.world().add_threat();
     run(h, 5000, 9000);
-    REQUIRE(h.alarm_level() >= 2);
+    REQUIRE(h.announcing_level() >= 2);
     CHECK(h.vibro_ms() >= 200);
 }
 
@@ -210,6 +213,37 @@ TEST_CASE("simulator: a threat going away does not buzz the motor again") {
     run(h, 6000, 40000);
     CHECK(h.alarm_level() == 0);
     CHECK(h.vibro_ms() == after_escalation);  // unchanged: no pulse on the way down
+}
+
+// The world can connect a phone and take it away again, which is the seam this
+// tree did not have: before it, no host code and no board could raise a link at
+// all, so the unsolicited gauge push could only ever be exercised by calling the
+// service by hand and was dead on a real device.
+TEST_CASE("simulator: a phone connects, the gauge pushes, the phone leaves and it stops") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_battery_mv(4050);
+    run(h, 0, 4000);
+    REQUIRE_FALSE(h.companion_connected());
+
+    h.world().connect_companion();
+    run(h, 4000, 4200);
+    REQUIRE(h.companion_connected());
+    const int before = h.companion_frames(messages::Endpoint::Config);
+
+    h.world().set_battery_mv(3600);
+    run(h, 4200, 9000);
+    const int pushed = h.companion_frames(messages::Endpoint::Config);
+    CHECK(pushed > before);
+
+    h.world().disconnect_companion();
+    run(h, 9000, 9200);
+    REQUIRE_FALSE(h.companion_connected());
+    h.world().set_external_power(true);
+    h.world().set_battery_mv(4100);
+    run(h, 9200, 15000);
+    CHECK(h.companion_frames(messages::Endpoint::Config) == pushed);
 }
 
 // The same call the page's "+ Aircraft" button and the terminal's [j] make. If

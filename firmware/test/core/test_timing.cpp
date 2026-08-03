@@ -296,8 +296,32 @@ TEST_CASE("channel: one loud sample barely moves the average, a site full of the
     CHECK(site.dbm() == -85);
     // The fixed threshold this replaces was -90 dBm: at this site it would have
     // held every burst until the forced transmission of D.3, once every 5 s.
-    CHECK(site.threshold_dbm() == -75);
+    // The measured floor plus the margin asks for -75; EN 300 220-2 V3.3.1
+    // §4.6.2.3 does not allow it, so the site gets the ceiling and no more.
+    CHECK(site.threshold_dbm() == NoiseFloor::kThresholdCeilingDbm);
     CHECK(site.threshold_dbm() > -90);
+}
+
+// The finding that produced this: the ceiling used to be 0 dBm, 79 dB above what
+// the standard allows before any antenna correction, and a magic number besides.
+TEST_CASE("channel: the carrier-sense ceiling is derived from the clause, not chosen") {
+    // The three figures the derivation stands on, each one traceable on its own.
+    CHECK(NoiseFloor::kChannelBandwidthKhz == 200);
+    CHECK(NoiseFloor::kPoliteSensitivityDbm == -94);
+    CHECK(NoiseFloor::kPoliteThresholdMarginDb == 15);
+
+    // §4.5.1.3 plus §4.6.2.3 with a zero-gain antenna: the figure the compliance
+    // register calculates, and the highest ceiling any antenna choice can reach.
+    const int zero_gain_dbm =
+        NoiseFloor::kPoliteSensitivityDbm + NoiseFloor::kPoliteThresholdMarginDb;
+    CHECK(zero_gain_dbm == -79);
+    CHECK(NoiseFloor::kThresholdCeilingDbm <= zero_gain_dbm);
+
+    // And the ceiling in force is that figure minus the gain we have assumed
+    // until G8 chooses the antenna, so raising it means editing the derivation.
+    CHECK(NoiseFloor::kAssumedAntennaGainDbd > 0);
+    CHECK(NoiseFloor::kThresholdCeilingDbm == zero_gain_dbm - NoiseFloor::kAssumedAntennaGainDbd);
+    CHECK(NoiseFloor::kThresholdCeilingDbm == -82);
 }
 
 TEST_CASE("channel: the threshold is the measured floor plus a margin, 3 dB more per failure") {
@@ -307,15 +331,81 @@ TEST_CASE("channel: the threshold is the measured floor plus a margin, 3 dB more
     CHECK(floor.threshold_dbm(0) == -100);
     CHECK(floor.threshold_dbm(1) == -97);
     CHECK(floor.threshold_dbm(2) == -94);
-    CHECK(floor.threshold_dbm(10) == -70);
-    // Escalation is not a licence to transmit on top of anything at all: past
-    // the ceiling this has stopped being carrier sense.
+    // Escalation is not a licence to transmit on top of anything at all, and
+    // where it stops is not ours to pick: §4.6.2.3 stops it, six retries in.
+    CHECK(floor.threshold_dbm(6) == NoiseFloor::kThresholdCeilingDbm);
+    CHECK(floor.threshold_dbm(10) == NoiseFloor::kThresholdCeilingDbm);
     CHECK(floor.threshold_dbm(255) == NoiseFloor::kThresholdCeilingDbm);
 }
 
-// E2. Listen before talk plus backoff is the polite-spectrum route out of the
-// 1% duty cycle EN 300 220-2 sets on 868.0-868.6 MHz. That is an argument, and
-// an argument is not evidence: this is the number that is.
+// EN 300 220-2 V3.3.1 §4.6.3.2: the assessment is an interval, not an instant.
+// The SX1262 has no averaging block and no non-LoRa channel-activity mode, so
+// the interval is a run of instantaneous reads combined here.
+TEST_CASE("channel: the clear-channel assessment spans the interval the clause sets") {
+    CHECK(CarrierSense::kAssessmentUs == 160);
+    CHECK(CarrierSense::kSamples >= 2);
+    CHECK(CarrierSense::kSampleSpacingUs * (CarrierSense::kSamples - 1) >=
+          CarrierSense::kAssessmentUs);
+    CHECK(CarrierSense::kSamples <= CarrierSense::kMaxSamples);
+}
+
+TEST_CASE("channel: a window is averaged as power, not as decibels") {
+    const int8_t flat[CarrierSense::kSamples] = {-100, -100, -100, -100, -100,
+                                                 -100, -100, -100, -100};
+    CHECK(CarrierSense::mean_dbm(flat, CarrierSense::kSamples) == -100);
+
+    // One eighth of a window at -60 and the rest 40 dB down: the mean POWER is
+    // 1/9 of the loud sample, which is 9.5 dB below it. The mean of the READINGS
+    // would be -95.6 dBm, which is a channel nobody is using.
+    const int8_t burst[CarrierSense::kSamples] = {-100, -100, -100, -100, -60,
+                                                  -100, -100, -100, -100};
+    CHECK(CarrierSense::mean_dbm(burst, CarrierSense::kSamples) == -69);
+
+    // Rounding is toward the louder decibel, so the assessment can only ever
+    // defer more often than the exact figure would.
+    const int8_t pair[2] = {-70, -70};
+    CHECK(CarrierSense::mean_dbm(pair, 2) == -70);
+    const int8_t half[2] = {-70, -127};
+    CHECK(CarrierSense::mean_dbm(half, 2) == -73);
+
+    // No reading at all is not a clear channel.
+    CHECK(CarrierSense::mean_dbm(flat, 0) == 0);
+    CHECK(CarrierSense::mean_dbm(nullptr, CarrierSense::kSamples) == 0);
+}
+
+// The whole point of the interval: the instant a single read lands on decides
+// nothing on its own.
+TEST_CASE("channel: averaging changes the decision a single reading would have made") {
+    NoiseFloor floor;
+    for (int i = 0; i < 400; i++) floor.sample(-110);
+    const int8_t threshold = floor.threshold_dbm(0);
+    REQUIRE(threshold == -100);
+
+    // A neighbour's burst covers one ninth of the window. Sampled at the first
+    // instant the channel reads -110 and the burst goes out on top of it.
+    const int8_t window[CarrierSense::kSamples] = {-110, -110, -110, -110, -55,
+                                                   -110, -110, -110, -110};
+    CHECK(window[0] < threshold);
+    CHECK(CarrierSense::mean_dbm(window, CarrierSense::kSamples) > threshold);
+}
+
+// E2. The 1% duty cycle EN 300 220-2 V3.3.1 Table 4 sets on 868.0-868.6 MHz is
+// the channel-access route this product declares, not a fallback behind listen
+// before talk. A declaration needs evidence: this is the number that is.
+
+TEST_CASE("channel: the declared route is the duty cycle, and carrier sense does not move it") {
+    // The budget is 1% of the hour whatever the carrier-sense policy decides,
+    // because the two are independent: §D.3's listen before talk is a protocol
+    // behaviour and EN 300 220-2 V3.3.1 Table 4 band M is the regulatory one.
+    CHECK(AirTime::kLimitPermille == 10);
+    CHECK(AirTime::kBudgetMs == AirTime::kWindowMs / 100);
+
+    AirTime air;
+    air.spend(0, AirTime::kBudgetMs);
+    CHECK_FALSE(air.may_spend(0, Transmitter::kAirTimeMs));
+    // Not even the forced transmission of §D.3 buys air time here.
+    CHECK_FALSE(air.may_spend(1000, Transmitter::kAirTimeMs));
+}
 
 TEST_CASE("channel: air time is counted per rolling hour and leaves it again") {
     AirTime air;

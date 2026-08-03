@@ -28,6 +28,17 @@ struct RfPlan {
     const uint8_t* sync{nullptr};
     uint8_t sync_bits{0};
     uint8_t rx_len{0};
+    // And what the modem has to be programmed to before any of that means
+    // anything. The two bands are two modulations, not one modulation on two
+    // frequencies (ADS-L 4 SRD-860 issue 2 §C.2 against §C.4), so a dwell that
+    // carried only freq_hz retuned the synthesiser and left the receiver
+    // framing the wrong band's chip rate. Zero means "whatever the last dwell
+    // used", which is what a plan built before this field existed asked for.
+    // gaussian_bt_e2 is the Gaussian filter's BT in hundredths; 0 is unshaped.
+    uint32_t bitrate{0};
+    uint32_t fdev_hz{0};
+    uint32_t bandwidth_hz{0};
+    uint16_t gaussian_bt_e2{0};
     const uint8_t* tx{nullptr};
     uint8_t tx_len{0};
     uint64_t tx_at_us{0};
@@ -41,9 +52,10 @@ struct RfPlan {
     uint32_t backoff_max_ms{250};
 };
 
-// What the executor measured on the tuned channel, and how many measurements it
-// has taken. Averaging them into a noise floor and turning that into a
-// threshold is policy (core/timing/channel.h): the executor only reports.
+// What the executor measured on the tuned channel, and how many clear-channel
+// assessments it has completed. One assessment is a window of readings, not one
+// reading: the interval, the combination and the threshold in front of them are
+// policy (core/timing/channel.h), and the executor only reports the result.
 struct RfCarrier {
     int8_t dbm{0};
     uint32_t samples{0};

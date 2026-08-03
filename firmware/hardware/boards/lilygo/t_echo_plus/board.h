@@ -66,6 +66,9 @@ class TEchoPlus {
             hal::has(capabilities_, hal::Capability::Storage)
                 ? static_cast<hal::KvStore&>(platform_.kv())
                 : null_.kv,
+            hal::has(capabilities_, hal::Capability::Storage)
+                ? static_cast<hal::FlashRegion&>(platform_.log_flash())
+                : null_.log_flash,
             hal::has(capabilities_, hal::Capability::Buzzer)
                 ? static_cast<hal::Annunciator&>(platform_.annunciator())
                 : null_.annunciator,
@@ -81,8 +84,19 @@ class TEchoPlus {
     void poll(bus::State& state, uint32_t now_ms) {
         rf_.service(now_ms);
 
+        // The connection before the bytes: a frame from a session whose Up is
+        // still queued behind it would be answered by a service that does not yet
+        // believe there is anyone there.
+        messages::LinkEvent link_event;
+        while (platform_.link().pop_event(link_event)) bus_.link_events.push(link_event);
+
         messages::RxFrame frame;
-        while (platform_.link().pop_rx(frame)) bus_.link_rx.push(frame);
+        while (platform_.link().pop_rx(frame)) {
+            if (frame.endpoint == messages::Endpoint::Log)
+                bus_.log_rx.push(frame);
+            else
+                bus_.link_rx.push(frame);
+        }
 
         if (hal::has(capabilities_, hal::Capability::Gnss)) {
             gnss_.service(now_ms);
@@ -115,6 +129,9 @@ class TEchoPlus {
         // it from the millisecond phase threw away up to a millisecond of the
         // 5 ms jitter guard before the plan was even armed.
         state.clock.pps_edge_us = platform_.pps().last_edge_us();
+        // The one place the PPS edge is owned: the bench's interval-error
+        // histogram is fed here rather than by a second reader of the pin.
+        state.timing_stats.record_edge(state.clock.pps_edge_us, state.clock.pps_locked);
     }
 
     typename P::Rf& rf() { return rf_; }

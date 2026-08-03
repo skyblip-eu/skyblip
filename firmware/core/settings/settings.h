@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/util/json_min.h"
 #include "core/util/result.h"
 
 namespace skyblip::settings {
@@ -51,6 +52,12 @@ Status validate(const Settings& s);
 size_t blob_size();
 void to_blob(const Settings& s, uint8_t* out, size_t cap);
 Status from_blob(const uint8_t* in, size_t len, Settings& out);
+
+// INFO: fc 04aug26 The fields alone, into a writer the caller opened, so the
+// companion link's "config" reply can tag them and stay one flat object. Nesting
+// them as an escaped string cost 53 bytes of backslashes on a 158-byte body,
+// which is what pushed that reply past what an iPhone will carry.
+void write_json_fields(json::Writer& w, const Settings& s);
 
 int to_json(const Settings& s, char* buf, int cap);
 Status apply_json(Settings& s, const char* json, int len);
