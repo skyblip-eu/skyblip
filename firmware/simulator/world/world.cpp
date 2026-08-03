@@ -249,6 +249,7 @@ void World::apply_events(uint32_t now_ms, const bus::State& state) {
             case EventKind::ExternalPower: set_external_power(e.value != 0); break;
             case EventKind::Button: press_button(); break;
             case EventKind::Altitude: set_altitude_m(static_cast<int32_t>(e.value)); break;
+            case EventKind::Speed: set_speed_kt(static_cast<int32_t>(e.value)); break;
             case EventKind::Track: set_track_deg(static_cast<int32_t>(e.value)); break;
             case EventKind::Aircraft: add_threat(); break;
             case EventKind::ExpectAlarmMin:
