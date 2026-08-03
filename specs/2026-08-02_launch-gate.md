@@ -16,8 +16,10 @@ Six findings came out of closing it that were not on the list and matter more th
 - **The tone sat below the transducer's resonance**, and the loudest level sat furthest from it. `project/research/alarm-audibility.md`.
 - **Nothing respected the negotiated BLE MTU.** The worst-case status frame is 192 bytes and an iOS central commonly settles at an ATT payload of 182, where a notification does not truncate, it fails.
 - **A settings write can now land inside a dwell**, because on-device editing is deliberately allowed in flight and the settings blob is on internal flash, whose write stalls the CPU that arms the radio's deadlines.
+- **Nothing published a BLE connection event**, so the battery push this list asked for was dead code on silicon, a standing prompt survived the phone that asked for it, and a confirmed upload window stayed open for its full ten minutes after the phone walked away. That last one is a security hole, not a papercut.
+- **`$PFLAA`/`$PFLAU`/`$PGRMZ` have no producer.** The formatter is written and tested, the endpoint is routed, the characteristic exists, and no service ever sends a sentence: a pilot who pairs a tablet today sees nothing. The claim at the top of this section 0 was false when this document was written.
 
-The last two were found by integration and are being closed on their own branches.
+The last four were found by integration. Each is closed on its own branch, and each is a case the host suite could not fail on before, which is the pattern worth noticing: every one of them lived in the seam between a service and the platform.
 
 **Position, unchanged: ADS-L on the wire, ALP-TAS on the wire and on the output, simultaneously.** Every gap below is judged against that, not against "be SoftRF". A gap we choose not to close is recorded as deferred so review does not reopen it.
 
@@ -27,7 +29,7 @@ Verdicts: **gate** blocks the first public firmware, **decision** needs a writte
 
 ## What is actually in the tree today
 
-Air interface: ADS-L direct RX/TX and ADS-L uplink RX per SRD-860 Issue 2, plus the **ALP-TAS air-frame codec (FLARM-wire, 2024 protocol)** with `Feature::AlptasRx` enabled and a decrypt-plausibility gate ahead of the traffic table. Output: `$PFLAA`/`$PFLAU`/`$PGRMZ` over BLE. Alarm: three levels off straight-line closure, each with its own annunciation rhythm. Power: divider read -> gauge -> status screen and companion link, two discharge curves. One product, `skyblip_go`, eight services on T-Echo Plus. Host suite 508 cases; the device image and the twister suite compile in CI only.
+Air interface: ADS-L direct RX/TX and ADS-L uplink RX per SRD-860 Issue 2, plus the **ALP-TAS air-frame codec (FLARM-wire, 2024 protocol)** with `Feature::AlptasRx` enabled and a decrypt-plausibility gate ahead of the traffic table. Output: `$PFLAA`/`$PFLAU`/`$PGRMZ` over BLE, which had a formatter and no producer until 2026-08-03. Alarm: three levels off straight-line closure, each with its own annunciation rhythm. Power: divider read -> gauge -> status screen and companion link, two discharge curves. One product, `skyblip_go`, eight services on T-Echo Plus. Host suite 508 cases; the device image and the twister suite compile in CI only.
 
 Two claims this paragraph made on 2026-08-02 were already stale when it was written, and are corrected rather than deleted because they were each load-bearing for a gate: `settings.region` does not exist (it was deleted with its reader in pull request 14, and G3 is closed without it), and `ui/input/` is two headers, a debounced button and the authorising gesture, not one.
 
