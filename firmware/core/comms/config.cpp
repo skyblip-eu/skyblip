@@ -73,12 +73,33 @@ void ConfigService::set_flight_state(FlightState fs) {
         flight_ = FlightState::Unknown;
 }
 
-void ConfigService::on_link_up(const messages::LinkUp& up) { session_ = up.session_id; }
+void ConfigService::on_link_up(const messages::LinkUp& up) {
+    session_ = up.session_id;
+    link_up_ = true;
+}
 
 void ConfigService::on_link_down(const messages::LinkDown&) {
     pending_ = Pending::None;
     pending_len_ = 0;
     upload_window_open_ = false;
+    link_up_ = false;
+}
+
+namespace {
+uint8_t battery_step(uint8_t percent) {
+    return static_cast<uint8_t>(percent / kBatteryPushStepPercent);
+}
+}
+
+void ConfigService::set_battery_state(const power::BatteryState& battery, power::PowerLevel level) {
+    const bool charging_changed = battery.charging != battery_.charging;
+    const bool level_changed = level != power_level_;
+    const bool step_changed = battery_step(battery.percent) != battery_step(battery_.percent);
+
+    battery_ = battery;
+    power_level_ = level;
+
+    if (link_up_ && (charging_changed || level_changed || step_changed)) send_status();
 }
 
 void ConfigService::reply(const char* json) {
@@ -117,7 +138,7 @@ const char* ConfigService::flight_name(FlightState fs) {
 }
 
 void ConfigService::send_status() {
-    char buf[192];
+    char buf[256];
     json::Writer w(buf, sizeof(buf));
     w.kv_str("cmd", "status");
     w.kv_int("addr", static_cast<long>(settings_.device_addr));
@@ -125,6 +146,10 @@ void ConfigService::send_status() {
     w.kv_str("reset", power::to_string(reset_reason_));
     w.kv_str("flight", flight_name(flight_));
     w.kv_bool("upload", upload_allowed());
+    w.kv_int("battery_percent", static_cast<long>(battery_.percent));
+    w.kv_bool("battery_valid", battery_.valid);
+    w.kv_bool("charging", battery_.charging);
+    w.kv_str("power_level", power::to_string(power_level_));
     w.finish();
     reply(buf);
 }

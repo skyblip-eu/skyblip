@@ -3,6 +3,8 @@
 
 #include "core/flight/state.h"
 #include "core/messages/messages.h"
+#include "core/power/battery.h"
+#include "core/power/cutoff.h"
 #include "core/power/reset_reason.h"
 #include "core/settings/settings.h"
 #include "hal/dfu.h"
@@ -33,6 +35,13 @@ const char* pending_detail(Pending pending);
 // Long enough to put a phone down and reach the button, and no longer.
 constexpr uint32_t kConfirmWindowMs = 30u * 1000u;
 
+// INFO: cf 02aug26 A push exists so a tablet does not have to poll a gauge that
+// barely moves between polls. Pushing on every millivolt reading would just
+// move the polling onto the link instead of removing it, so a push is earned
+// only by a step this wide, a charging flip, or a level change - three signals
+// a pilot actually cares about, not the ADC's noise floor.
+constexpr uint8_t kBatteryPushStepPercent = 5;
+
 class ConfigService {
    public:
     ConfigService(hal::Link& link, settings::Settings& s, hal::Dfu* dfu = nullptr)
@@ -57,6 +66,14 @@ class ConfigService {
     void on_link_up(const messages::LinkUp& up);
     void on_link_down(const messages::LinkDown& down);
     void on_rx(const messages::RxFrame& frame);
+
+    // The values core/power already decided: state of charge, the millivolt
+    // reading, whether the charger is holding the rail, and the level
+    // core/power's cutoff rule made of the same samples. This service carries
+    // them to the link, it does not re-derive what a low cell is. While a link
+    // is up, a charging flip, a level change or a step-sized move in percent
+    // pushes an unsolicited status so the tablet's gauge moves without a poll.
+    void set_battery_state(const power::BatteryState& battery, power::PowerLevel level);
 
     // INFO: cf 02aug26 BLE pairing is off on this product (encrypted GATT
     // characteristics break Web Bluetooth on Windows), so physical presence is
@@ -96,6 +113,9 @@ class ConfigService {
     hal::Dfu* dfu_;
     FlightState flight_{FlightState::Unknown};
     power::ResetReason reset_reason_{power::ResetReason::Unknown};
+    power::BatteryState battery_{};
+    power::PowerLevel power_level_{power::PowerLevel::Unknown};
+    bool link_up_{false};
     bool airborne_latched_{false};
     bool power_off_requested_{false};
     Pending pending_{Pending::None};
