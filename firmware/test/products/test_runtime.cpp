@@ -52,9 +52,8 @@ TEST_CASE("runtime: the loop sets up every service and ticks them in order") {
     } clock;
 
     runtime::NullRoles null;
-    hal::Roles roles{clock,   null.rf,          null.link, null.display,
-                     null.kv, null.annunciator, null.dfu,  hal::Capability::None,
-                     0};
+    hal::Roles roles{clock,          null.rf,          null.link, null.display,          null.kv,
+                     null.log_flash, null.annunciator, null.dfu,  hal::Capability::None, 0};
     bus::Bus bus;
     bus::State state;
     runtime::Context ctx{roles, bus, state};
@@ -84,9 +83,8 @@ TEST_CASE("runtime: setup reports the first failure but still sets up the rest")
     } clock;
 
     runtime::NullRoles null;
-    hal::Roles roles{clock,   null.rf,          null.link, null.display,
-                     null.kv, null.annunciator, null.dfu,  hal::Capability::None,
-                     0};
+    hal::Roles roles{clock,          null.rf,          null.link, null.display,          null.kv,
+                     null.log_flash, null.annunciator, null.dfu,  hal::Capability::None, 0};
     bus::Bus bus;
     bus::State state;
     runtime::Context ctx{roles, bus, state};
@@ -184,9 +182,8 @@ TEST_CASE("watchdog: the loop refuses to feed for a service that is not progress
     } clock;
 
     runtime::NullRoles null;
-    hal::Roles roles{clock,   null.rf,          null.link, null.display,
-                     null.kv, null.annunciator, null.dfu,  hal::Capability::None,
-                     0};
+    hal::Roles roles{clock,          null.rf,          null.link, null.display,          null.kv,
+                     null.log_flash, null.annunciator, null.dfu,  hal::Capability::None, 0};
     bus::Bus bus;
     bus::State state;
     runtime::Context ctx{roles, bus, state};

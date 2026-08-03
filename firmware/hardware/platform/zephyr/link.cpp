@@ -19,28 +19,44 @@ namespace {
 
 // skyBlip companion service (random 128-bit base, align with the app spec).
 //   service   6e40-0001-...  NMEA notify   6e40-0002-...  config r/w/notify 6e40-0003-...
+//   flight log r/w/notify 6e40-0004-...
 #define SKB_UUID(v) BT_UUID_128_ENCODE(0x6e400000 | (v), 0xb5a3, 0xf393, 0xe0a9, 0xe50e24dcca9e)
 static struct bt_uuid_128 svc_uuid = BT_UUID_INIT_128(SKB_UUID(0x0001));
 static struct bt_uuid_128 nmea_uuid = BT_UUID_INIT_128(SKB_UUID(0x0002));
 static struct bt_uuid_128 cfg_uuid = BT_UUID_INIT_128(SKB_UUID(0x0003));
+// The log offload is thousands of small round trips. On its own characteristic
+// it cannot starve the one the pilot's prompts travel on, and an app that does
+// not want logs simply never subscribes.
+static struct bt_uuid_128 log_uuid = BT_UUID_INIT_128(SKB_UUID(0x0004));
 
 Fifo<RxFrame, 8> g_rx;
 struct k_spinlock g_lock;
 struct bt_conn* g_conn = nullptr;
 bool g_nmea_subscribed = false;
 bool g_cfg_subscribed = false;
+bool g_log_subscribed = false;
 
-ssize_t on_cfg_write(struct bt_conn* conn, const struct bt_gatt_attr*, const void* buf,
-                     uint16_t len, uint16_t /*offset*/, uint8_t /*flags*/) {
+void push_rx(struct bt_conn* conn, Endpoint endpoint, const void* buf, uint16_t len) {
     RxFrame f{};
     f.session_id = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(conn));
-    f.endpoint = Endpoint::Config;
+    f.endpoint = endpoint;
     f.len = len > f.data.size() ? static_cast<uint16_t>(f.data.size()) : len;
     const uint8_t* p = static_cast<const uint8_t*>(buf);
     for (uint16_t i = 0; i < f.len; i++) f.data[i] = p[i];
     k_spinlock_key_t key = k_spin_lock(&g_lock);
     g_rx.push(f);
     k_spin_unlock(&g_lock, key);
+}
+
+ssize_t on_cfg_write(struct bt_conn* conn, const struct bt_gatt_attr*, const void* buf,
+                     uint16_t len, uint16_t /*offset*/, uint8_t /*flags*/) {
+    push_rx(conn, Endpoint::Config, buf, len);
+    return len;
+}
+
+ssize_t on_log_write(struct bt_conn* conn, const struct bt_gatt_attr*, const void* buf,
+                     uint16_t len, uint16_t /*offset*/, uint8_t /*flags*/) {
+    push_rx(conn, Endpoint::Log, buf, len);
     return len;
 }
 
@@ -50,9 +66,13 @@ void nmea_ccc(const struct bt_gatt_attr*, uint16_t value) {
 void cfg_ccc(const struct bt_gatt_attr*, uint16_t value) {
     g_cfg_subscribed = (value == BT_GATT_CCC_NOTIFY);
 }
+void log_ccc(const struct bt_gatt_attr*, uint16_t value) {
+    g_log_subscribed = (value == BT_GATT_CCC_NOTIFY);
+}
 
 // attrs[]: [0]=service [1]=nmea decl [2]=nmea value [3]=nmea ccc
 //          [4]=cfg decl [5]=cfg value [6]=cfg ccc
+//          [7]=log decl [8]=log value [9]=log ccc
 BT_GATT_SERVICE_DEFINE(skb_svc, BT_GATT_PRIMARY_SERVICE(&svc_uuid),
                        BT_GATT_CHARACTERISTIC(&nmea_uuid.uuid, BT_GATT_CHRC_NOTIFY,
                                               BT_GATT_PERM_NONE, nullptr, nullptr, nullptr),
@@ -61,7 +81,12 @@ BT_GATT_SERVICE_DEFINE(skb_svc, BT_GATT_PRIMARY_SERVICE(&svc_uuid),
                                               BT_GATT_CHRC_WRITE | BT_GATT_CHRC_WRITE_WITHOUT_RESP |
                                                   BT_GATT_CHRC_NOTIFY,
                                               BT_GATT_PERM_WRITE, nullptr, on_cfg_write, nullptr),
-                       BT_GATT_CCC(cfg_ccc, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
+                       BT_GATT_CCC(cfg_ccc, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
+                       BT_GATT_CHARACTERISTIC(&log_uuid.uuid,
+                                              BT_GATT_CHRC_WRITE | BT_GATT_CHRC_WRITE_WITHOUT_RESP |
+                                                  BT_GATT_CHRC_NOTIFY,
+                                              BT_GATT_PERM_WRITE, nullptr, on_log_write, nullptr),
+                       BT_GATT_CCC(log_ccc, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
 
 void connected(struct bt_conn* conn, uint8_t err) {
     if (!err) g_conn = bt_conn_ref(conn);
@@ -91,9 +116,16 @@ Status Link::begin() {
 Status Link::send(Endpoint ep, ConstByteSpan bytes) {
     if (!g_conn) return Status::Down;
     // attr index of the value handle for each characteristic (see table above).
-    const struct bt_gatt_attr* value_attr =
-        (ep == Endpoint::Nmea) ? &skb_svc.attrs[2] : &skb_svc.attrs[5];
-    bool subbed = (ep == Endpoint::Nmea) ? g_nmea_subscribed : g_cfg_subscribed;
+    int index = 5;
+    bool subbed = g_cfg_subscribed;
+    if (ep == Endpoint::Nmea) {
+        index = 2;
+        subbed = g_nmea_subscribed;
+    } else if (ep == Endpoint::Log) {
+        index = 8;
+        subbed = g_log_subscribed;
+    }
+    const struct bt_gatt_attr* value_attr = &skb_svc.attrs[index];
     if (!subbed) return Status::WouldBlock;
     int rc = bt_gatt_notify(g_conn, value_attr, bytes.data(), bytes.size());
     if (rc == -ENOMEM || rc == -EAGAIN) return Status::WouldBlock;

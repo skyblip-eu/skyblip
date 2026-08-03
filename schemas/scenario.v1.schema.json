@@ -45,6 +45,7 @@
           "external_power": {"type": "integer", "enum": [0, 1]},
           "button": {"type": "integer"},
           "altitude_m": {"type": "integer"},
+          "speed_kt": {"type": "integer", "minimum": 0},
           "track_deg": {"type": "integer"},
           "aircraft": {"type": "integer"},
           "expect_alarm_min": {"type": "integer", "minimum": 0, "maximum": 3},

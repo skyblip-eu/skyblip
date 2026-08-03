@@ -66,6 +66,9 @@ class TEchoPlus {
             hal::has(capabilities_, hal::Capability::Storage)
                 ? static_cast<hal::KvStore&>(platform_.kv())
                 : null_.kv,
+            hal::has(capabilities_, hal::Capability::Storage)
+                ? static_cast<hal::FlashRegion&>(platform_.log_flash())
+                : null_.log_flash,
             hal::has(capabilities_, hal::Capability::Buzzer)
                 ? static_cast<hal::Annunciator&>(platform_.annunciator())
                 : null_.annunciator,
@@ -82,7 +85,12 @@ class TEchoPlus {
         rf_.service(now_ms);
 
         messages::RxFrame frame;
-        while (platform_.link().pop_rx(frame)) bus_.link_rx.push(frame);
+        while (platform_.link().pop_rx(frame)) {
+            if (frame.endpoint == messages::Endpoint::Log)
+                bus_.log_rx.push(frame);
+            else
+                bus_.link_rx.push(frame);
+        }
 
         if (hal::has(capabilities_, hal::Capability::Gnss)) {
             gnss_.service(now_ms);

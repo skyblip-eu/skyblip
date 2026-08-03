@@ -1,0 +1,18 @@
+{
+  "name": "takeoff and landing",
+  "mode": "dev",
+  "alt_m": 300,
+  "speed_kt": 0,
+  "track_deg": 90,
+  "duration_ms": 130000,
+  "events": [
+    {"at_ms": 20000, "speed_kt": 90},
+    {"at_ms": 25000, "altitude_m": 450},
+    {"at_ms": 40000, "altitude_m": 700},
+    {"at_ms": 60000, "altitude_m": 900},
+    {"at_ms": 80000, "altitude_m": 600},
+    {"at_ms": 90000, "altitude_m": 310},
+    {"at_ms": 92000, "speed_kt": 0},
+    {"at_ms": 95000, "altitude_m": 300}
+  ]
+}

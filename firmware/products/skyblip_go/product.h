@@ -6,6 +6,7 @@
 #include "hardware/boards/lilygo/t_echo_plus/board.h"
 #include "products/skyblip_go/services/alarm.h"
 #include "products/skyblip_go/services/config.h"
+#include "products/skyblip_go/services/flight_log.h"
 #include "products/skyblip_go/services/ownship.h"
 #include "products/skyblip_go/services/power.h"
 #include "products/skyblip_go/services/radio.h"
@@ -76,6 +77,9 @@ class Product {
         // companion link's state machine. Wired before anything can ask for an
         // authorisation there is no way to grant.
         screen_.attach_config(config_.config());
+        // Erasing every flight on the device is authorised where a firmware
+        // upload is: one prompt machine, one gesture, one place to look.
+        flight_log_.attach_config(config_.config());
 
         const Status board = board_.begin();
         reset_reason_ = power::classify(platform_.system_power().reset_causes());
@@ -146,6 +150,7 @@ class Product {
     AlarmService& alarm() { return alarm_; }
     ScreenService& screen() { return screen_; }
     ConfigLinkService& config() { return config_; }
+    FlightLogService& flight_log() { return flight_log_; }
 
    private:
     void show_boot_page() {
@@ -199,13 +204,17 @@ class Product {
     RadioService radio_{ctx_};
     TrafficService traffic_{ctx_};
     AlarmService alarm_{ctx_};
+    FlightLogService flight_log_{ctx_};
     ScreenService screen_{ctx_};
 
-    static constexpr int kServiceCount = 7;
-    runtime::Service* services_[kServiceCount]{&config_,  &ownship_, &power_, &radio_,
-                                               &traffic_, &alarm_,   &screen_};
+    // The log ticks after own-ship has published the fix and after the radio has
+    // published the slot plan it defers to, and before the screen, which is the
+    // only service that may spend a whole pass pushing pixels.
+    static constexpr int kServiceCount = 8;
+    runtime::Service* services_[kServiceCount]{&config_,  &ownship_, &power_,      &radio_,
+                                               &traffic_, &alarm_,   &flight_log_, &screen_};
     static constexpr const char* kServiceNames[kServiceCount] = {
-        "config", "ownship", "power", "radio", "traffic", "alarm", "screen"};
+        "config", "ownship", "power", "radio", "traffic", "alarm", "flight_log", "screen"};
     runtime::Loop loop_{services_, kServiceCount, kServiceNames};
 
     ui::Framebuffer boot_fb_{};

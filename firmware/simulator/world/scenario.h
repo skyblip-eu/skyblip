@@ -19,6 +19,7 @@ enum class EventKind : uint8_t {
     ExternalPower,
     Button,
     Altitude,
+    Speed,
     Track,
     Aircraft,
     ExpectAlarmMin,

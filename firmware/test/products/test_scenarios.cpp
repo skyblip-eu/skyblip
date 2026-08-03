@@ -391,3 +391,40 @@ TEST_CASE("scenario: a glider joining the thermal on a straight line is still ca
     // thing it said is urgent and that it said it a kilometre out.
     CHECK(e.settled_peak_level == 3);
 }
+
+// The session boundary as a committed fixture: one file, replayed by the tests
+// today and by the browser page the day someone wonders where the log came
+// from. The device is stationary, then it flies, then it stops - and what the
+// partition holds afterwards is exactly one flight with a beginning and an end.
+TEST_CASE("scenario: a takeoff and a landing bracket one flight log session") {
+    simulator::Simulator s;
+    REQUIRE(s.setup() == Status::Ok);
+    REQUIRE(s.load_file("scenarios/takeoff_and_landing.json"));
+
+    uint32_t parked_records = 0;
+    uint32_t parked_writes = 0;
+    uint32_t airborne_records = 0;
+    bool was_recording = false;
+    for (uint32_t t = 0; t <= 130000; t += simulator::Simulator::kStepMs) {
+        s.step(t);
+        if (t == 18000) {
+            parked_records = s.product().flight_log().records_written();
+            parked_writes = s.platform().log_flash().writes;
+        }
+        if (t == 70000) {
+            was_recording = s.product().flight_log().recording();
+            airborne_records = s.product().flight_log().records_written();
+        }
+    }
+
+    // Twenty seconds parked: nothing written, no sector erased.
+    CHECK(parked_records == 0);
+    CHECK(parked_writes == 0);
+    CHECK(was_recording);
+    CHECK(airborne_records > 0);
+
+    CHECK(s.world().failures() == 0);
+    CHECK_FALSE(s.product().flight_log().recording());
+    CHECK(s.product().flight_log().records_written() > airborne_records);
+    CHECK(s.product().flight_log().sessions_on_flash() == 1);
+}

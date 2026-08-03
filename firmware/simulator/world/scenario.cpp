@@ -54,6 +54,7 @@ bool event_from(const json::Reader& r, ScenarioEvent& out) {
         {"external_power", EventKind::ExternalPower},
         {"button", EventKind::Button},
         {"altitude_m", EventKind::Altitude},
+        {"speed_kt", EventKind::Speed},
         {"track_deg", EventKind::Track},
         {"aircraft", EventKind::Aircraft},
         {"expect_alarm_min", EventKind::ExpectAlarmMin},

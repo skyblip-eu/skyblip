@@ -31,8 +31,9 @@ struct Pass {
     bus::State state{};
     platform::host::Rf rf{radio, platform.clock(), bus.rf};
     runtime::NullRoles null{};
-    hal::Roles roles{platform.clock(), rf,       null.link,           null.display, null.kv,
-                     null.annunciator, null.dfu, hal::Capability::Rf, 0x0ABBCC};
+    hal::Roles roles{
+        platform.clock(), rf,       null.link,           null.display, null.kv, null.log_flash,
+        null.annunciator, null.dfu, hal::Capability::Rf, 0x0ABBCC};
     runtime::Context context{roles, bus, state};
     go::RadioService radio_service{context};
     go::TrafficService traffic_service{context};

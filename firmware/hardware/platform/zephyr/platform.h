@@ -15,6 +15,7 @@
 #include "hardware/platform/zephyr/battery.h"
 #include "hardware/platform/zephyr/clock.h"
 #include "hardware/platform/zephyr/dfu.h"
+#include "hardware/platform/zephyr/flash_region.h"
 #include "hardware/platform/zephyr/io.h"
 #include "hardware/platform/zephyr/kvstore.h"
 #include "hardware/platform/zephyr/link.h"
@@ -38,6 +39,10 @@ class Platform {
         // what is still owed here is the SX1262 TCXO settling time.
         k_msleep(50);
         kv_.begin();
+        // A log partition that refuses to open is a device that flies and logs
+        // nothing, not a device that refuses to fly: the region reports its own
+        // readiness and the flight log service reads it.
+        log_flash_.begin();
         annunciator_.begin();
         link_.begin();
         baro_ = baro76_.ready() ? &baro76_ : (baro77_.ready() ? &baro77_ : nullptr);
@@ -58,6 +63,7 @@ class Platform {
     zephyr::Clock& clock() { return clock_; }
     zephyr::Link& link() { return link_; }
     zephyr::KvStore& kv() { return kv_; }
+    zephyr::FlashRegion& log_flash() { return log_flash_; }
     zephyr::Annunciator& annunciator() { return annunciator_; }
     zephyr::Dfu& dfu() { return dfu_; }
     zephyr::Pps& pps() { return pps_; }
@@ -129,6 +135,7 @@ class Platform {
     Uart gnss_uart_{gnss_uart_dev_};
     Annunciator annunciator_{buzzer_, vibro_};
     KvStore kv_{};
+    FlashRegion log_flash_{};
     Dfu dfu_{};
     zephyr::Link& link_{zephyr::link()};
     zephyr::Baro baro76_{baro76_dev_};
