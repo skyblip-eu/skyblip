@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "core/protocol/adsl.h"
+#include "core/protocol/adsl_uplink.h"
 
 namespace skyblip::simulator {
 
@@ -149,9 +150,59 @@ void World::service_aircraft(uint32_t now_ms, const messages::OwnState& own) {
 // simulation is stepped.
 void World::schedule_second(uint64_t epoch_us, const messages::OwnState& own) {
     for (auto& a : aircraft_) {
-        if (!a.used) continue;
+        if (!a.used || a.system == protocol::System::AdslUplink) continue;
         transmit(a, epoch_us, own);
     }
+    relay(epoch_us, own);
+}
+
+// What the ground station knows about one aircraft, which is less than the
+// aircraft's own frame carries: an address, a place, a height, a speed. No
+// climb rate and no track, because an uplink record has no room for them - which
+// is the whole reason a direct reception outranks a relay of the same aircraft.
+messages::AircraftObs World::as_relayed(const VirtualAircraft& a,
+                                        const messages::OwnState& own) const {
+    const double coslat = std::cos(origin_lat_1e7_ / 1e7 * kPi / 180.0);
+    messages::AircraftObs obs{};
+    obs.addr = a.addr;
+    obs.addr_table = 6;
+    obs.aircraft_cat = 4;
+    obs.flight_state = 2;
+    obs.speed_q = static_cast<uint16_t>(a.speed_mps * 4);
+    obs.has_speed = true;
+    obs.lat_1e7 = origin_lat_1e7_ + static_cast<int32_t>(a.north_m * 1e7 / kMetresPerDegLat);
+    obs.lon_1e7 = origin_lon_1e7_;
+    if (coslat > 0.01)
+        obs.lon_1e7 += static_cast<int32_t>(a.east_m * 1e7 / (kMetresPerDegLat * coslat));
+    obs.alt_m = own.alt_m + static_cast<int32_t>(a.up_m);
+    obs.valid_pos = true;
+    return obs;
+}
+
+// One skyPost, one frame a second, carrying every aircraft it heard: §C.5's
+// uplink slot is 200..450 ms and our own ground station is on air from 210,
+// finishing well before the dwell closes at 395 (core/timing/slot.h). A relay
+// costs the aircraft nothing - it never transmits on the O band - so this is
+// scheduled apart from the direct transmitters rather than per aircraft.
+void World::relay(uint64_t epoch_us, const messages::OwnState& own) {
+    messages::AircraftObs relayed[protocol::AdslUplink::kMaxTargets];
+    int n = 0;
+    for (auto& a : aircraft_) {
+        if (!a.used || a.system != protocol::System::AdslUplink) continue;
+        if (n >= protocol::AdslUplink::kMaxTargets) break;
+        relayed[n++] = as_relayed(a, own);
+        a.transmissions++;
+    }
+    if (n == 0) return;
+
+    uint8_t frame[protocol::kUplinkFrameBytes] = {0};
+    if (uplink_.encode(relayed, n, /*key_index=*/0, frame) != Status::Ok) return;
+    uint8_t burst[protocol::kUplinkBurstBytes] = {0};
+    const size_t burst_len = protocol::encode_oband(frame, burst);
+
+    air_.emit(epoch_us + static_cast<uint64_t>(timing::kGroundEmitStart) * 1000, timing::kObandHz,
+              burst, static_cast<uint16_t>(burst_len), rssi_at(kGroundStationRangeM),
+              protocol::kUplinkChipRateBps);
 }
 
 // Free-space-ish: a burst 100 m away lands at -40 dBm and every decade of

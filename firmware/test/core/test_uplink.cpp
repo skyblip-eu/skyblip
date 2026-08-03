@@ -6,6 +6,7 @@
 
 #include "core/fec/reed_solomon.h"
 #include "core/protocol/adsl_uplink.h"
+#include "core/timing/slot.h"
 #include "doctest/doctest.h"
 
 using namespace skyblip;
@@ -13,6 +14,11 @@ using namespace skyblip::protocol;
 using skyblip::fec::ReedSolomon255;
 
 namespace {
+// §C.5's uplink slot, which is wider at both ends than the dwell one radio can
+// give it. The dwell map's own figures are in core/timing/slot.h.
+constexpr int kUplinkSlotStartMs = 200;
+constexpr int kUplinkSlotEndMs = 450;
+
 struct Rng {
     uint32_t s;
     explicit Rng(uint32_t seed) : s(seed) {}
@@ -190,4 +196,76 @@ TEST_CASE("uplink: a destroyed frame is DETECTED (Status::Crc), never silently w
     AdslUplink::DecodeStats st;
     Status s = up.decode(frame, rx, 2, st);
     CHECK(s == Status::Crc);  // detected, not delivered
+}
+
+// What the dwell has to be armed with to hear a skyPost at all. Every one of
+// these is a number the receiver and the transmitter must agree on, and the
+// third was wrong: 0x18 is the M band's ADS-L data length, 24 bytes, and it was
+// carried over to a frame that is 255. A detector armed for it never matched.
+TEST_CASE("uplink: the sync word is C.4.3's, and the byte behind it is D.1.1's length") {
+    CHECK(kUplinkSync[0] == 0x2D);
+    CHECK(kUplinkSync[1] == 0xD4);
+    CHECK(kUplinkSync[2] == kUplinkFrameBytes);
+    CHECK(kUplinkFrameBytes == AdslUplink::kFrameBytes);
+    CHECK(kUplinkSyncBits == 24);
+    CHECK(kUplinkBurstBytes == 3 + AdslUplink::kFrameBytes);
+    // §C.4: 200 kbps GMSK, BT 0.5, in a 250 kHz channel, ±50 kHz deviation.
+    CHECK(kUplinkChipRateBps == 200000);
+    CHECK(kUplinkDeviationHz == 50000);
+    CHECK(kUplinkChannelBandwidthHz == 250000);
+    CHECK(kUplinkGaussianBtE2 == 50);
+}
+
+// Where the burst sits in the second, which is the fourth thing a dwell and a
+// transmitter have to agree on after the sync word, the length and the rate.
+//
+// A full frame is 10.44 ms of air at §C.4's 200 kbps, and core/timing/slot.h
+// cuts the O-band dwell at 205..395 because our own skyPost is on air from 210
+// and "completes by 390". These are the sums behind that sentence.
+TEST_CASE("uplink: a frame fits the window the dwell map is cut against") {
+    CHECK(kUplinkBurstUs == 10440);
+
+    // Our own ground station: on air at 210, done at 220.44, and the dwell that
+    // was listening for it opened at 205 and closes at 395.
+    const uint32_t ours_start_us = timing::kGroundEmitStart * 1000u;
+    CHECK(ours_start_us > timing::kUplinkRxStart * 1000u);
+    CHECK(ours_start_us + kUplinkBurstUs < timing::kUplinkRxEnd * 1000u);
+
+    // kGroundEmitEnd is a completion deadline and not a start deadline, and the
+    // difference is 10.44 ms: a burst BEGUN at 390 would still be on air at 400,
+    // where the radio has already retuned to the M band.
+    CHECK(timing::kGroundEmitEnd * 1000u + kUplinkBurstUs > timing::kUplinkRxEnd * 1000u);
+    const uint32_t last_start_us = timing::kGroundEmitEnd * 1000u - kUplinkBurstUs;
+    CHECK(last_start_us > timing::kUplinkRxStart * 1000u);
+
+    // And the limit this dwell has, stated rather than discovered: §C.5 gives
+    // the uplink slot 200..450 ms and only requires a transmission to complete
+    // before it ends, so a ground station that is not ours may legally begin one
+    // as late as 439.56 ms. One radio cannot be on two bands at once and the
+    // M-band dwell opens at 400 (§C.2.5 costs half the neighbours if we skip a
+    // channel), so a third-party uplink transmitted in the second half of its
+    // slot is one we do not hear. skyPost transmits at 210 for exactly this
+    // reason; specs/2026-08-02_launch-gate.md row 1.1 carries the rest.
+    const uint32_t conforming_last_start_us = kUplinkSlotEndMs * 1000u - kUplinkBurstUs;
+    CHECK(conforming_last_start_us > timing::kUplinkRxEnd * 1000u);
+    CHECK(kUplinkSlotStartMs < timing::kUplinkRxStart);
+}
+
+// Reed-Solomon can decode to a valid codeword that is not the one that was sent.
+// A ground station reaches every aircraft in range at once, so one miscorrected
+// frame is a screenful of phantoms in front of everybody, and what a frame
+// carries is checked before any of it becomes a target.
+TEST_CASE("uplink: a record with no address and no place on the globe is refused") {
+    AdslUplink up;
+    messages::AircraftObs tx[3] = {make_target(0x600001), make_target(0), make_target(0x600003)};
+    tx[2].lat_1e7 = 1200000000;  // 120 degrees north of nowhere
+    uint8_t frame[AdslUplink::kFrameBytes];
+    REQUIRE(up.encode(tx, 3, 0, frame) == Status::Ok);
+
+    messages::AircraftObs rx[3];
+    AdslUplink::DecodeStats st;
+    CHECK(up.decode(frame, rx, 3, st) == Status::Ok);
+    CHECK(st.targets == 1);
+    CHECK(st.rejected == 2);
+    CHECK(rx[0].addr == 0x600001u);
 }

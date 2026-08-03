@@ -36,7 +36,7 @@ struct Pass {
         null.annunciator, null.dfu, hal::Capability::Rf, 0x0ABBCC};
     runtime::Context context{roles, bus, state};
     go::RadioService radio_service{context};
-    go::TrafficService traffic_service{context};
+    go::TrafficService traffic_service{context, go::kFeatures};
 
     Status begin() {
         const Status s = rf.begin();
@@ -153,12 +153,12 @@ TEST_CASE("rf: the SetTx timeout is the transmit watchdog, and the next dwell is
     models::Sx1262 chip;
     parts::Sx1262 radio(chip, chip, chip.busy_pin, chip.reset_pin, chip.dio1_pin);
     REQUIRE(radio.begin() == Status::Ok);
-    parts::MbandConfig cfg{};
+    parts::RadioConfig cfg{};
     cfg.freq_hz = timing::kMband0Hz;
     cfg.sync = protocol::kSharedSync;
     cfg.sync_bits = protocol::kSharedSyncBits;
     cfg.payload_bytes = protocol::kRxChipBytes;
-    REQUIRE(radio.configure_mband(cfg) == Status::Ok);
+    REQUIRE(radio.configure_radio(cfg) == Status::Ok);
     radio.start_receive();
 
     uint8_t frame[protocol::kAdslFrameBytes] = {0};
@@ -171,7 +171,7 @@ TEST_CASE("rf: the SetTx timeout is the transmit watchdog, and the next dwell is
     // And a TxDone that never came and a timeout nobody polled still leave the
     // transmitter off before the next channel opens.
     cfg.freq_hz = timing::kMband1Hz;
-    REQUIRE(radio.configure_mband(cfg) == Status::Ok);
+    REQUIRE(radio.configure_radio(cfg) == Status::Ok);
     CHECK(chip.standby);
     CHECK_FALSE(chip.receiving);
     CHECK(radio.mode() == parts::RadioMode::Standby);

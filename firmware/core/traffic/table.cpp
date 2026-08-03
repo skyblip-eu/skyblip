@@ -23,9 +23,15 @@ int TrafficTable::find(uint8_t addr_table, uint32_t addr) const {
 }
 
 bool TrafficTable::prefer_new(const messages::AircraftObs& in, const messages::AircraftObs& ex) {
-    uint32_t tin = obs_time(in), tex = obs_time(ex);
+    const uint32_t tin = obs_time(in), tex = obs_time(ex);
+    const int rank_in = source_rank(in.source), rank_ex = source_rank(ex.source);
+    // A ground relay never displaces a first-hand reception the alarm layer
+    // would still act on. Being newer is not enough: a relayed frame is always
+    // newer than the direct one it repeats, which is how a relay would
+    // otherwise walk a target backwards once a second, for ever.
+    if (rank_in < rank_ex && tin >= tex && tin - tex <= kDirectHoldSec) return false;
     if (tin != tex) return tin > tex;
-    return source_rank(in.source) >= source_rank(ex.source);
+    return rank_in >= rank_ex;
 }
 
 int TrafficTable::allocate_slot(uint32_t now) {
@@ -47,7 +53,7 @@ int TrafficTable::allocate_slot(uint32_t now) {
 }
 
 int TrafficTable::update(const messages::AircraftObs& obs, uint32_t now) {
-    (void)now;
+    if (own_addr_ != 0 && (obs.addr & 0x00FFFFFF) == own_addr_) return -1;
     int idx = find(obs.addr_table, obs.addr);
     if (idx >= 0) {
         if (prefer_new(obs, slots_[idx].obs)) slots_[idx].obs = obs;

@@ -76,8 +76,8 @@ class Sx1262 : public io::Spi, public io::Gpio {
     // A burst arrives as chips. The detector slides its configured pattern over
     // them, and what the chip reports is the bytes that follow the match: a
     // pattern the transmitter never sent is a frame this radio never saw.
-    static uint8_t deliver_after_sync(const uint8_t* chips, uint8_t chip_len, const uint8_t* sync,
-                                      uint8_t sync_bits, uint8_t* out, uint8_t cap) {
+    static uint16_t deliver_after_sync(const uint8_t* chips, uint16_t chip_len, const uint8_t* sync,
+                                       uint8_t sync_bits, uint8_t* out, uint16_t cap) {
         const int total = static_cast<int>(chip_len) * 8;
         for (int start = 0; start + sync_bits <= total; start++) {
             bool match = true;
@@ -85,7 +85,7 @@ class Sx1262 : public io::Spi, public io::Gpio {
                 match = bit_at(chips, start + i) == bit_at(sync, i);
             if (!match) continue;
             const int first = start + sync_bits;
-            for (uint8_t i = 0; i < cap; i++) {
+            for (uint16_t i = 0; i < cap; i++) {
                 uint8_t byte = 0;
                 for (int b = 0; b < 8; b++) {
                     const int idx = first + i * 8 + b;
@@ -99,16 +99,21 @@ class Sx1262 : public io::Spi, public io::Gpio {
         return 0;
     }
 
-    bool receive_air(const uint8_t* chips, uint8_t chip_len, bool crc_error = false,
-                     int8_t rssi = -80) {
-        // A modem still on its reset defaults does not frame 100 kbps GFSK.
+    // The chip rate the burst was sent at is part of the burst. A modem framing
+    // 100 kbps does not recover a 200 kbps carrier, so a transmitter and a dwell
+    // that disagree here are as deaf as a wrong sync word - and a good deal
+    // harder to see, because everything else about the dwell looks right.
+    bool receive_air(const uint8_t* chips, uint16_t chip_len, bool crc_error = false,
+                     int8_t rssi = -80, uint32_t burst_bitrate = 100000) {
+        // A modem still on its reset defaults does not frame GFSK at all.
         if (!modulation_set) return false;
+        if (bitrate != burst_bitrate) return false;
         if (sync_bits == 0 || payload_bytes == 0) return false;
         uint8_t payload[255];
-        const uint8_t n =
+        const uint16_t n =
             deliver_after_sync(chips, chip_len, sync, sync_bits, payload, payload_bytes);
         if (n == 0) return false;
-        queue_rx(payload, n, crc_error, rssi);
+        queue_rx(payload, static_cast<uint8_t>(n), crc_error, rssi);
         return true;
     }
 

@@ -1,0 +1,20 @@
+{
+  "name": "A skyPost relay, and the aircraft we already hear for ourselves",
+  "mode": "training",
+  "lat_1e7": 485000000,
+  "lon_1e7": 85000000,
+  "alt_m": 1000,
+  "speed_kt": 55,
+  "track_deg": 0,
+  "duration_ms": 14000,
+  "aircraft": [
+    {"system": "adsl", "north_m": 1200, "east_m": -200, "up_m": 30, "speed_mps": 35, "track_deg": 180, "slot": 0},
+    {"system": "uplink", "north_m": 6000, "east_m": 2500, "up_m": 400, "speed_mps": 60, "track_deg": 230},
+    {"system": "uplink", "north_m": -4500, "east_m": -3000, "up_m": -300, "speed_mps": 45, "track_deg": 20},
+    {"system": "uplink", "north_m": 500, "east_m": 7000, "up_m": 150, "speed_mps": 30, "track_deg": 280}
+  ],
+  "events": [
+    {"at_ms": 5000, "expect_traffic_min": 4},
+    {"at_ms": 12000, "expect_traffic_min": 4}
+  ]
+}

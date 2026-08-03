@@ -151,3 +151,56 @@ TEST_CASE("air: a report shorter than the dwell reads is refused") {
     protocol::Frame frame{};
     CHECK_FALSE(protocol::receive_mband(reported, protocol::kRxChipBytes - 1, frame));
 }
+
+// The band a burst arrived in is what names its system, and the band is a fact
+// the dwell knew when it armed. Guessing it downstream is what sent every
+// O-band uplink frame into the M-band framer, where it failed and was counted
+// as radio noise.
+TEST_CASE("air: an O-band burst is named an uplink frame without being decoded") {
+    uint8_t frame[protocol::kUplinkFrameBytes];
+    fill(frame, protocol::kAdslFrameBytes, 9);
+    protocol::Frame out{};
+    CHECK(protocol::receive_burst(messages::Band::O, frame, protocol::kUplinkFrameBytes, out) ==
+          protocol::System::AdslUplink);
+    // The codeword is eleven times longer than a Frame and stays where the
+    // executor put it, so nothing was copied into out.
+    CHECK(out.system == protocol::System::Unknown);
+    CHECK(out.len == 0);
+}
+
+TEST_CASE("air: an O-band burst of the wrong length is not an uplink frame") {
+    uint8_t frame[protocol::kUplinkFrameBytes] = {0};
+    protocol::Frame out{};
+    CHECK(protocol::receive_burst(messages::Band::O, frame, protocol::kAdslFrameBytes, out) ==
+          protocol::System::Unknown);
+}
+
+TEST_CASE("air: an M-band burst is still framed and named from its sync tail") {
+    uint8_t payload[protocol::kAdslFrameBytes];
+    fill(payload, sizeof(payload), 3);
+    uint8_t chips[protocol::kTxChipBytes] = {0};
+    const size_t chip_len =
+        protocol::encode_mband(protocol::kAlptasSyncWord, payload, sizeof(payload), chips);
+    uint8_t reported[protocol::kRxChipBytes] = {0};
+    deliver(chips, chip_len, reported, sizeof(reported));
+
+    protocol::Frame out{};
+    CHECK(protocol::receive_burst(messages::Band::M, reported, sizeof(reported), out) ==
+          protocol::System::Alptas);
+    CHECK(out.len == protocol::kAlptasFrameBytes);
+}
+
+// The O-band framing a transmitter uses, round-tripped through the same sync
+// strip the radio performs: encode and decode change together.
+TEST_CASE("air: an O-band burst carries the sync word, the length byte and the codeword") {
+    uint8_t frame[protocol::kUplinkFrameBytes];
+    for (int i = 0; i < protocol::kUplinkFrameBytes; i++)
+        frame[i] = static_cast<uint8_t>(i * 7 + 1);
+    uint8_t burst[protocol::kUplinkBurstBytes] = {0};
+    CHECK(protocol::encode_oband(frame, burst) == static_cast<size_t>(protocol::kUplinkBurstBytes));
+    // §C.4.3, then §D.1.1: no Manchester on this band, so the bytes are the bytes.
+    CHECK(burst[0] == 0x2D);
+    CHECK(burst[1] == 0xD4);
+    CHECK(burst[2] == protocol::kUplinkFrameBytes);
+    CHECK(std::memcmp(burst + 3, frame, protocol::kUplinkFrameBytes) == 0);
+}

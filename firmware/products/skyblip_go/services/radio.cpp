@@ -96,17 +96,28 @@ hal::RfMode RadioService::mode_for(const timing::SlotPlan& plan) {
 }
 
 // The M band carries two systems past one sync window. The O band carries the
-// ground station's uplink and nothing else.
+// ground station's uplink and nothing else. Both halves of a dwell are set
+// here: what to listen for, and the modulation to listen with - §C.4 runs at
+// twice §C.2's chip rate through a Gaussian filter and a wider receiver, so a
+// dwell that only moved the synthesiser was tuned to the O band and deaf on it.
 void RadioService::listen_for(timing::Band band, hal::RfPlan& plan) {
     if (band == timing::Band::O) {
         plan.sync = protocol::kUplinkSync;
         plan.sync_bits = protocol::kUplinkSyncBits;
-        plan.rx_len = static_cast<uint8_t>(protocol::AdslUplink::kFrameBytes);
+        plan.rx_len = protocol::kUplinkFrameBytes;
+        plan.bitrate = protocol::kUplinkChipRateBps;
+        plan.fdev_hz = protocol::kUplinkDeviationHz;
+        plan.bandwidth_hz = protocol::kUplinkChannelBandwidthHz;
+        plan.gaussian_bt_e2 = protocol::kUplinkGaussianBtE2;
         return;
     }
     plan.sync = protocol::kSharedSync;
     plan.sync_bits = protocol::kSharedSyncBits;
     plan.rx_len = protocol::kRxChipBytes;
+    plan.bitrate = protocol::kMbandChipRateBps;
+    plan.fdev_hz = protocol::kMbandDeviationHz;
+    plan.bandwidth_hz = protocol::kMbandChannelBandwidthHz;
+    plan.gaussian_bt_e2 = protocol::kMbandGaussianBtE2;
 }
 
 // The dwell already armed carries this second's burst, or there is none to

@@ -21,7 +21,7 @@ class Rf : public hal::Rf {
     Status begin() override {
         Status s = radio_.begin();
         if (s != Status::Ok) return s;
-        return radio_.configure_mband(parts::MbandConfig{});
+        return radio_.configure_radio(parts::RadioConfig{});
     }
 
     Status arm(const hal::RfPlan& plan) override {
@@ -78,15 +78,25 @@ class Rf : public hal::Rf {
         started_ = true;
         armed_count_++;
         radio_.wake();
-        if (plan_.freq_hz != 0) {
-            parts::MbandConfig cfg{};
-            cfg.freq_hz = plan_.freq_hz;
-            cfg.sync = plan_.sync;
-            cfg.sync_bits = plan_.sync_bits;
-            cfg.payload_bytes = plan_.rx_len;
-            radio_.configure_mband(cfg);
-        }
+        band_ = plan_.mode == hal::RfMode::RxOband ? messages::Band::O : messages::Band::M;
+        if (plan_.freq_hz != 0) radio_.configure_radio(dwell_config(plan_));
         radio_.start_receive();
+    }
+
+    // The whole modem, not just the synthesiser: the two bands are two
+    // modulations (ADS-L 4 SRD-860 issue 2 §C.2 against §C.4) and the plan
+    // carries both halves.
+    static parts::RadioConfig dwell_config(const hal::RfPlan& plan) {
+        parts::RadioConfig cfg{};
+        cfg.freq_hz = plan.freq_hz;
+        if (plan.bitrate != 0) cfg.bitrate = plan.bitrate;
+        if (plan.fdev_hz != 0) cfg.fdev_hz = plan.fdev_hz;
+        if (plan.bandwidth_hz != 0) cfg.bandwidth_hz = plan.bandwidth_hz;
+        cfg.gaussian_bt_e2 = plan.gaussian_bt_e2;
+        cfg.sync = plan.sync;
+        cfg.sync_bits = plan.sync_bits;
+        cfg.payload_bytes = plan.rx_len;
+        return cfg;
     }
 
     void try_transmit(uint64_t now_us) {
@@ -124,14 +134,11 @@ class Rf : public hal::Rf {
     }
 
     void drain(uint64_t now_us) {
-        uint8_t buf[64];
         for (;;) {
-            const parts::RadioEvent ev = radio_.poll(buf, sizeof(buf));
+            const parts::RadioEvent ev = radio_.poll(rx_.data.data(), messages::kRfEventBytes);
             switch (ev.type) {
                 case parts::RadioEventType::None: return;
-                case parts::RadioEventType::RxDone:
-                    emit(messages::RfEventType::RxDone, buf, ev.len, ev.rssi_dbm, now_us);
-                    break;
+                case parts::RadioEventType::RxDone: push_rx(ev, now_us); break;
                 case parts::RadioEventType::CrcError:
                     emit(messages::RfEventType::CrcError, 0, 0, now_us);
                     break;
@@ -145,19 +152,28 @@ class Rf : public hal::Rf {
         }
     }
 
-    void emit(messages::RfEventType type, const uint8_t* data, uint8_t len, int8_t rssi,
-              uint64_t now_us) {
-        messages::RfEvent e{};
-        e.type = type;
-        e.len = len;
-        e.rssi_dbm = rssi;
-        e.at_us = now_us;
-        for (uint8_t i = 0; i < len && i < e.data.size(); i++) e.data[i] = data[i];
-        out_.push(e);
+    // The frame is already in the event that will carry it. An O-band uplink
+    // codeword is 255 bytes, and staging one on the stack as well as on the
+    // queue would be the same bytes twice. The band the dwell was armed for
+    // travels with it: the O band carries one system and the M band two, and
+    // only the arming knows which of them this burst is.
+    void push_rx(const parts::RadioEvent& ev, uint64_t now_us) {
+        rx_.type = messages::RfEventType::RxDone;
+        rx_.band = band_;
+        rx_.len = ev.len;
+        rx_.rssi_dbm = ev.rssi_dbm;
+        rx_.at_us = now_us;
+        out_.push(rx_);
     }
 
     void emit(messages::RfEventType type, uint8_t len, int8_t rssi, uint64_t now_us) {
-        emit(type, nullptr, len, rssi, now_us);
+        messages::RfEvent e{};
+        e.type = type;
+        e.band = band_;
+        e.len = len;
+        e.rssi_dbm = rssi;
+        e.at_us = now_us;
+        out_.push(e);
     }
 
     parts::Sx1262& radio_;
@@ -165,6 +181,8 @@ class Rf : public hal::Rf {
     bus::Queue<messages::RfEvent, 8>& out_;
     hal::RfPlan plan_{};
     hal::RfCarrier carrier_{};
+    messages::RfEvent rx_{};
+    messages::Band band_{messages::Band::M};
     uint64_t next_carrier_sample_us_{0};
     uint32_t backoff_seed_{0x5eed1262u};
     uint32_t last_ms_{0};

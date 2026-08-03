@@ -195,7 +195,7 @@ class Product {
     OwnshipService ownship_{ctx_};
     PowerService power_{ctx_};
     RadioService radio_{ctx_};
-    TrafficService traffic_{ctx_};
+    TrafficService traffic_{ctx_, kFeatures};
     AlarmService alarm_{ctx_};
     NmeaService nmea_{ctx_, kFeatures};
     FlightLogService flight_log_{ctx_};

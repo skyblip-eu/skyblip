@@ -9,18 +9,29 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/messages/messages.h"
 #include "core/protocol/adsl.h"
+#include "core/protocol/adsl_uplink.h"
 #include "core/protocol/alptas.h"
 
 namespace skyblip::protocol {
 
-enum class System : uint8_t { Unknown, AdslDirect, Alptas };
+enum class System : uint8_t { Unknown, AdslDirect, Alptas, AdslUplink };
 
 // ADS-L spends its last sync byte on the frame length, 0x18 = 24 data bytes.
 constexpr uint32_t kAdslSyncWord = 0xF5724B18u;
 constexpr uint32_t kAlptasSyncWord = 0xF531FAB6u;
 
 constexpr uint8_t kAdslFrameBytes = AdslPacket::kDataBytes;
+
+// §C.2's modulation table. Manchester halves the effective bit rate to 50 kbps
+// (§C.2.1), so the modem is clocked at the chip rate. Its O-band counterpart is
+// in core/protocol/adsl_uplink.h and the two do not agree on a single number
+// except the deviation.
+constexpr uint32_t kMbandChipRateBps = 100000;
+constexpr uint32_t kMbandDeviationHz = 50000;
+constexpr uint32_t kMbandChannelBandwidthHz = 200000;
+constexpr uint16_t kMbandGaussianBtE2 = 0;
 
 // One data bit becomes two chips: 1 -> 01, 0 -> 10 (§C.2.1), which is the table
 // fec::manchester_encode holds.
@@ -84,6 +95,25 @@ size_t encode_mband(uint32_t sync_word, const uint8_t* frame, uint8_t frame_len,
 // The chips a receiver reports once the shared window matched. Manchester-decode
 // them, name the system by the sync tail, and shift the frame to byte zero.
 bool receive_mband(const uint8_t* chips, size_t chip_bytes, Frame& out);
+
+// The chips a transmitter puts on the O band: no Manchester (§C.4), so the sync
+// word, the §D.1.1 length byte and the codeword, as they are. Written here
+// beside its M-band twin because encode and decode change together.
+size_t encode_oband(const uint8_t* frame, uint8_t* out);
+
+// One burst off the bus, named by the dwell that heard it.
+//
+// The M band carries two systems past one shared sync window, so there the name
+// has to be Manchester-decoded out of the sync tail. The O band carries the
+// ground station's uplink and nothing else: the dwell was armed for §C.4.3's
+// sync word and for the one frame length that follows it, so a burst reported
+// on that band either is an uplink frame or has the wrong length and is not one.
+// out is filled for the M band only - an uplink codeword is eleven times longer
+// than a Frame and stays where the executor already put it.
+//
+// Naming a burst is protocol policy, so it lives here rather than in the
+// service that pulls the event: the service moves messages.
+System receive_burst(messages::Band band, const uint8_t* data, size_t len, Frame& out);
 
 }  // namespace skyblip::protocol
 

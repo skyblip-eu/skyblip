@@ -1,6 +1,8 @@
 // The committed scenarios are regression fixtures: the same files the browser and
 // the terminal load are replayed here, and a training scenario's expectations are
 // the assertions. A bug found in flight becomes a file, not a bug report.
+#include <string>
+
 #include "core/protocol/nmea_out.h"
 #include "core/traffic/alarm.h"
 #include "doctest/doctest.h"
@@ -427,4 +429,52 @@ TEST_CASE("scenario: a takeoff and a landing bracket one flight log session") {
     CHECK_FALSE(s.product().flight_log().recording());
     CHECK(s.product().flight_log().records_written() > airborne_records);
     CHECK(s.product().flight_log().sessions_on_flash() == 1);
+}
+
+// The ground relay as a committed fixture, so the case is reproducible in the
+// browser and not only in a test file: three aircraft too far away for this
+// device to hear, reaching it because a skyPost heard them and put all three in
+// one O-band frame, alongside one neighbour it hears for itself on the M band.
+//
+// Before 2026-08-05 this scenario produced exactly one target. The uplink frame
+// went to protocol::receive_mband, which frames the M band's two systems and
+// nothing else, so it failed there and was counted as rx_bad: the feature was
+// absent and its absence was indistinguishable from a noisy site.
+TEST_CASE("scenario: a skyPost relay puts aircraft on the radar that we cannot hear") {
+    simulator::Simulator s;
+    REQUIRE(s.setup() == Status::Ok);
+    REQUIRE(s.load_file("scenarios/ground_relay.json"));
+    replay(s);
+
+    CHECK(s.world().failures() == 0);
+    const bus::State& state = s.product().state();
+
+    int direct = 0, relayed = 0;
+    for (int i = 0; i < traffic::TrafficTable::kCapacity; i++) {
+        const traffic::Target* t = state.traffic.at(i);
+        if (t == nullptr || !t->used) continue;
+        if (t->obs.source == messages::Source::AdslDirect) direct++;
+        if (t->obs.source == messages::Source::AdslUplink) relayed++;
+    }
+    CHECK(direct == 1);
+    CHECK(relayed == 3);
+
+    // One frame a second, three aircraft in each, and none of it counted as an
+    // M-band framing failure.
+    CHECK(state.uplink_frames > 5);
+    CHECK(state.uplink_bad == 0);
+    CHECK(state.uplink_targets >= 3 * state.uplink_frames);
+    CHECK(state.rx_ok > 0);
+
+    // The tape says what it heard and where: the relay is on 869.525 and it is
+    // read as a relay, not as an unframed burst.
+    bool saw_uplink_line = false;
+    for (int i = 0; i < s.world().air().record_count(); i++) {
+        char line[128];
+        s.world().air().format(i, line, sizeof(line));
+        if (std::string(line).find("869.525 RX  ") != std::string::npos &&
+            std::string(line).find("UPLINK 3 aircraft") != std::string::npos)
+            saw_uplink_line = true;
+    }
+    CHECK(saw_uplink_line);
 }

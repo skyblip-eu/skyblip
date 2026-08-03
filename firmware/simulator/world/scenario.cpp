@@ -71,7 +71,11 @@ bool event_from(const json::Reader& r, ScenarioEvent& out) {
 }
 
 protocol::System system_from(const std::string& name) {
-    return name == "alptas" ? protocol::System::Alptas : protocol::System::AdslDirect;
+    if (name == "alptas") return protocol::System::Alptas;
+    // Not a fit: an aircraft this device never hears for itself, reaching it
+    // only through a skyPost's O-band relay.
+    if (name == "uplink") return protocol::System::AdslUplink;
+    return protocol::System::AdslDirect;
 }
 
 Mode mode_from(const std::string& name) {

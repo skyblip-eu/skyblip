@@ -19,7 +19,7 @@
       "items": {
         "type": "object",
         "properties": {
-          "system": {"type": "string", "enum": ["adsl", "alptas"]},
+          "system": {"type": "string", "enum": ["adsl", "alptas", "uplink"], "description": "What reaches us from this aircraft: its own ADS-L or FLARM-generation burst on the M band, or a skyPost ground station's O-band relay of it, which is what 'uplink' means. An 'uplink' aircraft never transmits itself."},
           "north_m": {"type": "integer"},
           "east_m": {"type": "integer"},
           "up_m": {"type": "integer"},

@@ -45,6 +45,18 @@ struct State {
     uint32_t rx_bad{0};
     uint32_t tx_ok{0};
     uint32_t tx_busy{0};
+    // INFO: fc 05aug26 The O-band uplink is its own path and is counted apart
+    // from the M band's: every frame that arrived in the uplink dwell, the ones
+    // Reed-Solomon refused, and the aircraft the rest of them put in the table.
+    // The third is smaller than the aircraft the frames carried whenever the
+    // ground station relayed one back that the table refuses - own-ship, or an
+    // aircraft we are hearing better first-hand. Until 2026-08-05 an uplink
+    // frame reached protocol::receive_mband, failed to frame as either M-band
+    // system and landed in rx_bad: the whole feature was absent and its absence
+    // looked like radio noise, which is what hid it.
+    uint32_t uplink_frames{0};
+    uint32_t uplink_bad{0};
+    uint32_t uplink_targets{0};
     // The instant the executor actually reported completion for, published by
     // whoever already drains messages::RfEvent (TrafficService) so the policy
     // layer that owns the deadline (RadioService) can measure against it

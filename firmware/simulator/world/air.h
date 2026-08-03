@@ -22,14 +22,23 @@ enum class AirEvent : uint8_t {
     Collision,
 };
 
+// The longest burst the channel carries: an O-band uplink frame, which is not
+// Manchester-coded and is eleven times what an M-band one is.
+constexpr int kMaxBurstBytes = protocol::kUplinkBurstBytes;
+static_assert(protocol::kTxChipBytes <= kMaxBurstBytes, "an M-band burst would not fit the air");
+
 struct AirRecord {
     uint64_t at_us{0};
     uint32_t freq_hz{0};
+    // The chip rate the burst was sent at. It is part of the burst, not of the
+    // receiver: the two bands are two modulations and a dwell framing the wrong
+    // one is deaf on air, which is a bug the tape has to be able to show.
+    uint32_t bitrate{protocol::kMbandChipRateBps};
     uint16_t phase_ms{0};
+    uint16_t len{0};
     AirEvent event{AirEvent::Deaf};
     int8_t rssi_dbm{0};
-    uint8_t len{0};
-    uint8_t chips[protocol::kTxChipBytes]{};
+    uint8_t chips[kMaxBurstBytes]{};
 };
 
 // The 868 MHz channel between the modelled radio and everything else flying.
@@ -55,9 +64,19 @@ class Air {
                kChannelToleranceHz;
     }
 
-    // A burst is chips on a frequency: the sync word the transmitter used is part
-    // of them, which is what decides whether a listening receiver frames it.
-    void emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint8_t len, int8_t rssi_dbm);
+    // How long a burst of this many bytes occupies the channel at this chip
+    // rate. Derived rather than remembered, because the O band sends eleven
+    // times the bytes at twice the rate and a fixed figure would be wrong for
+    // one of the two.
+    static uint64_t air_time_us(uint16_t len, uint32_t bitrate) {
+        return static_cast<uint64_t>(len) * 8u * 1000000u / bitrate;
+    }
+
+    // A burst is chips on a frequency, at a chip rate: the sync word the
+    // transmitter used is part of them, which is what decides whether a
+    // listening receiver frames it, and so is the rate it clocked them out at.
+    void emit(uint64_t at_us, uint32_t freq_hz, const uint8_t* chips, uint16_t len, int8_t rssi_dbm,
+              uint32_t bitrate = protocol::kMbandChipRateBps);
 
     // Drive the channel up to now_us: own-ship transmissions are picked up from
     // the radio, bursts that started are judged heard or not, bursts that ended
@@ -66,9 +85,14 @@ class Air {
     void step(uint64_t now_us, models::Sx1262& radio);
 
     // What a receiver armed with the shared sync window would frame out of a
-    // logged burst: the tape is chips, and reading it means detecting the sync
-    // exactly as the radio does.
+    // logged M-band burst: the tape is chips, and reading it means detecting the
+    // sync exactly as the radio does.
     static bool framed(const AirRecord& record, protocol::Frame& out);
+
+    // The same for the O band, where there is no Manchester and no shared
+    // window: strip §C.4.3's sync word and the length byte behind it, and what
+    // is left is the codeword.
+    static bool framed_uplink(const AirRecord& record, uint8_t* frame);
 
     void clear();
 
@@ -87,10 +111,12 @@ class Air {
         bool collided{false};
         bool mine{false};
         uint64_t at_us{0};
+        uint64_t air_time_us{0};
         uint32_t freq_hz{0};
+        uint32_t bitrate{protocol::kMbandChipRateBps};
         int8_t rssi_dbm{0};
-        uint8_t len{0};
-        uint8_t chips[protocol::kTxChipBytes]{};
+        uint16_t len{0};
+        uint8_t chips[kMaxBurstBytes]{};
     };
 
     void log(const Burst& b, AirEvent event);
