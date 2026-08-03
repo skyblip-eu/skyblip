@@ -26,8 +26,13 @@ class Annunciator : public hal::Annunciator {
     // this owes it a silence(). The pattern is core/annunciation's.
     void alarm(uint8_t level, uint8_t volume) override {
         if (level == 0 || volume == 0) return silence();
-        // Higher level -> higher pitch, volume -> duty cycle.
-        uint32_t period = PWM_HZ(2000 + level * 400);
+        // INFO: fc 03aug26 the fitted piezo is not identified in LilyGO's own
+        // material (project/research/alarm-audibility.md); commodity 9x9 mm SMD
+        // piezo sounders of this size cluster at 4000 Hz +/- 500 Hz resonance, and
+        // the previous 2400-3200 Hz table sat below that whole band on every
+        // level. Higher level still means higher pitch, volume still means duty
+        // cycle; the three tones now bracket 4000 Hz instead of undershooting it.
+        uint32_t period = PWM_HZ(3200 + level * 400);
         pwm_set_dt(&buzzer_, period, period / (5 - (volume > 3 ? 3 : volume)));
     }
     void vibrate(uint16_t ms) override {
