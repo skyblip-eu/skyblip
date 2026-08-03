@@ -23,6 +23,7 @@ const char* pending_title(Pending pending) {
         case Pending::Apply: return "INSTALL";
         case Pending::Recovery: return "RECOVERY";
         case Pending::PowerOff: return "POWER OFF";
+        case Pending::EraseLog: return "ERASE LOGS";
         case Pending::None: break;
     }
     return "";
@@ -35,6 +36,7 @@ const char* pending_detail(Pending pending) {
         case Pending::Apply: return "REBOOT INTO THE STAGED IMAGE";
         case Pending::Recovery: return "REBOOT INTO THE USB BOOTLOADER";
         case Pending::PowerOff: return "SHUT THE DEVICE DOWN";
+        case Pending::EraseLog: return "DELETE EVERY FLIGHT ON THE DEVICE";
         case Pending::None: break;
     }
     return "";
@@ -204,6 +206,14 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
     ack(false, "unknown_cmd");
 }
 
+void ConfigService::request_log_erase() {
+    if (!on_ground()) {
+        ack(false, "in_flight");
+        return;
+    }
+    stage(Pending::EraseLog, "confirm_erase_log");
+}
+
 void ConfigService::confirm() {
     if (!on_ground()) {
         pending_ = Pending::None;
@@ -241,6 +251,10 @@ void ConfigService::confirm() {
         upload_window_open_ = false;
         power_off_requested_ = true;
         ack(true, "power_off");
+    } else if (pending_ == Pending::EraseLog) {
+        pending_ = Pending::None;
+        log_erase_requested_ = true;
+        ack(true, "erase_log");
     }
 }
 

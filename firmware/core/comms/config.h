@@ -12,7 +12,7 @@ namespace skyblip::comms {
 
 enum class FlightState : uint8_t { Ground, Airborne, Unknown };
 
-enum class Pending : uint8_t { None, Set, Dfu, Apply, Recovery, PowerOff };
+enum class Pending : uint8_t { None, Set, Dfu, Apply, Recovery, PowerOff, EraseLog };
 
 // INFO: cf 02aug26 The gate reads whatever core/flight decided from the fix
 // stream, and only the two codes it recognises mean anything: ADS-L G.1.4
@@ -75,6 +75,14 @@ class ConfigService {
     void set_reset_reason(power::ResetReason reason) { reset_reason_ = reason; }
     power::ResetReason reset_reason() const { return reset_reason_; }
 
+    // Erasing the flight log destroys evidence a pilot may need for a claim or
+    // an incident, so it knocks on the same door a firmware upload does: the
+    // flight log service asks, the panel shows the prompt, and only the
+    // confirmation gesture on the device itself latches it.
+    void request_log_erase();
+    bool log_erase_requested() const { return log_erase_requested_; }
+    void clear_log_erase_request() { log_erase_requested_ = false; }
+
     // Latched by a confirmed "power_off". The shell owns the sequencer, so this
     // is where the request waits for it: core/power::ShutdownSequencer::request
     // with ShutdownReason::LinkRequest.
@@ -98,6 +106,7 @@ class ConfigService {
     power::ResetReason reset_reason_{power::ResetReason::Unknown};
     bool airborne_latched_{false};
     bool power_off_requested_{false};
+    bool log_erase_requested_{false};
     Pending pending_{Pending::None};
     bool dirty_{false};
     bool upload_window_open_{false};
