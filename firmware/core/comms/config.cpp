@@ -209,6 +209,35 @@ void ConfigService::send_timing() {
     reply(buf);
 }
 
+// The durable-write half of the same bench: the settings writes the device made,
+// the changes they were coalesced from, and the ones the policy could not place
+// inside a free phase of the second. `forced` is the only number here that is a
+// fault, and it is the reason this is exported at all - a stall that landed where
+// the slot map did not budget for one must not be silent.
+//
+// Deliberately its own object rather than four more keys on "timing": that reply
+// is already the longest thing this service sends, and the link negotiates a
+// notification size it has to fit inside. Same endpoint, same dispatch, one more
+// question - not a longer answer a phone might truncate.
+void ConfigService::send_flash() {
+    if (writes_ == nullptr) {
+        ack(false, "no_stats");
+        return;
+    }
+    char buf[192];
+    json::Writer w(buf, sizeof(buf));
+    w.kv_str("cmd", "flash");
+    w.kv_int("changes", static_cast<long>(writes_->requests()));
+    w.kv_int("writes", static_cast<long>(writes_->writes()));
+    w.kv_int("forced", static_cast<long>(writes_->forced()));
+    w.kv_int("worst_wait_ms", static_cast<long>(writes_->worst_wait_ms()));
+    w.kv_bool("pending", writes_->pending());
+    w.kv_int("budget_ms", static_cast<long>(timing::DurableWriteWindow::kWorstWriteMs));
+    w.kv_int("bound_ms", static_cast<long>(timing::DurableWriteWindow::kMaxDeferMs));
+    w.finish();
+    reply(buf);
+}
+
 void ConfigService::on_rx(const messages::RxFrame& frame) {
     if (frame.endpoint != messages::Endpoint::Config) return;
     const char* data = reinterpret_cast<const char*>(frame.data.data());
@@ -239,6 +268,11 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
 
     if (std::strcmp(cmd, "timing") == 0) {
         send_timing();
+        return;
+    }
+
+    if (std::strcmp(cmd, "flash") == 0) {
+        send_flash();
         return;
     }
 

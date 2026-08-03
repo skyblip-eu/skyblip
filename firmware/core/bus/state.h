@@ -7,6 +7,7 @@
 #include "core/power/cutoff.h"
 #include "core/settings/settings.h"
 #include "core/timing/channel.h"
+#include "core/timing/durable_write.h"
 #include "core/timing/slot.h"
 #include "core/timing/timing_stats.h"
 #include "core/traffic/table.h"
@@ -18,6 +19,11 @@ struct State {
     messages::OwnState own{};
     timing::ClockState clock{};
     timing::SlotPlan plan{};
+    // Where the radio believes it is inside the second it is arming, stamped with
+    // the pass it said so on. The radio service is the only writer; whoever needs
+    // to know whether the core may be stalled reads it here rather than deriving
+    // the phase a second time (core/timing/durable_write.h).
+    timing::DwellPhase dwell{};
     // The bench accumulator G6 reads out: hardware/boards is the one writer of
     // the PPS half, products/skyblip_go/services/radio.cpp of the dwell half.
     timing::SlotTimingStats timing_stats{};

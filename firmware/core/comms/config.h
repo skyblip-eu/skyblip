@@ -8,6 +8,7 @@
 #include "core/power/reset_reason.h"
 #include "core/settings/settings.h"
 #include "core/timing/channel.h"
+#include "core/timing/durable_write.h"
 #include "core/timing/timing_stats.h"
 #include "hal/dfu.h"
 #include "hal/link.h"
@@ -60,6 +61,13 @@ class ConfigService {
     // numbers out of a text frame instead of photographing an e-paper page whose
     // nine traffic rows are already full. EN 300 220-2 V3.3.1 §4.6.2.3, §4.6.3.2.
     void set_carrier_sense(int8_t threshold_dbm) { carrier_sense_dbm_ = threshold_dbm; }
+
+    // The durable-write policy's own counters, read out beside the dwell
+    // histograms because they are measurements of the same second: a write that
+    // could not be placed inside its bound is a stall that landed where the slot
+    // map did not budget for one, and it must not be silent. Wired by the product
+    // that owns the write (products/skyblip_go/services/config.h).
+    void set_durable_writes(const timing::DurableWriteWindow* writes) { writes_ = writes; }
 
     // Drives the upload-window timeout. Called once per App::step().
     void tick(uint32_t now_ms);
@@ -141,6 +149,9 @@ class ConfigService {
     // open - no second channel, no panel real estate a histogram would not
     // fit on anyway.
     void send_timing();
+    // The same door, one more question: what the durable-write policy did with the
+    // settings changes it was handed (core/timing/durable_write.h).
+    void send_flash();
     static const char* flight_name(FlightState fs);
     bool on_ground() const { return flight_ == FlightState::Ground; }
 
@@ -148,6 +159,7 @@ class ConfigService {
     settings::Settings& settings_;
     hal::Dfu* dfu_;
     const timing::SlotTimingStats* timing_stats_;
+    const timing::DurableWriteWindow* writes_{nullptr};
     FlightState flight_{FlightState::Unknown};
     int8_t carrier_sense_dbm_{timing::NoiseFloor::kSeedDbm + timing::NoiseFloor::kClearMarginDb};
     power::ResetReason reset_reason_{power::ResetReason::Unknown};

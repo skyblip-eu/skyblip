@@ -35,8 +35,15 @@ class KvStore : public hal::KvStore {
         if (!slot || len > sizeof(slot->data)) return Status::Full;
         for (size_t i = 0; i < len; i++) slot->data[i] = buf[i];
         slot->len = len;
+        writes_++;
         return Status::Ok;
     }
+
+    // Counted, not just stored. On the silicon behind this port a write is an
+    // NVMC stall on the core that arms PPS-anchored deadlines
+    // (core/timing/durable_write.h), so how MANY there are is the thing a test
+    // about coalescing has to be able to read.
+    uint32_t writes() const { return writes_; }
 
     Status erase(const char* key) override {
         for (auto& e : e_)
@@ -52,6 +59,7 @@ class KvStore : public hal::KvStore {
         size_t len{0};
     };
     Entry e_[4];
+    uint32_t writes_{0};
 };
 
 }  // namespace skyblip::platform::host

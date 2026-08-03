@@ -53,6 +53,7 @@ class RadioService : public runtime::Service {
     timing::Transmitter::Attempt attempt(const timing::SlotPlan& plan, uint32_t now_ms) const;
     bool transmit_due(const timing::SlotPlan& plan, uint32_t now_ms) const;
     void arm_dwell(const timing::SlotPlan& plan, uint32_t now_ms);
+    void publish_dwell(uint32_t now_ms);
     void collect_outcome(uint32_t now_ms);
     void take_carrier_samples();
 
