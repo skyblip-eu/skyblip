@@ -79,6 +79,7 @@ void NmeaService::run_pass() {
     frame_len_ = 0;
     stalled_ = false;
     emit_status();
+    emit_ownship();
     emit_altitude();
     emit_targets();
     flush();
@@ -120,6 +121,20 @@ void NmeaService::emit_status() {
     write(sentence_, len);
 }
 
+// $GPRMC/$GPGGA: ownship's own absolute position, for the EFB that has none of
+// its own - a panel-mounted tablet with no sky view is exactly the case this
+// closes, and it is the one sentence pair every EFB in project/reference/efb-
+// formats.md accepts unconditionally. Both are one call each, gated inside
+// core/protocol on the same fix and UTC validity $PGRMZ and $PFLAU already
+// read off own, so there is nothing to gate here a second time.
+void NmeaService::emit_ownship() {
+    const messages::OwnState& own = context_.state.own;
+    const int rmc = protocol::format_gprmc(sentence_, sizeof(sentence_), own);
+    if (rmc > 0) write(sentence_, rmc);
+    const int gga = protocol::format_gpgga(sentence_, sizeof(sentence_), own);
+    if (gga > 0) write(sentence_, gga);
+}
+
 // INFO: nm 04aug26 $PGRMZ is read as a BAROMETRIC altitude and the app applies
 // its own subscale to it (XCSoar hands it straight to its pressure-altitude
 // input), so what goes out is pressure altitude on 1013.25 hPa - the datum-free
@@ -135,7 +150,8 @@ void NmeaService::emit_altitude() {
     if (!context_.state.baro_active) return;
     const int32_t alt_cm = flight::pressure_to_alt_cm(context_.state.pressure_pa);
     write(sentence_,
-          protocol::format_pgrmz(sentence_, sizeof(sentence_), centimetres_to_feet(alt_cm)));
+          protocol::format_pgrmz(sentence_, sizeof(sentence_), centimetres_to_feet(alt_cm),
+                                 context_.state.own.fix_valid));
 }
 
 // The rotation: at most kTargetsPerPass targets, resuming where the last pass

@@ -17,7 +17,13 @@
 //            (oss/openace/.../dataport.cpp:31). It is one sentence a second and
 //            it is the one this service refuses to drop.
 //   $PGRMZ - barometric altitude, read as PRESSURE altitude by the app, which
-//            then applies its own QNH. Hence the datum asserted below.
+//            then applies its own QNH. Hence the datum asserted below. Field 3
+//            is the fix dimension (both SoftRF forks: '3' with a fix, '1'
+//            without), not the constant it used to be.
+//   $GPRMC/$GPGGA - ownship's own absolute position, for the EFB with no GNSS
+//            of its own: a panel-mounted tablet with no sky view. Sent only
+//            with a real fix and a real UTC time, on the same cadence as
+//            everything above.
 #include <string>
 #include <vector>
 
@@ -338,6 +344,53 @@ TEST_CASE(
     CHECK(standard_cm > 90000);
     CHECK(std::abs(sent_cm - standard_cm) < 40);
     CHECK(std::abs(standard_cm - on_subscale_cm) > 20000);
+}
+
+// The cadence arithmetic this relies on: emit_ownship() is two calls inside
+// run_pass(), the same pass PFLAU and PGRMZ already share, at the pass's fixed
+// 1 Hz. NmeaService::kTargetsPerPass and kPassesPerRefreshBound are derived
+// only from kTargetRefreshBoundMs, kMovingTargetRedrawMs and the table's
+// capacity - none of which this reads or writes - so two more sentences a pass
+// changes what a pass costs in bytes, never how many passes the refresh bound
+// allows or how many targets one may carry.
+TEST_CASE("nmea: GPRMC/GPGGA give a panel-mounted tablet the position it has no GNSS for") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    fly(rig, t, 3);
+    rig.raise_link();
+    fly(rig, t, 2);
+    REQUIRE(rig.state().own.fix_valid);
+    REQUIRE(rig.state().own.utc_valid);
+
+    std::string rmc, gga;
+    for (const std::string& s : sentences(rig)) {
+        if (s.rfind("$GPRMC,", 0) == 0) rmc = s;
+        if (s.rfind("$GPGGA,", 0) == 0) gga = s;
+    }
+    REQUIRE_FALSE(rmc.empty());
+    REQUIRE_FALSE(gga.empty());
+    CHECK(checksum_ok(rmc));
+    CHECK(checksum_ok(gga));
+
+    const std::vector<std::string> rf = fields(rmc);
+    REQUIRE(rf.size() >= 10);
+    CHECK(rf[2] == "A");       // status: a valid fix, not void
+    CHECK(rf[1].size() == 6);  // hhmmss
+    CHECK(rf[9].size() == 6);  // ddmmyy
+
+    const std::vector<std::string> gf = fields(gga);
+    REQUIRE(gf.size() >= 9);
+    CHECK(gf[6] == "1");          // fix quality: a fix
+    CHECK(std::stoi(gf[7]) > 0);  // satellites, as the rig's fix reports them
+
+    // One pass a second, one of each per pass: two more seconds of flight is
+    // two more of each, same as the $PFLAU heartbeat they now share a pass with.
+    rig.platform.link().clear();
+    fly(rig, t, 2);
+    CHECK(count_of(rig, "$GPRMC") >= 2);
+    CHECK(count_of(rig, "$GPGGA") >= 2);
+    CHECK(count_of(rig, "$GPRMC") == count_of(rig, "$PFLAU"));
 }
 
 namespace {

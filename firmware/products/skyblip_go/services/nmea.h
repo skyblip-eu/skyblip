@@ -1,6 +1,6 @@
-// products/skyblip_go/services/nmea.h: the traffic picture a paired tablet
-// draws, in the FLARM-wire sentences every EFB already speaks, and the single
-// writer of messages::Endpoint::Nmea.
+// products/skyblip_go/services/nmea.h: the traffic picture and ownship position
+// a paired tablet draws, in the sentences every EFB already speaks, and the
+// single writer of messages::Endpoint::Nmea.
 //
 // core/protocol/nmea_out.h has formatted $PFLAA/$PFLAU/$PGRMZ since the first
 // week of the project and nothing in the product ever called it: the
@@ -88,6 +88,7 @@ class NmeaService : public runtime::Service {
     bool listening() const;
     void run_pass();
     void emit_status();
+    void emit_ownship();
     void emit_altitude();
     void emit_targets();
     void write(const char* bytes, int len);

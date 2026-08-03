@@ -36,11 +36,28 @@ static messages::OwnState own_at(int32_t lat, int32_t lon, int32_t alt) {
 
 TEST_CASE("nmea: checksum appended correctly") {
     char buf[128];
-    int n = format_pgrmz(buf, sizeof(buf), 3500);
+    int n = format_pgrmz(buf, sizeof(buf), 3500, true);
     std::string s(buf, n);
     CHECK(s.rfind("$PGRMZ,", 0) == 0);
     CHECK(checksum_ok(s));
     CHECK(s.substr(s.size() - 2) == "\r\n");
+}
+
+// Field 3 of $PGRMZ is the fix dimension Garmin defines for it (1=no fix,
+// 2=2D, 3=3D), not a constant: both SoftRF forks send exactly these two values
+// off exactly this test (src/protocol/data/NMEA.cpp:
+// "isValidGNSSFix() ? '3' : '1'"), because own.fix_valid carries no 2D/3D
+// distinction of its own - the same reduction format_pflau's GPS field already
+// makes.
+TEST_CASE("nmea: PGRMZ field 3 is the fix dimension, not a hardcoded constant") {
+    char buf[128];
+    int n = format_pgrmz(buf, sizeof(buf), 3500, true);
+    std::string s(buf, n);
+    CHECK(s.rfind("$PGRMZ,3500,F,3*", 0) == 0);
+
+    n = format_pgrmz(buf, sizeof(buf), 3500, false);
+    s.assign(buf, n);
+    CHECK(s.rfind("$PGRMZ,3500,F,1*", 0) == 0);
 }
 
 TEST_CASE("nmea: relative geometry, target due north is +north, ~0 east") {
@@ -107,9 +124,73 @@ TEST_CASE("nmea: PFLAU reports rx count, gps and threat") {
 TEST_CASE("nmea: category mapping ADS-L glider -> ALP-TAS 1") {
     CHECK(adsl_cat_to_alptas(4) == 0x1);  // glider
     CHECK(adsl_cat_to_alptas(3) == 0x3);  // heli
+}
+
+// oss/SoftRF-moshe-braner/.../libraries/OGN/ads-l.h:657-658 is the source for
+// both branches: "if (AddrType==5) AddrType=1; else AddrType=2; // SkyDemon
+// only accepts 1 or 2". Every ADS-L address table value that is not ICAO (5) -
+// our own self-minted range 0-4, FLARM 6, OGN 7, and anything reserved beyond
+// it - lands on IDType 2 rather than IDType 0: 0 draws nothing at all on
+// SkyDemon, which is the one failure worth never causing again, and between
+// the two legal values a self-minted address is a closer lie as FLARM
+// (transient, self-assigned) than as ICAO (permanent, registry-issued).
+TEST_CASE("nmea: addr_table_to_idtype never answers 0 - SkyDemon draws nothing for that value") {
     CHECK(addr_table_to_idtype(5) == 1);  // ICAO
     CHECK(addr_table_to_idtype(6) == 2);  // FLARM
-    CHECK(addr_table_to_idtype(0) == 0);  // random
+    CHECK(addr_table_to_idtype(7) == 2);  // OGN, folded into the FLARM bucket
+    CHECK(addr_table_to_idtype(0) == 2);  // self-minted/random, ditto
+    CHECK(addr_table_to_idtype(4) == 2);  // top of the self-minted range
+    for (int t = 0; t < 64; t++) CHECK(addr_table_to_idtype(static_cast<uint8_t>(t)) != 0);
+}
+
+// own.utc is a Unix epoch with no calendar fields of its own; the numbers
+// below are 2026-08-02T01:01:01Z, 1785628800 + 3661s (1785628800 is the same
+// 2026-08-02T00:00:00Z base test/support/product_rig.h flies every product
+// case from), chosen so the date and time fields below are hand-checkable
+// rather than merely re-deriving the same arithmetic the formatter uses.
+TEST_CASE("nmea: GPRMC/GPGGA carry ownship's own absolute position") {
+    auto own = own_at(481234500, -81234500, 1000);
+    own.utc = 1785628800u + 3661u;
+    own.alt_msl_m = 950;
+    own.sats = 8;
+    own.hdop_e2 = 120;
+    own.speed_q = 160;  // 40 m/s
+    own.track_c9 = 128;
+
+    char buf[128];
+    const int rn = format_gprmc(buf, sizeof(buf), own);
+    REQUIRE(rn > 0);
+    const std::string rmc(buf, rn);
+    CHECK(checksum_ok(rmc));
+    CHECK(rmc.substr(rmc.size() - 2) == "\r\n");
+    // Time, status, lat/lon (fmt_nmea_lat/lon, pinned separately in
+    // test_util.cpp), ground speed in knots to one decimal (40 m/s * 3600/1852
+    // = 77.75), track, date, and a mode indicator every consumer accepts.
+    CHECK(rmc == "$GPRMC,010101,A,4807.4070,N,00807.4070,W,77.8,90,020826,,,A*76\r\n");
+
+    const int gn = format_gpgga(buf, sizeof(buf), own);
+    REQUIRE(gn > 0);
+    const std::string gga(buf, gn);
+    CHECK(checksum_ok(gga));
+    // Fix quality 1, 8 satellites, HDOP 1.20, MSL altitude 950 m, and a geoid
+    // separation of alt_m - alt_msl_m = 1000 - 950 = 50 m (GGA field 11, so an
+    // app that wants HAE can add it back).
+    CHECK(gga == "$GPGGA,010101,4807.4070,N,00807.4070,W,1,08,1.20,950,M,50,M,,*67\r\n");
+}
+
+TEST_CASE("nmea: GPRMC/GPGGA emit nothing without both a fix and a UTC time") {
+    char buf[128];
+    messages::OwnState own = own_at(481000000, 81000000, 1000);
+
+    messages::OwnState no_fix = own;
+    no_fix.fix_valid = false;
+    CHECK(format_gprmc(buf, sizeof(buf), no_fix) == 0);
+    CHECK(format_gpgga(buf, sizeof(buf), no_fix) == 0);
+
+    messages::OwnState no_utc = own;
+    no_utc.utc_valid = false;
+    CHECK(format_gprmc(buf, sizeof(buf), no_utc) == 0);
+    CHECK(format_gpgga(buf, sizeof(buf), no_utc) == 0);
 }
 
 TEST_CASE("nmea: the widest sentence these can produce still fits the narrowest payload") {
@@ -144,4 +225,17 @@ TEST_CASE("nmea: the widest sentence these can produce still fits the narrowest 
     // And neither fits what BLE merely guarantees, which is why a sender here
     // cannot assume a frame is a sentence.
     CHECK(traffic > hal::kMinimumLinkPayload);
+
+    own.speed_q = 65535;
+    own.track_c9 = 511;
+    own.sats = 255;
+    own.hdop_e2 = 65535;
+    own.alt_msl_m = -9999;
+    own.utc = 4294967295u;
+    const int rmc = format_gprmc(buf, sizeof(buf), own);
+    CHECK(rmc > 0);
+    CHECK(rmc <= comms::kSmallestSupportedPayload);
+    const int gga = format_gpgga(buf, sizeof(buf), own);
+    CHECK(gga > 0);
+    CHECK(gga <= comms::kSmallestSupportedPayload);
 }
