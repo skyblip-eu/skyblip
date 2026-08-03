@@ -334,3 +334,72 @@ TEST_CASE("alarm: a neighbour holding station is quietened, and turning in undoe
     CHECK(d.assessment.level == 3);
     CHECK(d.notify);
 }
+
+// Decision 5.3, the same limitation as scenarios/circling_gaggle.json but with
+// the radio and the fix stream taken out, so the numbers are arithmetic rather
+// than a replay. Two gliders circle one thermal at 45 kt and 13 deg/s: a 102 m
+// radius and a 28 s circle, which is what a glider climbing in a thermal flies
+// (radius = v^2 / (g tan(bank)); 23.1 m/s at 29 deg of bank is 102 m, and
+// core/traffic/alarm.h's own kCirclingTurnDps band already assumes it). Their
+// cores are 75 m apart and they are 34 deg out of phase, so the separation
+// breathes between 135 m and about 15 m once per circle while both fly a steady,
+// correct, perfectly ordinary thermalling turn.
+//
+// What is pinned here is what the model does: it holds the pair at info through
+// the whole convergence, because a pair matched in turn rate and direction
+// inside kGaggleRangeM is suppressed on the strength of the turn match alone -
+// there is nothing in the model that knows where either circle is centred. The
+// same suppression is what makes the device usable in a gaggle at all. Separating
+// the 15 m pass from the 135 m stand-off needs both curved paths projected
+// forward, which is the v1.1 work, and the day it lands this case must alarm.
+TEST_CASE("alarm: two gliders on offset circles converge to 15 m and stay at info") {
+    AlarmTracker tracker;
+    const double kPi = 3.14159265358979;
+    const double radius_m = 102.0;
+    const double own_centre_east_m = 102.0;
+    const double target_centre_east_m = own_centre_east_m + 24.4;
+    const double target_centre_north_m = 70.9;
+    const int16_t turn_dps = 13;
+
+    double min_separation_m = 1e9;
+    uint32_t min_at_ms = 0;
+    uint8_t level_at_min = 0;
+    Suppression suppression_at_min = Suppression::None;
+    uint8_t raw_peak_level = 0;
+
+    for (int second = 0; second <= 20; second++) {
+        const uint32_t t = 1000 + static_cast<uint32_t>(second) * 1000;
+        const double own_phase = (270 + turn_dps * second) * kPi / 180.0;
+        const double target_phase = (304 + turn_dps * second) * kPi / 180.0;
+        const double own_east = own_centre_east_m + radius_m * std::sin(own_phase);
+        const double own_north = radius_m * std::cos(own_phase);
+        const double target_east = target_centre_east_m + radius_m * std::sin(target_phase);
+        const double target_north = target_centre_north_m + radius_m * std::cos(target_phase);
+        const double separation_m =
+            std::sqrt((target_east - own_east) * (target_east - own_east) +
+                      (target_north - own_north) * (target_north - own_north));
+
+        const messages::OwnState own = flying(23, turn_dps * second, turn_dps);
+        const messages::AircraftObs target =
+            neighbour(own, static_cast<int>(target_north - own_north),
+                      static_cast<int>(target_east - own_east), 0, 23, 34 + turn_dps * second, t);
+        const uint8_t raw_level = assess(own, target).level;
+        if (raw_level > raw_peak_level) raw_peak_level = raw_level;
+        const AlarmTracker::Decision d = tracker.update(own, target, t);
+        if (separation_m < min_separation_m) {
+            min_separation_m = separation_m;
+            min_at_ms = t;
+            level_at_min = d.assessment.level;
+            suppression_at_min = d.suppression;
+        }
+    }
+
+    MESSAGE("closest approach " << min_separation_m << " m at t=" << min_at_ms << " ms, level "
+                                << static_cast<int>(level_at_min));
+    CHECK(min_separation_m < 20);
+    CHECK(level_at_min == kSuppressedLevel);
+    CHECK(suppression_at_min == Suppression::CoCircling);
+    // And the geometry alone, with no memory of the turn, is no better: it grades
+    // the same encounter urgent - at the far end of it as loudly as at the near.
+    CHECK(raw_peak_level == 3);
+}

@@ -2,6 +2,7 @@
 // the terminal load are replayed here, and a training scenario's expectations are
 // the assertions. A bug found in flight becomes a file, not a bug report.
 #include "core/protocol/nmea_out.h"
+#include "core/traffic/alarm.h"
 #include "doctest/doctest.h"
 #include "simulator/simulator.h"
 
@@ -174,4 +175,189 @@ TEST_CASE("scenario: a gaggle in one thermal is traffic, not three collisions") 
         if (t == nullptr || !t->used) continue;
         CHECK(t->alarm_level <= traffic::kSuppressedLevel);
     }
+}
+
+// Decision 5.3 of specs/2026-08-02_launch-gate.md: v1 ships the straight-line
+// closure model, and the limitation is pinned here rather than argued in a
+// meeting. The two fixtures below are the two sides of a thermal. What they
+// measure is deliberately not what we wish happened.
+//
+// What one encounter did, read off the public surface: the alarm level the
+// product published, the level the annunciator was last driven at, and the range
+// core/traffic/alarm.h computed from the target's last report. One number comes
+// from the world instead - how far apart the two aircraft really were - because
+// a limitation stated in the device's own view of the range is not honest: that
+// view is up to a second stale, and in a turn a second is 23 m.
+namespace {
+
+struct Encounter {
+    static constexpr uint32_t kSampleMs = 100;
+    // The tracker needs two reports from a target before it has a turn rate for
+    // it, so everything before this is the model grading a stranger.
+    static constexpr uint32_t kSettledMs = 5000;
+
+    bool reached[4]{};
+    uint32_t first_ms[4]{};
+    int32_t first_range_m[4]{};
+    int32_t first_true_m[4]{};
+    uint8_t last_spoken_level{0};
+    uint32_t last_spoken_ms{0};
+    uint8_t settled_peak_level{0};
+    int32_t min_true_m{999999};
+    uint32_t min_true_ms{0};
+    uint8_t level_at_min_true{0};
+    int32_t min_reported_m{999999};
+    int32_t traffic_count{0};
+};
+
+const traffic::Target* only_target(const bus::State& state) {
+    for (int i = 0; i < traffic::TrafficTable::kCapacity; i++) {
+        const traffic::Target* t = state.traffic.at(i);
+        if (t != nullptr && t->used) return t;
+    }
+    return nullptr;
+}
+
+Encounter measure(simulator::Simulator& s) {
+    Encounter e{};
+    const uint32_t until = s.scenario().duration_ms;
+    uint8_t spoken = 0;
+    for (uint32_t t = 0; t <= until; t += simulator::Simulator::kStepMs) {
+        s.step(t);
+        if (t % Encounter::kSampleMs != 0) continue;
+
+        if (s.alarm_level() != spoken) {
+            spoken = s.alarm_level();
+            if (spoken != 0) {
+                e.last_spoken_level = spoken;
+                e.last_spoken_ms = t;
+            }
+        }
+
+        const bus::State& state = s.product().state();
+        const traffic::Target* target = only_target(state);
+        if (target == nullptr) continue;
+
+        const traffic::AlarmAssessment a = traffic::assess(state.own, target->obs);
+        if (!a.valid) continue;
+        const uint8_t level = state.alarm_level;
+        const int32_t range_m = a.rel_dist_m;
+        const int32_t true_m = static_cast<int32_t>(s.world().separation_m(0));
+
+        if (level >= 1 && level <= 3 && !e.reached[level]) {
+            e.reached[level] = true;
+            e.first_ms[level] = t;
+            e.first_range_m[level] = range_m;
+            e.first_true_m[level] = true_m;
+        }
+        if (t >= Encounter::kSettledMs && level > e.settled_peak_level)
+            e.settled_peak_level = level;
+        if (range_m < e.min_reported_m) e.min_reported_m = range_m;
+        if (true_m < e.min_true_m) {
+            e.min_true_m = true_m;
+            e.min_true_ms = t;
+            e.level_at_min_true = level;
+        }
+        e.traffic_count = state.traffic.count();
+    }
+    return e;
+}
+
+void report(const Encounter& e) {
+    MESSAGE("first important: t=" << e.first_ms[2] << " ms, model range=" << e.first_range_m[2]
+                                  << " m, true separation=" << e.first_true_m[2] << " m");
+    MESSAGE("first urgent:    t=" << e.first_ms[3] << " ms, model range=" << e.first_range_m[3]
+                                  << " m, true separation=" << e.first_true_m[3] << " m");
+    MESSAGE("last annunciated level " << static_cast<int>(e.last_spoken_level)
+                                      << " at t=" << e.last_spoken_ms << " ms");
+    MESSAGE("closest approach: " << e.min_true_m << " m true at t=" << e.min_true_ms
+                                 << " ms, published level " << static_cast<int>(e.level_at_min_true)
+                                 << ", closest the model ever saw " << e.min_reported_m << " m");
+    MESSAGE("peak published level after " << Encounter::kSettledMs
+                                          << " ms: " << static_cast<int>(e.settled_peak_level));
+}
+
+}  // namespace
+
+// The committed limitation of the v1 alarm, and the reason decision 5.3 defers
+// circling prediction rather than pretending it is not needed.
+//
+// Two gliders work one thermal on 200 m circles - 45 kt at 13 deg/s is a 102 m
+// radius and a 28 s circle, the ordinary way a glider climbs, and the same band
+// core/traffic/alarm.h already calls circling - but their cores are 75 m apart
+// and they are a third of a circle out of phase. The separation therefore
+// breathes between 135 m and 11 m once per circle: a real collision risk, flown
+// every day, and invisible to a model that only knows range and range rate.
+//
+// Today's model says the wrong thing twice. For the first two and a half
+// seconds, before the tracker has two reports to differentiate a turn rate out
+// of, it grades the pair urgent at 130 m of true separation on 2 m/s of closure.
+// From then on the co-circling suppression holds it at info - and it stays at
+// info through the 11 m crossing at 13.9 s. The geometry-only grade underneath
+// is no better: it is urgent for the whole approach and falls to info exactly at
+// the near miss, because at the closest point the range rate is zero by
+// definition.
+//
+// Nothing here is a bug to fix inside the straight-line model. Range and range
+// rate cannot separate 11 m from 135 m in a gaggle; only projecting both curved
+// paths can, which is v1.1.
+TEST_CASE("scenario: two gliders sharing a thermal core pass inside 15 m in silence") {
+    simulator::Simulator s;
+    REQUIRE(s.setup() == Status::Ok);
+    REQUIRE(s.load_file("scenarios/circling_gaggle.json"));
+    const Encounter e = measure(s);
+    report(e);
+
+    CHECK(s.world().failures() == 0);
+    CHECK(e.traffic_count == 1);
+
+    // The one alarm this encounter ever produced came before the pair was
+    // recognised as co-circling, and it came at the far end of the breathing.
+    CHECK(e.reached[3]);
+    CHECK(e.first_ms[3] < Encounter::kSettledMs);
+    CHECK(e.first_true_m[3] > 100);
+    CHECK(e.last_spoken_level == 3);
+    CHECK(e.last_spoken_ms < Encounter::kSettledMs);
+
+    // And then silence, all the way through the near miss.
+    CHECK(e.settled_peak_level == traffic::kSuppressedLevel);
+    CHECK(e.min_true_m < 15);
+    CHECK(e.min_true_ms > 10000);
+    CHECK(e.level_at_min_true == traffic::kSuppressedLevel);
+
+    // The device could not have known better from range alone either: a target
+    // report is up to a second old, so at 23 m/s around a 102 m circle the
+    // closest range the model was ever handed is more than twice the true miss.
+    CHECK(e.min_reported_m > 20);
+    CHECK(e.min_reported_m < 60);
+    CHECK(e.min_reported_m > e.min_true_m * 2);
+}
+
+// The other side of the fence, so v1.1 cannot buy circling prediction by going
+// deaf to the traffic v1 does catch: the same thermalling own-ship, and a glider
+// arriving in a straight line at 45 m/s from 2.2 km out, co-altitude. Its track
+// never matches ours, nothing suppresses it, and it must escalate all the way to
+// urgent while there is still a kilometre in hand.
+TEST_CASE("scenario: a glider joining the thermal on a straight line is still caught") {
+    simulator::Simulator s;
+    REQUIRE(s.setup() == Status::Ok);
+    REQUIRE(s.load_file("scenarios/thermal_joiner.json"));
+    const Encounter e = measure(s);
+    report(e);
+
+    CHECK(s.world().failures() == 0);
+    CHECK(e.traffic_count == 1);
+
+    CHECK(e.reached[2]);
+    CHECK(e.first_ms[2] < 22000);
+    CHECK(e.first_range_m[2] > 1300);
+    CHECK(e.reached[3]);
+    CHECK(e.first_ms[3] < 30000);
+    CHECK(e.first_range_m[3] > 900);
+    CHECK(e.last_spoken_level == 3);
+
+    // Own-ship's own circle swings the closure up and down under the target, so
+    // the published level breathes with it. What is pinned is that the highest
+    // thing it said is urgent and that it said it a kilometre out.
+    CHECK(e.settled_peak_level == 3);
 }

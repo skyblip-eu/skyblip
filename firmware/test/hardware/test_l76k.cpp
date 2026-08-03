@@ -164,3 +164,43 @@ TEST_CASE("l76k: the configured rate fits the baud the devicetree pins") {
     CHECK(parts::L76k::kBaudRate == 9600);
     CHECK(kBurstMs < parts::L76k::kFixPeriodMs);
 }
+
+// The geometry the circling scenarios rest on, checked against the model that
+// produces it rather than assumed. A glider thermalling at 45 kt (23.15 m/s) and
+// 13 deg/s flies radius = speed / turn rate = 102 m, a 200 m circle closed in
+// 27.7 s, which is the ordinary way a glider climbs and the band
+// core/traffic/alarm.h already calls circling. Same figure from the other side:
+// radius = speed^2 / (g tan(bank)) puts that circle at 29 deg of bank.
+TEST_CASE("l76k: a turn rate flies a circle, and it is the size the arithmetic says") {
+    models::L76k chip;
+    chip.solution_period_ms = 200;
+    chip.speed_kt = 45;
+    chip.track_deg = 0;
+    chip.turn_dps = 13;
+    const int32_t start_lat = chip.lat_1e7;
+    const int32_t start_lon = chip.lon_1e7;
+
+    int32_t east_lat = 0, east_lon = 0;
+    for (uint32_t t = 0; t <= 27700; t += 100) {
+        chip.tick(t);
+        // A quarter of the way round a right turn from north, own-ship is due
+        // east of where it started by one radius and level with the centre.
+        if (t == 6900) {
+            east_lat = chip.lat_1e7;
+            east_lon = chip.lon_1e7;
+        }
+    }
+
+    const double north_m = (east_lat - start_lat) * 11132 / 1e6;
+    const double east_m = (east_lon - start_lon) * 11132 / 1e6 * 0.6626;
+    MESSAGE("quarter circle: " << north_m << " m north, " << east_m << " m east");
+    CHECK(east_m == doctest::Approx(102).epsilon(0.05));
+    CHECK(north_m == doctest::Approx(102).epsilon(0.05));
+
+    // A full circle later the track is back where it started and so is the
+    // aircraft: the integration closes the loop rather than spiralling.
+    CHECK((chip.track_deg <= 3 || chip.track_deg >= 357));
+    const double closed_m = (chip.lat_1e7 - start_lat) * 11132 / 1e6;
+    CHECK(closed_m < 5.0);
+    CHECK(closed_m > -5.0);
+}

@@ -12,6 +12,7 @@
     "alt_m": {"type": "integer"},
     "speed_kt": {"type": "integer", "minimum": 0},
     "track_deg": {"type": "integer", "minimum": 0, "maximum": 359},
+    "turn_dps": {"type": "integer", "minimum": -50, "maximum": 50, "description": "Own-ship turn rate, degrees per second, positive to the right. A thermalling glider holds 13 to 18."},
     "duration_ms": {"type": "integer", "minimum": 0},
     "aircraft": {
       "type": "array",
@@ -24,6 +25,7 @@
           "up_m": {"type": "integer"},
           "speed_mps": {"type": "integer", "minimum": 0},
           "track_deg": {"type": "integer", "minimum": 0, "maximum": 359},
+          "turn_dps": {"type": "integer", "minimum": -50, "maximum": 50, "description": "Turn rate of this aircraft, degrees per second, positive to the right."},
           "phase_ms": {"type": "integer", "minimum": -1, "maximum": 999},
           "slot": {"type": "integer", "minimum": -1, "maximum": 1}
         },

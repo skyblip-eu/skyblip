@@ -95,6 +95,7 @@ bool parse_scenario(const char* json, int len, Scenario& out) {
     out.alt_m = static_cast<int32_t>(int_or(top, "alt_m", out.alt_m));
     out.speed_kt = static_cast<int32_t>(int_or(top, "speed_kt", out.speed_kt));
     out.track_deg = static_cast<int32_t>(int_or(top, "track_deg", out.track_deg));
+    out.turn_dps = static_cast<int32_t>(int_or(top, "turn_dps", out.turn_dps));
     out.duration_ms = static_cast<uint32_t>(int_or(top, "duration_ms", out.duration_ms));
 
     for (const std::string& obj : objects_in_array(text, "aircraft")) {
@@ -106,6 +107,7 @@ bool parse_scenario(const char* json, int len, Scenario& out) {
         a.up_m = static_cast<double>(int_or(r, "up_m", 0));
         a.speed_mps = static_cast<double>(int_or(r, "speed_mps", 30));
         a.track_deg = static_cast<double>(int_or(r, "track_deg", 270));
+        a.turn_dps = static_cast<double>(int_or(r, "turn_dps", 0));
         a.phase_ms = static_cast<int>(int_or(r, "phase_ms", -1));
         a.slot = static_cast<int>(int_or(r, "slot", -1));
         out.aircraft.push_back(a);
