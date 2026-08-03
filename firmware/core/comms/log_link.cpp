@@ -12,7 +12,23 @@ const char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 
 uint32_t non_negative(long v) { return v < 0 ? 0u : static_cast<uint32_t>(v); }
 
+// INFO: fc 04aug26 json::Writer leaves out a field that will not fit whole, so a
+// reply built into too small a cap is short but valid - which is exactly the
+// failure that must not reach a tablet. Every formatter here answers 0 instead,
+// and the service counts it.
+int finished(json::Writer& writer) {
+    const int len = writer.finish();
+    return writer.overflowed() ? 0 : len;
+}
+
 }  // namespace
+
+int log_records_per_chunk(int payload_bytes) {
+    const int room = payload_bytes - kLogChunkEnvelopeBytes;
+    if (room < kLogChunkBase64PerRecord) return 0;
+    const int records = room / kLogChunkBase64PerRecord;
+    return records > kLogRecordsPerChunkMax ? kLogRecordsPerChunkMax : records;
+}
 
 int base64_encode(const uint8_t* in, int len, char* out, int cap) {
     const int needed = ((len + 2) / 3) * 4;
@@ -65,7 +81,7 @@ int format_log_ack(char* buf, int cap, bool ok, const char* reason) {
     writer.kv_str("cmd", "log");
     writer.kv_bool("ack", ok);
     if (reason != nullptr) writer.kv_str("reason", reason);
-    return writer.finish();
+    return finished(writer);
 }
 
 int format_log_count(char* buf, int cap, uint32_t sessions, bool truncated) {
@@ -76,7 +92,7 @@ int format_log_count(char* buf, int cap, uint32_t sessions, bool truncated) {
     // The partition holds more flights than the index offers. Said out loud,
     // because a tablet that shows sixteen when there are twenty has lied.
     writer.kv_bool("truncated", truncated);
-    return writer.finish();
+    return finished(writer);
 }
 
 int format_log_session(char* buf, int cap, uint32_t index, uint32_t count, uint32_t session_id,
@@ -92,7 +108,7 @@ int format_log_session(char* buf, int cap, uint32_t index, uint32_t count, uint3
     // False means the log stops where the power did. The tablet says so instead
     // of presenting a truncated flight as a complete one.
     writer.kv_bool("closed", closed);
-    return writer.finish();
+    return finished(writer);
 }
 
 int format_log_chunk(char* buf, int cap, uint32_t session_id, uint32_t from, const uint8_t* raw,
@@ -109,7 +125,7 @@ int format_log_chunk(char* buf, int cap, uint32_t session_id, uint32_t from, con
     writer.kv_int("n", record_count);
     writer.kv_bool("eof", eof);
     writer.kv_str("data", data);
-    return writer.finish();
+    return finished(writer);
 }
 
 }  // namespace skyblip::comms

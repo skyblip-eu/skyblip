@@ -84,9 +84,14 @@ struct OwnState {
 // authorises a firmware upload.
 enum class Endpoint : uint8_t { Config, Nmea, Log };
 
+// INFO: fc 04aug26 Payload, not MTU: the two differ by the three bytes of
+// notification header, which is exactly the off-by-three that makes a frame an
+// iPhone refuses. hal::Link::payload_bytes() is the authority because it stays
+// current through a late MTU exchange; this field is the same number at the
+// moment the link came up, in the same unit, so the tree carries one figure.
 struct LinkUp {
     uint16_t session_id;
-    uint16_t mtu;
+    uint16_t payload_bytes;
 };
 struct LinkDown {
     uint16_t session_id;

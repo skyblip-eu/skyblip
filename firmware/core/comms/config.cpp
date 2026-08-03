@@ -2,29 +2,11 @@
 
 #include <cstring>
 
-#include "core/util/format.h"
+#include "core/comms/timing_report.h"
 #include "core/util/json_min.h"
 #include "core/util/span.h"
 
 namespace skyblip::comms {
-
-namespace {
-// Seven counts, comma-joined: cheaper than a JSON array over a FLAT-JSON
-// writer that does not have one, and just as readable on a bench terminal.
-// A bench run collects one PPS edge a second for hours, so a bucket reaches
-// seven figures and the text has to have room for the widest count there is:
-// a histogram that silently loses its last bucket is not evidence.
-constexpr int kBucketsTextCap = timing::SlotTimingStats::kBuckets * 11 + 1;
-int format_buckets(const timing::SlotTimingStats& stats, bool pps, char* out, int cap) {
-    int n = 0;
-    for (int i = 0; i < timing::SlotTimingStats::kBuckets && n < cap - 1; i++) {
-        if (i > 0) out[n++] = ',';
-        n += fmt_uint(out + n, pps ? stats.pps_bucket(i) : stats.dwell_bucket(i));
-    }
-    out[n] = 0;
-    return n;
-}
-}  // namespace
 
 FlightState flight_state_from(uint8_t adsl_code) {
     switch (static_cast<flight::FlightState>(adsl_code)) {
@@ -63,6 +45,11 @@ const char* pending_detail(Pending pending) {
 
 void ConfigService::tick(uint32_t now_ms) {
     now_ms_ = now_ms;
+    // INFO: fc 04aug26 The one frame nobody asked for is the one nobody will ask
+    // for again, so a controller that was momentarily out of buffers gets another
+    // pass rather than costing a pilot a stale gauge. Only a transient refusal
+    // arms this: a frame too big for the payload would retry forever.
+    if (status_push_due_ && link_up_) send_status();
     if (upload_window_open_ && now_ms - window_opened_ms_ >= kUploadWindowMs) {
         upload_window_open_ = false;
     }
@@ -104,6 +91,7 @@ void ConfigService::on_link_down(const messages::LinkDown&) {
     pending_len_ = 0;
     upload_window_open_ = false;
     link_up_ = false;
+    status_push_due_ = false;
 }
 
 namespace {
@@ -123,9 +111,27 @@ void ConfigService::set_battery_state(const power::BatteryState& battery, power:
     if (link_up_ && (charging_changed || level_changed || step_changed)) send_status();
 }
 
-void ConfigService::reply(const char* json) {
-    link_.send(messages::Endpoint::Config, ConstByteSpan(reinterpret_cast<const uint8_t*>(json),
-                                                         static_cast<size_t>(std::strlen(json))));
+int ConfigService::payload() const { return static_cast<int>(link_.payload_bytes()); }
+
+// INFO: fc 04aug26 The only door to the link, and it refuses out loud. A frame
+// longer than the negotiated payload is not shortened by the controller, it
+// fails, so it is counted here and never handed down. Everything that comes
+// through this door is a request/response answer except the status push, so the
+// recovery from a lost one is the phone's next command; the push has tick().
+Status ConfigService::reply(const char* json, int len) {
+    if (len <= 0 || len > payload()) {
+        link_drops_++;
+        return Status::OutOfRange;
+    }
+    const Status sent =
+        link_.send(messages::Endpoint::Config,
+                   ConstByteSpan(reinterpret_cast<const uint8_t*>(json), static_cast<size_t>(len)));
+    if (!is_ok(sent)) link_drops_++;
+    return sent;
+}
+
+Status ConfigService::reply(const char* json) {
+    return reply(json, static_cast<int>(std::strlen(json)));
 }
 
 void ConfigService::stage(Pending pending, const char* reason) {
@@ -158,12 +164,17 @@ const char* ConfigService::flight_name(FlightState fs) {
     return "unknown";
 }
 
+// INFO: fc 04aug26 Sized to fit the narrowest phone in the field, at its worst
+// case, by carrying state and nothing else: the device address and the callsign
+// left this frame for the "config" reply that already answers them, because
+// duplicating identity in the one frame that gets pushed unsolicited is what put
+// it over an iPhone's 182 bytes. The buffer is the limit itself, so a field added
+// later cannot quietly overflow it - the writer leaves the field out whole and
+// overflowed() refuses the frame instead.
 void ConfigService::send_status() {
-    char buf[256];
+    char buf[kSmallestSupportedPayload + 1];
     json::Writer w(buf, sizeof(buf));
     w.kv_str("cmd", "status");
-    w.kv_int("addr", static_cast<long>(settings_.device_addr));
-    w.kv_str("callsign", settings_.callsign);
     w.kv_str("reset", power::to_string(reset_reason_));
     w.kv_str("flight", flight_name(flight_));
     w.kv_bool("upload", upload_allowed());
@@ -171,42 +182,39 @@ void ConfigService::send_status() {
     w.kv_bool("battery_valid", battery_.valid);
     w.kv_bool("charging", battery_.charging);
     w.kv_str("power_level", power::to_string(power_level_));
-    w.finish();
-    reply(buf);
+    const int len = w.finish();
+    if (w.overflowed()) {
+        link_drops_++;
+        status_push_due_ = false;
+        return;
+    }
+    status_push_due_ = reply(buf, len) == Status::WouldBlock;
 }
 
-// pps_us and dwell_us are the two histograms in kBuckets order: the SX1262's
-// own retune time, core/timing::kHopGuardMs and core/timing::kJitterGuardMs on
-// each side of the centre bucket (core/timing/timing_stats.h). holdover,
-// missed and refused are counted apart from both, on purpose: a fault a
-// histogram cannot bound must not be folded into one that can.
+// INFO: fc 04aug26 The one sender allowed more than one frame, and the reason
+// lives in core/comms/timing_report.h: a laboratory reads this once, so a
+// two-frame answer is free, while trimming a histogram would destroy the
+// evidence it was asked for. A frame that cannot be produced at all is counted
+// and the rest of the report is abandoned rather than sent with a hole in it.
 void ConfigService::send_timing() {
     if (timing_stats_ == nullptr) {
         ack(false, "no_stats");
         return;
     }
-    char pps[kBucketsTextCap];
-    char dwell[kBucketsTextCap];
-    format_buckets(*timing_stats_, true, pps, sizeof(pps));
-    format_buckets(*timing_stats_, false, dwell, sizeof(dwell));
-
-    char buf[512];
-    json::Writer w(buf, sizeof(buf));
-    w.kv_str("cmd", "timing");
-    w.kv_str("pps_us", pps);
-    w.kv_int("pps_worst_us", timing_stats_->pps_worst_us());
-    w.kv_int("pps_samples", static_cast<long>(timing_stats_->pps_samples()));
-    w.kv_str("dwell_us", dwell);
-    w.kv_int("dwell_worst_us", timing_stats_->dwell_worst_us());
-    w.kv_int("dwell_samples", static_cast<long>(timing_stats_->dwell_samples()));
-    w.kv_int("holdover", static_cast<long>(timing_stats_->holdover_events()));
-    w.kv_int("missed", static_cast<long>(timing_stats_->missed()));
-    w.kv_int("refused", static_cast<long>(timing_stats_->refused()));
-    w.kv_int("carrier_sense_dbm", carrier_sense_dbm_);
-    w.kv_int("carrier_sense_ceiling_dbm", timing::NoiseFloor::kThresholdCeilingDbm);
-    w.kv_int("carrier_sense_us", static_cast<long>(timing::CarrierSense::kAssessmentUs));
-    w.finish();
-    reply(buf);
+    TimingReport report(*timing_stats_, carrier_sense_dbm_);
+    if (!report.fits(payload())) {
+        link_drops_++;
+        return;
+    }
+    char buf[kTimingFrameCap];
+    while (!report.exhausted()) {
+        const int len = report.next_frame(payload(), buf, static_cast<int>(sizeof(buf)));
+        if (len <= 0) {
+            link_drops_++;
+            return;
+        }
+        if (reply(buf, len) != Status::Ok) return;
+    }
 }
 
 // The durable-write half of the same bench: the settings writes the device made,
@@ -250,14 +258,22 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
     }
 
     if (std::strcmp(cmd, "get") == 0) {
-        char buf[256];
+        // INFO: fc 04aug26 One flat object, which is also what
+        // schemas/config.v1.schema.json describes: the settings used to travel
+        // nested as an escaped string, and the backslashes alone were 53 bytes
+        // on a 158-byte body. Sized by its buffer at the smallest payload we
+        // support, and refused rather than answered short - an app that receives
+        // a config object with fields missing renders defaults a pilot never set.
+        char buf[kSmallestSupportedPayload + 1];
         json::Writer w(buf, sizeof(buf));
         w.kv_str("cmd", "config");
-        char body[256];
-        settings::to_json(settings_, body, sizeof(body));
-        w.kv_str("_settings", body);
-        w.finish();
-        reply(buf);
+        settings::write_json_fields(w, settings_);
+        const int reply_len = w.finish();
+        if (w.overflowed()) {
+            link_drops_++;
+            return;
+        }
+        reply(buf, reply_len);
         return;
     }
 

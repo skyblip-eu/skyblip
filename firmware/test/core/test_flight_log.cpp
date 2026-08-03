@@ -3,10 +3,12 @@
 // service - if any of this needs a board to be checked, it is in the wrong layer.
 #include <cstring>
 
+#include "core/comms/config.h"
 #include "core/comms/log_link.h"
 #include "core/flight/log_record.h"
 #include "core/flight/log_session.h"
 #include "doctest/doctest.h"
+#include "hal/link.h"
 
 using namespace skyblip;
 
@@ -335,19 +337,44 @@ TEST_CASE("log link: base64 carries the raw record, padding and all") {
     CHECK(comms::base64_encode(big, sizeof(big), out, sizeof(out)) == -1);
 }
 
-TEST_CASE("log link: a full chunk still fits one frame") {
+TEST_CASE("log link: how many records ride in a chunk follows the payload, not a guess") {
+    // 24 raw bytes are exactly 32 base64 characters and the envelope at its
+    // widest is 83, so this arithmetic is exact rather than an estimate.
+    // Nothing fits in what BLE merely guarantees; an iPhone carries three; the
+    // 247-byte MTU the old fixed five was aimed at still carries five; and a
+    // phone that negotiates the whole L2CAP MTU is not short-changed.
+    CHECK(comms::log_records_per_chunk(hal::kMinimumLinkPayload) == 0);
+    CHECK(comms::log_records_per_chunk(comms::kSmallestSupportedPayload) == 3);
+    CHECK(comms::log_records_per_chunk(244) == 5);
+    CHECK(comms::log_records_per_chunk(495) == comms::kLogRecordsPerChunkMax);
+
+    // And a chunk really does fit the frame it was sized for, at the widest
+    // session id and record index the partition can produce.
     uint8_t raw[comms::kLogChunkRawBytes];
     for (size_t i = 0; i < sizeof(raw); i++) raw[i] = static_cast<uint8_t>(0xA0 + i);
+    const int payloads[3] = {comms::kSmallestSupportedPayload, 244, 495};
+    for (int payload : payloads) {
+        const int records = comms::log_records_per_chunk(payload);
+        char buf[comms::kLogReplyCap];
+        const int len =
+            comms::format_log_chunk(buf, payload + 1, 4294967295u, 4294967295u, raw, records, true);
+        CHECK(len > 0);
+        CHECK(len <= payload);
+        CHECK(std::strstr(buf, "\"cmd\":\"chunk\"") != nullptr);
+        CHECK(std::strstr(buf, "\"eof\":true") != nullptr);
+    }
+}
+
+TEST_CASE("log link: a reply that will not fit the frame is refused, never shortened") {
+    // The writer leaves out a field that will not fit whole, so a cap too small
+    // yields a short but perfectly valid object - a chunk with no "data" key, or
+    // a session line with no record count. A tablet must not be handed either.
+    uint8_t raw[comms::kLogChunkRawBytes] = {0};
     char buf[comms::kLogReplyCap];
-    const int len = comms::format_log_chunk(buf, sizeof(buf), 1785628800u, 56095u, raw,
-                                            comms::kLogRecordsPerChunk, true);
-    // Under the 256 bytes a frame carries, with the envelope, at the widest
-    // session id and record index the partition can produce.
-    CHECK(len > 0);
-    CHECK(len < comms::kLogReplyCap);
-    CHECK(std::strstr(buf, "\"cmd\":\"chunk\"") != nullptr);
-    CHECK(std::strstr(buf, "\"eof\":true") != nullptr);
-    CHECK(std::strstr(buf, "\"n\":5") != nullptr);
+    const int tiny = hal::kMinimumLinkPayload + 1;
+    CHECK(comms::format_log_chunk(buf, tiny, 1785628800u, 0, raw, 1, false) == 0);
+    CHECK(comms::format_log_session(buf, tiny, 0, 3, 1785628800u, 1700, false) == 0);
+    CHECK(comms::format_log_count(buf, tiny, 3, false) == 0);
 }
 
 TEST_CASE("log link: the count comes first and says whether it is the whole truth") {

@@ -23,6 +23,16 @@ messages::RxFrame frame(const char* json) {
     return f;
 }
 
+// The bench's timing answer as a laboratory reads it: every frame the service
+// put on the link, joined. It is one frame when the negotiated payload carries
+// it whole and several when it does not, and the frames arrive back to back -
+// nothing has to be asked for twice.
+std::string joined(const platform::host::Link& link) {
+    std::string all;
+    for (const platform::host::Link::Frame& f : link.sent) all += f.bytes;
+    return all;
+}
+
 power::BatteryState battery_of(uint8_t percent, bool charging, bool valid = true) {
     power::BatteryState b{};
     b.millivolts = 3700;
@@ -48,7 +58,13 @@ TEST_CASE("comms: status reports why the device came up") {
     CHECK(body.find("\"cmd\":\"status\"") != std::string::npos);
     CHECK(body.find("\"reset\":\"WATCHDOG\"") != std::string::npos);
     CHECK(body.find("\"flight\":\"ground\"") != std::string::npos);
-    CHECK(body.find("D-KXYZ") != std::string::npos);
+    // State, and only state. The callsign and the device address are what the
+    // "config" reply answers, and carrying them here as well is what used to push
+    // the one unsolicited frame past what an iPhone will accept.
+    CHECK(body.find("D-KXYZ") == std::string::npos);
+    CHECK(body.find("\"addr\"") == std::string::npos);
+    cs.on_rx(frame("{\"cmd\":\"get\"}"));
+    CHECK(link.last().bytes.find("D-KXYZ") != std::string::npos);
 
     // Unknown until the shell says otherwise, and never a stale answer.
     platform::host::Link fresh_link;
@@ -70,8 +86,11 @@ TEST_CASE("comms: timing reports the accumulator's buckets and counters") {
     ConfigService cs(link, s, nullptr, &stats);
 
     cs.on_rx(frame("{\"cmd\":\"timing\"}"));
-    REQUIRE(link.sent.size() == 1);
-    const std::string body = link.last().bytes;
+    REQUIRE(!link.sent.empty());
+    // The last frame is the one that says there is nothing after it, whether
+    // that is the first frame or the third.
+    CHECK(link.sent.back().bytes.find("\"more\":false") != std::string::npos);
+    const std::string body = joined(link);
     CHECK(body.find("\"cmd\":\"timing\"") != std::string::npos);
     CHECK(body.find("\"pps_us\":\"0,0,0,1,0,0,0\"") != std::string::npos);
     CHECK(body.find("\"dwell_us\":\"0,0,0,0,1,0,0\"") != std::string::npos);
@@ -193,18 +212,24 @@ TEST_CASE("comms: timing carries the carrier-sense threshold in force and its in
 
     // Before the radio service has said anything, the cold-start threshold.
     cs.on_rx(frame("{\"cmd\":\"timing\"}"));
-    REQUIRE(link.sent.size() == 1);
-    CHECK(link.last().bytes.find("\"carrier_sense_dbm\":-95") != std::string::npos);
+    REQUIRE(!link.sent.empty());
+    CHECK(joined(link).find("\"carrier_sense_dbm\":-95") != std::string::npos);
 
+    link.clear();
     cs.set_carrier_sense(timing::NoiseFloor::kThresholdCeilingDbm);
     cs.on_rx(frame("{\"cmd\":\"timing\"}"));
-    const std::string body = link.last().bytes;
+    const std::string body = joined(link);
     CHECK(body.find("\"carrier_sense_dbm\":-82") != std::string::npos);
     // EN 300 220-2 V3.3.1 4.6.2.3 and 4.6.3.2, on the wire and not in a build
     // note: the ceiling nothing may escalate past, and the assessment interval.
     CHECK(body.find("\"carrier_sense_ceiling_dbm\":-82") != std::string::npos);
     CHECK(body.find("\"carrier_sense_us\":160") != std::string::npos);
-    // The widest reply on this link, with every key whole.
-    CHECK(body.back() == '}');
+    // Every frame is a complete object of its own, and no frame is longer than
+    // the link said it would carry.
+    for (const platform::host::Link::Frame& f : link.sent) {
+        CHECK(f.bytes.front() == '{');
+        CHECK(f.bytes.back() == '}');
+        CHECK(f.bytes.size() <= link.payload_bytes());
+    }
     CHECK(body.find("\"refused\":0") != std::string::npos);
 }

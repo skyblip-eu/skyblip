@@ -2,6 +2,7 @@
 
 #include "hardware/platform/zephyr/link.h"
 
+#include <zephyr/bluetooth/att.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
@@ -29,6 +30,11 @@ static struct bt_uuid_128 cfg_uuid = BT_UUID_INIT_128(SKB_UUID(0x0003));
 // not want logs simply never subscribes.
 static struct bt_uuid_128 log_uuid = BT_UUID_INIT_128(SKB_UUID(0x0004));
 
+// INFO: fc 04aug26 The ATT notification header - opcode plus value handle. What
+// is left of the ATT_MTU is what one notification may carry, which is why 185
+// (an iPhone's usual answer) is 182 bytes of payload and not 185.
+constexpr uint16_t kNotifyHeaderBytes = 3;
+
 Fifo<RxFrame, 8> g_rx;
 struct k_spinlock g_lock;
 struct bt_conn* g_conn = nullptr;
@@ -48,14 +54,24 @@ void push_rx(struct bt_conn* conn, Endpoint endpoint, const void* buf, uint16_t 
     k_spin_unlock(&g_lock, key);
 }
 
+// INFO: fc 04aug26 The inbound half of the same rule. With an ATT_MTU of 498 a
+// central can write more than messages::RxFrame carries, and a command cut to
+// 256 bytes is not a command - a truncated "set" would apply the fields that
+// survived. So it is refused with the ATT error that says exactly that, which the
+// central sees, instead of being half-obeyed.
+constexpr size_t kMaxInboundBytes = sizeof(RxFrame::data);
+bool too_long(uint16_t len) { return len > kMaxInboundBytes; }
+
 ssize_t on_cfg_write(struct bt_conn* conn, const struct bt_gatt_attr*, const void* buf,
                      uint16_t len, uint16_t /*offset*/, uint8_t /*flags*/) {
+    if (too_long(len)) return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     push_rx(conn, Endpoint::Config, buf, len);
     return len;
 }
 
 ssize_t on_log_write(struct bt_conn* conn, const struct bt_gatt_attr*, const void* buf,
                      uint16_t len, uint16_t /*offset*/, uint8_t /*flags*/) {
+    if (too_long(len)) return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     push_rx(conn, Endpoint::Log, buf, len);
     return len;
 }
@@ -113,8 +129,24 @@ Status Link::begin() {
     return Status::Ok;
 }
 
+// INFO: fc 04aug26 Nothing here asks for an MTU exchange. ATT_EXCHANGE_MTU_REQ
+// is a client operation and this build is CONFIG_BT_PERIPHERAL with no GATT
+// client, so bt_gatt_exchange_mtu() is not even compiled in; the spec allows one
+// exchange per direction per connection, and every central we serve (iOS,
+// Android, Chrome's Web Bluetooth) initiates it itself on connect. Waiting is
+// correct as long as nothing assumes the result, which payload_bytes() is what
+// stops.
+uint16_t Link::payload_bytes() const {
+    if (!g_conn) return hal::kMinimumLinkPayload;
+    const uint16_t mtu = bt_gatt_get_mtu(g_conn);
+    const uint16_t payload =
+        mtu > kNotifyHeaderBytes ? static_cast<uint16_t>(mtu - kNotifyHeaderBytes) : 0;
+    return payload < hal::kMinimumLinkPayload ? hal::kMinimumLinkPayload : payload;
+}
+
 Status Link::send(Endpoint ep, ConstByteSpan bytes) {
     if (!g_conn) return Status::Down;
+    if (bytes.size() > payload_bytes()) return Status::OutOfRange;
     // attr index of the value handle for each characteristic (see table above).
     int index = 5;
     bool subbed = g_cfg_subscribed;
