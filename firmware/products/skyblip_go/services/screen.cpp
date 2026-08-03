@@ -10,26 +10,6 @@
 
 namespace skyblip::go {
 
-// SoftRF plays a six-note jingle on the very first fix
-// (oss/SoftRF-lyusupov .../src/platform/nRF52.cpp:2767-2787); the moshe-braner
-// fork adds a two-tone confirmation and then waits before it transmits. This is
-// the confirmation half. It runs before the display checks below because a
-// device with no panel fitted still owes the pilot the answer.
-void ScreenService::annunciate_first_fix(uint32_t now_ms) {
-    const bool quiet = context_.state.alarm_level == 0;
-    if (context_.state.own.fix_acquired) {
-        dirty_ = true;
-        if (!context_.state.settings.alarm_enabled || !quiet) return;
-        context_.roles.annunciator.alarm(kFirstFixToneLevel, context_.state.settings.alarm_volume);
-        tone_since_ms_ = now_ms;
-        tone_on_ = true;
-        return;
-    }
-    if (!tone_on_ || now_ms - tone_since_ms_ < kFirstFixToneMs) return;
-    tone_on_ = false;
-    if (quiet) context_.roles.annunciator.silence();
-}
-
 // INFO: cf 02aug26 One press means one thing at a time. While a prompt stands
 // there is no page cycling at all, so the press a pilot makes to change pages
 // cannot be spent on an authorisation - and a lone press at a prompt refuses it
@@ -70,7 +50,10 @@ void ScreenService::resolve(ui::Gesture gesture) {
 }
 
 void ScreenService::tick(uint32_t now_ms) {
-    annunciate_first_fix(now_ms);
+    // The chirp that goes with it belongs to the alarm service, which is the
+    // one owner of the annunciator. This is the panel's half: a first fix
+    // changes every page there is.
+    if (context_.state.own.fix_acquired) dirty_ = true;
     handle_input(now_ms);
 
     if (context_.state.alarm_level != last_alarm_) {
@@ -151,6 +134,9 @@ void ScreenService::set_power(bool on) {
         context_.roles.display.power_on();
         return;
     }
+    // A lit backlight is a rail nobody switched off: the panel sleeps, the LED
+    // would not have.
+    set_backlight(false);
     // INFO: fc 01aug25 pushed before power-off: the glass wears it while off
     fb_.clear(/*white=*/true);
     ui::draw_wordmark(fb_, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);

@@ -119,6 +119,14 @@ class AlarmTracker {
 
     void forget_stale(uint32_t now_ms);
 
+    // The worst level currently being announced: the highest level said about a
+    // target still fresh enough to alert on. It is the assessed level with this
+    // tracker's hysteresis already applied - it rises the instant a contact
+    // does and falls only once the contact has been calmer for a whole
+    // re-notification window - so whatever drives the buzzer reads it here
+    // rather than deciding a second time when a level has really gone away.
+    uint8_t announced_level(uint32_t now_ms) const;
+
     int16_t target_turn_dps(uint8_t addr_table, uint32_t addr) const;
 
    private:

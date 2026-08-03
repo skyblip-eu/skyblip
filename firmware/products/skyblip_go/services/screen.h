@@ -57,7 +57,6 @@ class ScreenService : public runtime::Service {
     void draw_prompt();
     void handle_input(uint32_t now_ms);
     void resolve(ui::Gesture gesture);
-    void annunciate_first_fix(uint32_t now_ms);
     bool decide_full(uint32_t now_ms, bool quiet) const;
     void note_presented(hal::Refresh mode, uint32_t now_ms);
 
@@ -65,15 +64,6 @@ class ScreenService : public runtime::Service {
     int32_t climb_fpm() const {
         return (static_cast<int32_t>(context_.state.own.climb_e8) * 19685) / (8 * 100);
     }
-
-    // A fix is worth one chirp, not an alarm: the lowest tone step, briefly, and
-    // no haptics at all - the motor is reserved for traffic that escalated, so a
-    // pilot who feels it knows what it means without looking.
-    static constexpr uint32_t kFirstFixToneMs = 250;
-    static constexpr uint8_t kFirstFixToneLevel = 1;
-
-    uint32_t tone_since_ms_{0};
-    bool tone_on_{false};
 
     comms::ConfigService* config_{nullptr};
     comms::Pending prompt_{comms::Pending::None};

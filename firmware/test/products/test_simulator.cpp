@@ -91,7 +91,10 @@ TEST_CASE("simulator: a converging aircraft raises the collision alarm and buzze
     run(h, 2000, 6000);
 
     CHECK(h.product().state().traffic.count() >= 1);
-    CHECK(int(h.alarm_level()) > 0);  // annunciator was driven
+    // An alarm is a pattern, so the buzzer is off as often as it is on: what is
+    // being announced is the thing that stands, and the instantaneous pitch
+    // step is only ever true inside a beep.
+    CHECK(int(h.announcing_level()) > 0);  // annunciator was driven
 }
 
 TEST_CASE("simulator: clearing traffic empties the table and silences the alarm") {
@@ -184,12 +187,12 @@ TEST_CASE("simulator: an escalating threat buzzes and, from 'important', vibrate
     // motor - a pilot who feels every passing glider stops feeling anything.
     h.world().add_aircraft(2500, 0, 0, 20, 90);
     run(h, 2000, 5000);
-    if (h.alarm_level() == 1) CHECK(h.vibro_ms() == 0);
+    if (h.announcing_level() == 1) CHECK(h.vibro_ms() == 0);
 
     // Now something close and converging: important or urgent, so it must vibrate.
     h.world().add_threat();
     run(h, 5000, 9000);
-    REQUIRE(h.alarm_level() >= 2);
+    REQUIRE(h.announcing_level() >= 2);
     CHECK(h.vibro_ms() >= 200);
 }
 

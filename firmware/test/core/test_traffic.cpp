@@ -258,6 +258,37 @@ TEST_CASE("alarm: a target that has gone quiet stops driving the annunciator") {
     CHECK(spoken == 2);
 }
 
+// What the buzzer follows. notify says "say it now"; this says "and this is
+// what still stands", which is the difference between a tone with a cadence and
+// a tone nobody remembers to stop.
+TEST_CASE("alarm: the announced level rises with the contact and falls only when it has") {
+    AlarmTracker tracker;
+    const messages::OwnState own = flying(30, 0);
+
+    uint32_t t = 1000;
+    REQUIRE(tracker.update(own, neighbour(own, 400, 0, 0, 30, 180, t), t).assessment.level == 3);
+    CHECK(int(tracker.announced_level(t)) == 3);
+
+    // The contact opens out to the info ring. The tracker holds what it said
+    // for a re-notification window, so a target sliding across a ring boundary
+    // is not announced twice a second...
+    t += 100;
+    REQUIRE(tracker.update(own, neighbour(own, 2800, 0, 0, 20, 0, t), t).assessment.level == 1);
+    CHECK(int(tracker.announced_level(t)) == 3);
+
+    // ...and then it lets go, which is the moment the tone must change.
+    for (int i = 0; i < 25; i++) {
+        t += 100;
+        tracker.update(own, neighbour(own, 2800, 0, 0, 20, 0, t), t);
+    }
+    CHECK(int(tracker.announced_level(t)) == 1);
+
+    // A target nobody has heard from announces nothing at all: the same five
+    // second window the reminders live in, so the buzzer stops when the sky
+    // goes quiet rather than when the table finally forgets.
+    CHECK(int(tracker.announced_level(t + kAlertMaxAgeMs + 1)) == 0);
+}
+
 // Two gliders working the same core are close, co-altitude and converging by
 // any straight-line model, several times a minute, for as long as the climb
 // lasts. That is the case the pilot least wants an alarm for, and the one a

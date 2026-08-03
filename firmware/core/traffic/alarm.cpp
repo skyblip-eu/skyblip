@@ -193,6 +193,15 @@ void AlarmTracker::forget_stale(uint32_t now_ms) {
     }
 }
 
+uint8_t AlarmTracker::announced_level(uint32_t now_ms) const {
+    uint8_t level = 0;
+    for (const Slot& s : slots_) {
+        if (!s.used || now_ms - s.seen_ms > kAlertMaxAgeMs) continue;
+        if (s.notified_level > level) level = s.notified_level;
+    }
+    return level;
+}
+
 int16_t AlarmTracker::target_turn_dps(uint8_t addr_table, uint32_t addr) const {
     for (const Slot& s : slots_) {
         if (s.used && s.addr == addr && s.addr_table == addr_table) return s.turn_dps;
