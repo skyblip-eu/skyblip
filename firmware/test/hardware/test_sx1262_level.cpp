@@ -1,0 +1,81 @@
+// The SX1262's receive-strength path: what the PLL word says the radio is
+// tuned to, what a carrier-sense assessment reads off that channel, and the
+// level a delivered packet arrived with. Split out of test_sx1262.cpp when the
+// clear-channel assessment of EN 300 220-2 4.6.3.2 arrived and the file passed
+// 500 lines; the driver and its model are still exercised through the same
+// public surface.
+#include "core/protocol/adsl_uplink.h"
+#include "core/protocol/air.h"
+#include "doctest/doctest.h"
+#include "hardware/parts/sx1262/model.h"
+#include "hardware/parts/sx1262/sx1262.h"
+
+using namespace skyblip;
+using namespace skyblip::parts;
+
+static Sx1262 make(models::Sx1262& f) { return Sx1262(f, f, f.busy_pin, f.reset_pin, f.dio1_pin); }
+
+TEST_CASE("radio: the tuned channel is what the PLL word resolves back to") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    // Both ADS-L M-band channels, 200 kHz apart (SRD-860 issue 2 C.2).
+    MbandConfig cfg{};
+    cfg.freq_hz = 868200000;
+    r.configure_mband(cfg);
+    CHECK(chip.freq_hz > 868199000);
+    CHECK(chip.freq_hz < 868201000);
+    cfg.freq_hz = 868400000;
+    r.configure_mband(cfg);
+    CHECK(chip.freq_hz > 868399000);
+    CHECK(chip.freq_hz < 868401000);
+}
+
+TEST_CASE("radio: carrier sense reads the level on the tuned channel") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    r.configure_mband(MbandConfig{});
+    r.start_receive();
+    chip.rssi_dbm = -110;
+    CHECK(r.rssi_inst() == -110);
+    chip.rssi_dbm = -48;
+    CHECK(r.rssi_inst() == -48);
+}
+
+TEST_CASE("radio: an assessment interval is a run of reads, each answering for its own instant") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    r.configure_mband(MbandConfig{});
+    r.start_receive();
+
+    const int8_t levels[4] = {-112, -112, -44, -112};
+    chip.set_rssi_sequence(levels, 4);
+    for (int pass = 0; pass < 3; pass++)
+        for (int i = 0; i < 4; i++) {
+            CAPTURE(pass);
+            CAPTURE(i);
+            CHECK(r.rssi_inst() == levels[i]);
+        }
+
+    // With no sequence loaded the chip answers one steady level, as before.
+    chip.set_rssi_sequence(nullptr, 0);
+    chip.rssi_dbm = -97;
+    CHECK(r.rssi_inst() == -97);
+    CHECK(r.rssi_inst() == -97);
+}
+
+TEST_CASE("radio: a delivered packet carries the level it arrived with") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    r.configure_mband(MbandConfig{});
+    r.start_receive();
+    uint8_t pkt[4] = {1, 2, 3, 4};
+    chip.queue_rx(pkt, 4, /*crc_error=*/false, /*rssi=*/-73);
+    uint8_t buf[8];
+    const RadioEvent ev = r.poll(buf, sizeof(buf));
+    CHECK(ev.type == RadioEventType::RxDone);
+    CHECK(ev.rssi_dbm == -73);
+}
