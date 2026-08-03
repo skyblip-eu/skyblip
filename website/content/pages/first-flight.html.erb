@@ -133,19 +133,19 @@ description: "UF2 drag-and-drop for the first flash, what a phone can change ove
         <tr>
           <th>1 &middot; Info</th>
           <td>within 3&nbsp;km</td>
-          <td>one tone</td>
+          <td>one short blip, once</td>
           <td>&mdash;</td>
         </tr>
         <tr>
           <th>2 &middot; Important</th>
           <td>not moving away, and within 1.5&nbsp;km or less than 25&nbsp;s from closest approach</td>
-          <td>tone, higher pitch</td>
+          <td>two beeps, higher pitch</td>
           <td>200&nbsp;ms, the moment it gets worse</td>
         </tr>
         <tr>
           <th>3 &middot; Urgent</th>
           <td>actually closing, and within 500&nbsp;m or less than 15&nbsp;s from closest approach</td>
-          <td>tone repeats every 2&nbsp;s while it stays urgent</td>
+          <td>a train of six fast pulses, repeated every 2&nbsp;s while it stays urgent</td>
           <td>600&nbsp;ms, each time it escalates</td>
         </tr>
       </tbody>
@@ -162,10 +162,21 @@ description: "UF2 drag-and-drop for the first flash, what a phone can change ove
     thermal &mdash; are held at Info too, by design: that geometry produces a
     dozen false urgents an hour if it doesn&rsquo;t.
   </p>
+  <p>
+    Each level is told apart by its rhythm rather than by its pitch, so a
+    pilot learns three sounds and not three frequencies. Every one of them
+    stops on its own: only Urgent repeats, and it leaves about a second of
+    quiet between trains for a radio call.
+  </p>
   <p class="note">
     This is straight-line geometry from each aircraft&rsquo;s current track
     and speed, re-evaluated every second. It has no model of where a circling
-    aircraft will be in ten seconds, only of where it is now.
+    aircraft will be in ten seconds, only of where it is now, and that has a
+    consequence worth knowing before you fly it: two gliders working the same
+    thermal on slightly offset circles can pass very close while the range
+    between them never closes for long enough to count, and this device will
+    hold them at Info throughout. In a gaggle, the screen is the instrument.
+    The alarm is for the aircraft that is not turning with you.
   </p>
 </section>
 

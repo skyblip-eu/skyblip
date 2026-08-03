@@ -146,19 +146,19 @@ description: "Le premier flashage en UF2, ce qu'un téléphone peut modifier en 
         <tr>
           <th>1 &middot; Info</th>
           <td>à moins de 3&nbsp;km</td>
-          <td>une tonalité</td>
+          <td>un bip bref, une fois</td>
           <td>&mdash;</td>
         </tr>
         <tr>
           <th>2 &middot; Important</th>
           <td>ne s&rsquo;éloigne pas, et à moins de 1,5&nbsp;km ou moins de 25&nbsp;s du rapprochement maximal</td>
-          <td>tonalité, plus aiguë</td>
+          <td>deux bips, plus aigus</td>
           <td>200&nbsp;ms, au moment où ça s&rsquo;aggrave</td>
         </tr>
         <tr>
           <th>3 &middot; Urgent</th>
           <td>se rapproche réellement, et à moins de 500&nbsp;m ou moins de 15&nbsp;s du rapprochement maximal</td>
-          <td>la tonalité se répète toutes les 2&nbsp;s tant que ça reste urgent</td>
+          <td>une salve de six impulsions rapides, répétée toutes les 2&nbsp;s tant que ça reste urgent</td>
           <td>600&nbsp;ms, à chaque aggravation</td>
         </tr>
       </tbody>
@@ -178,12 +178,25 @@ description: "Le premier flashage en UF2, ce qu'un téléphone peut modifier en 
     cette géométrie produit une douzaine de fausses alertes urgentes par
     heure si on ne le fait pas.
   </p>
+  <p>
+    Chaque niveau se reconnaît à son rythme plutôt qu&rsquo;à sa hauteur de
+    son&nbsp;: un pilote apprend trois sons, pas trois fréquences. Tous
+    s&rsquo;arrêtent d&rsquo;eux-mêmes&nbsp;: seul Urgent se répète, et il
+    laisse environ une seconde de silence entre deux salves, de quoi passer un
+    message radio.
+  </p>
   <p class="note">
     C&rsquo;est une géométrie en ligne droite, calculée à partir de la route
     et de la vitesse actuelles de chaque aéronef, réévaluée chaque seconde.
     Elle n&rsquo;a aucun modèle de l&rsquo;endroit où se trouvera un aéronef
     en virage dans dix secondes, seulement de l&rsquo;endroit où il est
-    maintenant.
+    maintenant, et cela a une conséquence à connaître avant de voler avec
+    l&rsquo;appareil&nbsp;: deux planeurs qui exploitent le même thermique sur
+    des cercles légèrement décalés peuvent se croiser de très près sans que la
+    distance entre eux se réduise assez longtemps pour compter, et
+    l&rsquo;appareil les maintiendra à Info pendant tout ce temps. Dans une
+    grappe, c&rsquo;est l&rsquo;écran qui est l&rsquo;instrument.
+    L&rsquo;alarme est là pour l&rsquo;aéronef qui ne tourne pas avec vous.
   </p>
 </section>
 
