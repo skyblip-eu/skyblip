@@ -296,3 +296,33 @@ TEST_CASE("json_min: the reader parses ints, bools and strings, the writer emits
     w.finish();
     CHECK(std::string(out) == "{\"x\":5,\"y\":false}");
 }
+
+// core/comms's status reply is a fixed-size stack buffer with no heap behind
+// it: a key that overruns it must never come out half-written. A writer that
+// silently dropped the tail of its last key would still close the brace and
+// look like valid, complete JSON to anything downstream.
+TEST_CASE("json_min: a key that will not fit whole is left out, not cut short") {
+    char out[16];
+    json::Writer w(out, sizeof(out));
+    w.kv_int("x", 5);
+    CHECK_FALSE(w.overflowed());
+
+    w.kv_bool("yy", true);  // does not fit in what is left of a 16-byte buffer
+    CHECK(w.overflowed());
+
+    const int n = w.finish();
+    CHECK(std::string(out) == "{\"x\":5}");  // whole and valid, one key short
+    CHECK(n == 7);
+    CHECK(static_cast<int>(std::strlen(out)) == n);  // the reported length is real
+}
+
+TEST_CASE("json_min: a buffer sized for the exact worst case never overflows") {
+    char out[29];
+    json::Writer w(out, sizeof(out));
+    w.kv_str("k", "say \"hi\"");  // 1-char key, two escaped quotes in the value
+    w.kv_bool("b", false);
+    const int n = w.finish();
+    CHECK_FALSE(w.overflowed());
+    CHECK(static_cast<int>(std::strlen(out)) == n);
+    CHECK(std::string(out) == "{\"k\":\"say \\\"hi\\\"\",\"b\":false}");
+}

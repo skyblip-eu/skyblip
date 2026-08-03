@@ -78,25 +78,29 @@ bool Reader::get_str(const char* key, char* buf, int cap) const {
     return true;
 }
 
+bool Writer::reserve(int extra) {
+    if (n_ + extra > cap_ - 2) {
+        overflowed_ = true;
+        return false;
+    }
+    return true;
+}
 void Writer::sep() {
-    if (!first_ && n_ < cap_ - 1) buf_[n_++] = ',';
+    if (!first_) buf_[n_++] = ',';
     first_ = false;
 }
 void Writer::raw(const char* s) {
-    while (*s && n_ < cap_ - 1) buf_[n_++] = *s++;
+    while (*s) buf_[n_++] = *s++;
 }
 void Writer::raw_str(const char* s) {
-    if (n_ < cap_ - 1) buf_[n_++] = '"';
-    while (*s && n_ < cap_ - 1) {
-        if ((*s == '"' || *s == '\\') && n_ < cap_ - 2) buf_[n_++] = '\\';
+    buf_[n_++] = '"';
+    while (*s) {
+        if (*s == '"' || *s == '\\') buf_[n_++] = '\\';
         buf_[n_++] = *s++;
     }
-    if (n_ < cap_ - 1) buf_[n_++] = '"';
+    buf_[n_++] = '"';
 }
 void Writer::kv_int(const char* key, long v) {
-    sep();
-    raw_str(key);
-    if (n_ < cap_ - 1) buf_[n_++] = ':';
     char tmp[16];
     int t = 0;
     bool neg = v < 0;
@@ -105,23 +109,42 @@ void Writer::kv_int(const char* key, long v) {
         tmp[t++] = static_cast<char>('0' + uv % 10);
         uv /= 10;
     } while (uv);
-    if (neg && n_ < cap_ - 1) buf_[n_++] = '-';
-    while (t > 0 && n_ < cap_ - 1) buf_[n_++] = tmp[--t];
+    const int need = (first_ ? 0 : 1) + key_len(key) + 2 + 1 + (neg ? 1 : 0) + t;
+    if (!reserve(need)) return;
+    sep();
+    raw_str(key);
+    buf_[n_++] = ':';
+    if (neg) buf_[n_++] = '-';
+    while (t > 0) buf_[n_++] = tmp[--t];
 }
 void Writer::kv_bool(const char* key, bool v) {
+    const char* val = v ? "true" : "false";
+    const int need = (first_ ? 0 : 1) + key_len(key) + 2 + 1 + key_len(val);
+    if (!reserve(need)) return;
     sep();
     raw_str(key);
-    if (n_ < cap_ - 1) buf_[n_++] = ':';
-    raw(v ? "true" : "false");
+    buf_[n_++] = ':';
+    raw(val);
 }
 void Writer::kv_str(const char* key, const char* v) {
+    int vlen = 0;
+    int escapes = 0;
+    for (const char* p = v; *p; p++) {
+        vlen++;
+        if (*p == '"' || *p == '\\') escapes++;
+    }
+    const int need = (first_ ? 0 : 1) + key_len(key) + 2 + 1 + vlen + escapes + 2;
+    if (!reserve(need)) return;
     sep();
     raw_str(key);
-    if (n_ < cap_ - 1) buf_[n_++] = ':';
+    buf_[n_++] = ':';
     raw_str(v);
 }
 int Writer::finish() {
-    if (n_ < cap_ - 1) buf_[n_++] = '}';
+    if (n_ < cap_ - 1)
+        buf_[n_++] = '}';
+    else
+        overflowed_ = true;
     buf_[n_] = 0;
     return n_;
 }

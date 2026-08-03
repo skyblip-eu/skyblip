@@ -22,6 +22,11 @@ class Reader {
     int value_offset(const char* key) const;
 };
 
+// Every call either commits a complete key and value, or commits nothing at
+// all: a key that will not fit whole is left out rather than cut short, and
+// overflowed() then reads true. A caller that never sizes its buffer wrong
+// never sees this; a caller that does gets a short, valid, checkable object
+// instead of one with a mangled last field nobody asked for.
 class Writer {
    public:
     Writer(char* buf, int cap) : buf_(buf), cap_(cap) { buf_[n_++] = '{'; }
@@ -30,8 +35,10 @@ class Writer {
     void kv_str(const char* key, const char* v);
     int finish();
     int length() const { return n_; }
+    bool overflowed() const { return overflowed_; }
 
    private:
+    bool reserve(int extra);
     void sep();
     void raw(const char* s);
     void raw_str(const char* s);
@@ -39,6 +46,7 @@ class Writer {
     int cap_;
     int n_{0};
     bool first_{true};
+    bool overflowed_{false};
 };
 
 }

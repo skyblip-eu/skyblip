@@ -381,3 +381,111 @@ TEST_CASE("comms: link down cancels a pending change") {
     cs.on_link_down(messages::LinkDown{1});
     CHECK(cs.pending() == Pending::None);
 }
+
+// G1: the wire, not the gauge or the cutoff rule - core/power decided percent,
+// charging and the level, comms only carries them to the tablet.
+namespace {
+power::BatteryState battery_of(uint8_t percent, bool charging, bool valid = true) {
+    power::BatteryState b{};
+    b.millivolts = 3700;
+    b.percent = percent;
+    b.external_power = charging;
+    b.charging = charging;
+    b.valid = valid;
+    return b;
+}
+}  // namespace
+
+TEST_CASE("comms: status carries state of charge, the charging flag, the level and its validity") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+    cs.set_battery_state(battery_of(61, false), power::PowerLevel::Normal);
+
+    cs.on_rx(frame("{\"cmd\":\"status\"}"));
+    REQUIRE(link.sent.size() == 1);
+    const std::string body = link.last().bytes;
+    CHECK(body.find("\"battery_percent\":61") != std::string::npos);
+    CHECK(body.find("\"charging\":false") != std::string::npos);
+    CHECK(body.find("\"battery_valid\":true") != std::string::npos);
+    CHECK(body.find("\"power_level\":\"OK\"") != std::string::npos);
+}
+
+TEST_CASE("comms: an invalid battery is reported as invalid, never as a false zero percent") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+    // No set_battery_state call at all: no sample has ever arrived.
+
+    cs.on_rx(frame("{\"cmd\":\"status\"}"));
+    const std::string body = link.last().bytes;
+    CHECK(body.find("\"battery_valid\":false") != std::string::npos);
+    CHECK(body.find("\"battery_percent\":0") != std::string::npos);
+    CHECK(body.find("\"power_level\":\"--\"") != std::string::npos);
+}
+
+TEST_CASE(
+    "comms: no push without a link, one push per real change, none for a repeat or for noise "
+    "inside a step") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Ground);
+
+    // A baseline, and then a real change, both before the link comes up.
+    cs.set_battery_state(battery_of(50, false), power::PowerLevel::Normal);
+    cs.set_battery_state(battery_of(50, true), power::PowerLevel::Normal);
+    CHECK(link.sent.empty());
+
+    cs.on_link_up(messages::LinkUp{1, 200});
+
+    cs.set_battery_state(battery_of(50, true), power::PowerLevel::Normal);  // repeat: no push
+    CHECK(link.sent.empty());
+
+    cs.set_battery_state(battery_of(50, false), power::PowerLevel::Normal);  // charging flips back
+    REQUIRE(link.sent.size() == 1);
+
+    cs.set_battery_state(battery_of(50, false), power::PowerLevel::Normal);  // repeat: no storm
+    CHECK(link.sent.size() == 1);
+
+    cs.set_battery_state(battery_of(50, false), power::PowerLevel::Low);  // level changes
+    CHECK(link.sent.size() == 2);
+
+    cs.set_battery_state(battery_of(56, false), power::PowerLevel::Low);  // crosses a step (50->56)
+    CHECK(link.sent.size() == 3);
+
+    cs.set_battery_state(battery_of(57, false),
+                         power::PowerLevel::Low);  // same step as 56: no push
+    CHECK(link.sent.size() == 3);
+
+    cs.on_link_down(messages::LinkDown{1});
+    cs.set_battery_state(battery_of(90, false), power::PowerLevel::Normal);  // link is down again
+    CHECK(link.sent.size() == 3);
+}
+
+TEST_CASE("comms: status has room for every worst-case field, and the last key survives whole") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(0xFFFFFF);
+    std::memcpy(s.callsign, "ABCDEFGHI", 10);
+    ConfigService cs(link, s);
+    cs.set_flight_state(FlightState::Airborne);
+    cs.set_reset_reason(power::ResetReason::Lockup);
+    power::BatteryState battery{};
+    battery.millivolts = 4200;
+    battery.percent = 100;
+    battery.external_power = true;
+    battery.charging = true;
+    battery.valid = true;
+    cs.set_battery_state(battery, power::PowerLevel::Cutoff);
+
+    cs.on_rx(frame("{\"cmd\":\"status\"}"));
+    REQUIRE(link.sent.size() == 1);
+    const std::string body = link.last().bytes;
+    // Truncation would have dropped this whole last key, not cut it short.
+    CHECK(body.substr(body.size() - 23) == "\"power_level\":\"CUTOFF\"}");
+    CHECK(body.find("\"battery_percent\":100") != std::string::npos);
+    CHECK(body.find("\"charging\":true") != std::string::npos);
+    CHECK(body.find("\"battery_valid\":true") != std::string::npos);
+}
