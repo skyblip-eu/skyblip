@@ -98,6 +98,9 @@ TEST_CASE("nmea: PFLAU reports rx count, gps and threat") {
     std::string s(buf, n);
     CHECK(s.rfind("$PFLAU,5,1,2,1,3,", 0) == 0);
     CHECK(s.find("112233") != std::string::npos);
+    // A threat off the left wing is a negative bearing, not 315.
+    const int back = format_pflau(buf, sizeof(buf), own, 5, &threat, 3, -45, -50, 800);
+    CHECK(std::string(buf, back).find(",-45,") != std::string::npos);
     CHECK(checksum_ok(s));
 }
 
@@ -135,7 +138,7 @@ TEST_CASE("nmea: the widest sentence these can produce still fits the narrowest 
     const int traffic = format_pflaa(buf, sizeof(buf), own, t, 3);
     CHECK(traffic > 0);
     CHECK(traffic <= comms::kSmallestSupportedPayload);
-    const int status = format_pflau(buf, sizeof(buf), own, 99, &t, 3, 359, -99999, 999999);
+    const int status = format_pflau(buf, sizeof(buf), own, 99, &t, 3, -180, -99999, 999999);
     CHECK(status > 0);
     CHECK(status <= comms::kSmallestSupportedPayload);
     // And neither fits what BLE merely guarantees, which is why a sender here
