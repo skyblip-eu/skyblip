@@ -109,7 +109,7 @@ class Product {
             }
         }
         shutdown_.tick(now_ms, platform_.button_down());
-        drive_shutdown();
+        drive_shutdown(now_ms);
     }
 
     hal::Capabilities capabilities() const { return board_.capabilities(); }
@@ -170,7 +170,7 @@ class Product {
         roles_.display.present(boot_fb_, hal::Refresh::Full, 0);
     }
 
-    void drive_shutdown() {
+    void drive_shutdown(uint32_t now_ms) {
         const power::ShutdownPhase phase = shutdown_.phase();
         if (phase == acted_phase_) return;
         acted_phase_ = phase;
@@ -179,6 +179,10 @@ class Product {
         // alive right through the seconds the panel takes to park.
         roles_.rf.abort();
         roles_.rf.sleep();
+        // Every peripheral that can be left driven is switched off by the owner
+        // that drives it, because from here the service loop no longer runs: a
+        // buzzer mid-pattern would sound until the rails drop.
+        alarm_.park(now_ms);
         screen_.set_power(false);
     }
 

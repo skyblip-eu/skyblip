@@ -22,6 +22,8 @@ class Annunciator : public hal::Annunciator {
         silence();
     }
 
+    // Opens the tone and leaves it open, per hal/annunciator.h: whoever calls
+    // this owes it a silence(). The pattern is core/annunciation's.
     void alarm(uint8_t level, uint8_t volume) override {
         if (level == 0 || volume == 0) return silence();
         // Higher level -> higher pitch, volume -> duty cycle.
