@@ -189,74 +189,11 @@ TEST_CASE("radio: a burst carrying a sync word the dwell is not armed for is not
 
 // A1. The modem is the one part of this chip that cannot be left at its reset
 // defaults: RadioConfig carried a bitrate and a deviation nothing ever wrote.
-TEST_CASE("radio: the modem is programmed for 100 kbps, 50 kHz deviation, 234.3 kHz, unshaped") {
-    models::Sx1262 chip;
-    Sx1262 r = make(chip);
-    r.begin();
-    RadioConfig cfg{};
-    cfg.sync = protocol::kSharedSync;
-    cfg.sync_bits = protocol::kSharedSyncBits;
-    cfg.payload_bytes = protocol::kRxChipBytes;
-    REQUIRE(r.configure_radio(cfg) == Status::Ok);
-    CHECK(chip.modulation_set);
-    CHECK(chip.bitrate == 100000);
-    CHECK(chip.fdev_hz > 49990);
-    CHECK(chip.fdev_hz < 50010);
-    // DS 13.4.6 order: bit rate, pulse shape, RX bandwidth, deviation.
-    CHECK(chip.modulation[3] == sx::kPulseShapeNone);
-    CHECK(chip.modulation[4] == sx::kRxBandwidth234kHz);
-    CHECK(chip.pulse_shape == sx::kPulseShapeNone);
-    CHECK(chip.rx_bandwidth == sx::kRxBandwidth234kHz);
-    // DS 13.1.4: the packet handler is configured after the modem, not before.
-    CHECK(chip.cmd_order(sx::kSetRfFrequency) < chip.cmd_order(sx::kSetModulationParams));
-    CHECK(chip.cmd_order(sx::kSetModulationParams) < chip.cmd_order(sx::kSetPacketParams));
-}
-
 // A2. And the other band, which is a different modulation and not merely a
 // different frequency: ADS-L 4 SRD-860 issue 2 §C.4 is 200 kbps GMSK, BT 0.5,
 // in a 250 kHz channel. The driver used to hard-code §C.2's unshaped 100 kbps
 // whatever it was handed, so the O-band dwell retuned the synthesiser and
 // listened at half the rate a skyPost transmits at.
-TEST_CASE("radio: the O band is programmed for 200 kbps GMSK in a 250 kHz channel") {
-    models::Sx1262 chip;
-    Sx1262 r = make(chip);
-    r.begin();
-    RadioConfig cfg{};
-    cfg.freq_hz = 869525000;
-    cfg.bitrate = protocol::kUplinkChipRateBps;
-    cfg.fdev_hz = protocol::kUplinkDeviationHz;
-    cfg.bandwidth_hz = protocol::kUplinkChannelBandwidthHz;
-    cfg.gaussian_bt_e2 = protocol::kUplinkGaussianBtE2;
-    cfg.sync = protocol::kUplinkSync;
-    cfg.sync_bits = protocol::kUplinkSyncBits;
-    cfg.payload_bytes = protocol::kUplinkFrameBytes;
-    REQUIRE(r.configure_radio(cfg) == Status::Ok);
-    CHECK(chip.bitrate == 200000);
-    CHECK(chip.fdev_hz > 49990);
-    CHECK(chip.fdev_hz < 50010);
-    CHECK(chip.pulse_shape == sx::kGaussianBt0p5);
-    // The narrowest entry of DS 13.4.6's table that still passes 250 kHz. The
-    // one below it, 234.3 kHz, clips the channel.
-    CHECK(chip.rx_bandwidth == 0x19);
-    CHECK(chip.payload_bytes == protocol::kUplinkFrameBytes);
-    // A whole RS(255,223) codeword is what this band reads, and the packet
-    // handler's length field is exactly wide enough for it.
-    CHECK(chip.payload_bytes == 255);
-}
-
-TEST_CASE("radio: a modem left on its reset defaults frames nothing off the air") {
-    models::Sx1262 chip;
-    chip.sync_bits = protocol::kSharedSyncBits;
-    chip.payload_bytes = protocol::kRxChipBytes;
-    for (uint8_t i = 0; i < protocol::kSharedSyncBits / 8; i++)
-        chip.sync[i] = protocol::kSharedSync[i];
-    uint8_t payload[protocol::kAdslFrameBytes] = {0};
-    uint8_t chips[protocol::kTxChipBytes] = {0};
-    const size_t chip_len =
-        protocol::encode_mband(protocol::kAdslSyncWord, payload, sizeof(payload), chips);
-    CHECK_FALSE(chip.receive_air(chips, static_cast<uint8_t>(chip_len)));
-}
-
 // A2. IrqMask is 0x0000 out of reset and gates the status register, so an
 // unprogrammed mask is a radio that reports neither RxDone nor TxDone, for ever.
 TEST_CASE("radio: an IRQ bit that was never unmasked is never reported") {

@@ -1,9 +1,9 @@
-// The SX1262's receive-strength path: what the PLL word says the radio is
+// How the radio is tuned, and what it can then hear: the modulation programmed
+// for each of the two bands we dwell on, what the PLL word says the radio is
 // tuned to, what a carrier-sense assessment reads off that channel, and the
-// level a delivered packet arrived with. Split out of test_sx1262.cpp when the
-// clear-channel assessment of EN 300 220-2 4.6.3.2 arrived and the file passed
-// 500 lines; the driver and its model are still exercised through the same
-// public surface.
+// level a delivered packet arrived with. Split out of test_sx1262.cpp to keep
+// both files under 500 lines; the driver and its model are exercised through
+// the same public surface either way.
 #include "core/protocol/adsl_uplink.h"
 #include "core/protocol/air.h"
 #include "doctest/doctest.h"
@@ -78,4 +78,67 @@ TEST_CASE("radio: a delivered packet carries the level it arrived with") {
     const RadioEvent ev = r.poll(buf, sizeof(buf));
     CHECK(ev.type == RadioEventType::RxDone);
     CHECK(ev.rssi_dbm == -73);
+}
+
+TEST_CASE("radio: the modem is programmed for 100 kbps, 50 kHz deviation, 234.3 kHz, unshaped") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    RadioConfig cfg{};
+    cfg.sync = protocol::kSharedSync;
+    cfg.sync_bits = protocol::kSharedSyncBits;
+    cfg.payload_bytes = protocol::kRxChipBytes;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.modulation_set);
+    CHECK(chip.bitrate == 100000);
+    CHECK(chip.fdev_hz > 49990);
+    CHECK(chip.fdev_hz < 50010);
+    // DS 13.4.6 order: bit rate, pulse shape, RX bandwidth, deviation.
+    CHECK(chip.modulation[3] == sx::kPulseShapeNone);
+    CHECK(chip.modulation[4] == sx::kRxBandwidth234kHz);
+    CHECK(chip.pulse_shape == sx::kPulseShapeNone);
+    CHECK(chip.rx_bandwidth == sx::kRxBandwidth234kHz);
+    // DS 13.1.4: the packet handler is configured after the modem, not before.
+    CHECK(chip.cmd_order(sx::kSetRfFrequency) < chip.cmd_order(sx::kSetModulationParams));
+    CHECK(chip.cmd_order(sx::kSetModulationParams) < chip.cmd_order(sx::kSetPacketParams));
+}
+
+TEST_CASE("radio: the O band is programmed for 200 kbps GMSK in a 250 kHz channel") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    RadioConfig cfg{};
+    cfg.freq_hz = 869525000;
+    cfg.bitrate = protocol::kUplinkChipRateBps;
+    cfg.fdev_hz = protocol::kUplinkDeviationHz;
+    cfg.bandwidth_hz = protocol::kUplinkChannelBandwidthHz;
+    cfg.gaussian_bt_e2 = protocol::kUplinkGaussianBtE2;
+    cfg.sync = protocol::kUplinkSync;
+    cfg.sync_bits = protocol::kUplinkSyncBits;
+    cfg.payload_bytes = protocol::kUplinkFrameBytes;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.bitrate == 200000);
+    CHECK(chip.fdev_hz > 49990);
+    CHECK(chip.fdev_hz < 50010);
+    CHECK(chip.pulse_shape == sx::kGaussianBt0p5);
+    // The narrowest entry of DS 13.4.6's table that still passes 250 kHz. The
+    // one below it, 234.3 kHz, clips the channel.
+    CHECK(chip.rx_bandwidth == 0x19);
+    CHECK(chip.payload_bytes == protocol::kUplinkFrameBytes);
+    // A whole RS(255,223) codeword is what this band reads, and the packet
+    // handler's length field is exactly wide enough for it.
+    CHECK(chip.payload_bytes == 255);
+}
+
+TEST_CASE("radio: a modem left on its reset defaults frames nothing off the air") {
+    models::Sx1262 chip;
+    chip.sync_bits = protocol::kSharedSyncBits;
+    chip.payload_bytes = protocol::kRxChipBytes;
+    for (uint8_t i = 0; i < protocol::kSharedSyncBits / 8; i++)
+        chip.sync[i] = protocol::kSharedSync[i];
+    uint8_t payload[protocol::kAdslFrameBytes] = {0};
+    uint8_t chips[protocol::kTxChipBytes] = {0};
+    const size_t chip_len =
+        protocol::encode_mband(protocol::kAdslSyncWord, payload, sizeof(payload), chips);
+    CHECK_FALSE(chip.receive_air(chips, static_cast<uint8_t>(chip_len)));
 }
