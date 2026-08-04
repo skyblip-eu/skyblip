@@ -23,6 +23,13 @@ class Sx1262 : public io::Spi, public io::Gpio {
         TxWithoutPower,
         FrameWithoutModulation,
         ImageCalibrationTooEarly,
+        // Stricter than the silicon on purpose, and it is the DC-DC that is
+        // required, not merely a SetRegulatorMode: a real SX1262 runs perfectly
+        // well on its LDO and simply draws about twice the current, so there is
+        // no symptom to find in a log, only a flat pack. A board that has no
+        // inductor on DCC_SW would have to relax this, and would then owe the
+        // reason here.
+        RegulatorLeftOnLdo,
     };
 
     void set(int pin, bool level) override {
@@ -185,6 +192,12 @@ class Sx1262 : public io::Spi, public io::Gpio {
     bool reset_low{false};
     uint32_t reset_low_spins{0};
     bool standby{false};
+    bool regulator_dcdc{false};
+    uint8_t regulator_mode{parts::sx::kRegulatorLdo};
+    // DS 9.6: the receive gain register and the retention list that decides
+    // whether it survives a warm start. Reset default is the power-saving gain.
+    uint8_t rx_gain{parts::sx::kRxGainPowerSaving};
+    uint8_t retention_list[3]{};
     bool tcxo_powered{false};
     bool calibrated{false};
     bool image_calibrated{false};
@@ -231,11 +244,24 @@ class Sx1262 : public io::Spi, public io::Gpio {
         faults++;
     }
 
+    // DS 9.6: a warm start retains the configuration, EXCEPT the registers that
+    // are not on the retention list. The receive gain is the one that matters
+    // here, and losing it costs 3 dB with nothing in any log to say so.
+    bool rx_gain_retained() const {
+        return retention_list[0] >= 1 &&
+               retention_list[1] == static_cast<uint8_t>(parts::sx::kRxGainRegister >> 8) &&
+               retention_list[2] == static_cast<uint8_t>(parts::sx::kRxGainRegister & 0xFF);
+    }
+
     // NRESET returns every block to its reset default, including the IRQ mask
     // and the modem: everything the driver programmed is gone.
     void power_on_reset() {
         standby = true;
         sleeping = false;
+        regulator_dcdc = false;
+        regulator_mode = parts::sx::kRegulatorLdo;
+        rx_gain = parts::sx::kRxGainPowerSaving;
+        retention_list[0] = retention_list[1] = retention_list[2] = 0;
         tcxo_powered = calibrated = image_calibrated = false;
         modulation_set = pa_set = tx_power_set = false;
         irq_mask = dio1_mask = 0;
@@ -251,7 +277,7 @@ class Sx1262 : public io::Spi, public io::Gpio {
                opcode == parts::sx::kSetModulationParams || opcode == parts::sx::kSetPacketParams ||
                opcode == parts::sx::kSetPaConfig || opcode == parts::sx::kSetTxParams ||
                opcode == parts::sx::kWriteRegister || opcode == parts::sx::kCalibrate ||
-               opcode == parts::sx::kCalibrateImage;
+               opcode == parts::sx::kCalibrateImage || opcode == parts::sx::kSetRegulatorMode;
     }
 
     uint8_t process(uint8_t in) {
@@ -265,8 +291,11 @@ class Sx1262 : public io::Spi, public io::Gpio {
                 sleeping = true;
                 standby = false;
                 receiving = false;
+                if (!rx_gain_retained()) rx_gain = parts::sx::kRxGainPowerSaving;
             }
             if (opcode_ == parts::sx::kSetDio3AsTcxoCtrl) tcxo_powered = true;
+            if (opcode_ == parts::sx::kCalibrate && !regulator_dcdc)
+                note_fault(Fault::RegulatorLeftOnLdo);
             if (opcode_ == parts::sx::kCalibrate) calibrated = true;
             if (opcode_ == parts::sx::kCalibrateImage) {
                 if (!tcxo_powered || !calibrated) note_fault(Fault::ImageCalibrationTooEarly);
@@ -274,6 +303,7 @@ class Sx1262 : public io::Spi, public io::Gpio {
             }
             if (opcode_ == parts::sx::kSetRx) {
                 if (!modulation_set) note_fault(Fault::FrameWithoutModulation);
+                if (!regulator_dcdc) note_fault(Fault::RegulatorLeftOnLdo);
                 receiving = true;
                 standby = false;
             }
@@ -286,6 +316,7 @@ class Sx1262 : public io::Spi, public io::Gpio {
                 } else {
                     tx_pending = true;
                 }
+                if (!regulator_dcdc) note_fault(Fault::RegulatorLeftOnLdo);
             }
             if (opcode_ == parts::sx::kWriteBuffer) tx_buf_.clear();
             if (opcode_ == parts::sx::kWriteRegister || opcode_ == parts::sx::kReadRegister)
@@ -301,6 +332,13 @@ class Sx1262 : public io::Spi, public io::Gpio {
             if (seq_ == 1) sleep_config = in;
             return 0;
         }
+        if (opcode_ == parts::sx::kSetRegulatorMode) {
+            if (seq_ == 1) {
+                regulator_mode = in;
+                regulator_dcdc = in == parts::sx::kRegulatorDcDc;
+            }
+            return 0;
+        }
         if (opcode_ == parts::sx::kReadRegister) {
             if (seq_ <= 2) {
                 reg_addr_ = static_cast<uint16_t>((reg_addr_ << 8) | in);
@@ -312,6 +350,10 @@ class Sx1262 : public io::Spi, public io::Gpio {
             if (addr >= parts::sx::kSyncWordRegister &&
                 addr < parts::sx::kSyncWordRegister + sizeof(sync))
                 return sync[addr - parts::sx::kSyncWordRegister];
+            if (addr == parts::sx::kRxGainRegister) return rx_gain;
+            if (addr >= parts::sx::kRetentionListRegister &&
+                addr < parts::sx::kRetentionListRegister + sizeof(retention_list))
+                return retention_list[addr - parts::sx::kRetentionListRegister];
             return 0;
         }
         if (opcode_ == parts::sx::kWriteRegister) {
@@ -324,6 +366,10 @@ class Sx1262 : public io::Spi, public io::Gpio {
             if (addr >= parts::sx::kSyncWordRegister &&
                 addr < parts::sx::kSyncWordRegister + sizeof(sync))
                 sync[addr - parts::sx::kSyncWordRegister] = in;
+            if (addr == parts::sx::kRxGainRegister) rx_gain = in;
+            if (addr >= parts::sx::kRetentionListRegister &&
+                addr < parts::sx::kRetentionListRegister + sizeof(retention_list))
+                retention_list[addr - parts::sx::kRetentionListRegister] = in;
             return 0;
         }
         if (opcode_ == parts::sx::kSetModulationParams) {

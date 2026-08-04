@@ -79,6 +79,13 @@ Status Sx1262::begin() {
     const Status link = verify_link();
     if (link != Status::Ok) return link;
 
+    // First, and before the calibration that runs against it: the reset default
+    // is LDO-only. SoftRF opens its own bring-up with the same command
+    // (radio-sx126x.c:703).
+    uint8_t regulator = sx::kRegulatorDcDc;
+    cmd(sx::kSetRegulatorMode, &regulator, 1);
+    if (wait_busy_low() != Status::Ok) return Status::Timeout;
+
     // T-Echo (Plus) hardware wiring: DIO2 is the RF/antenna switch and DIO3
     // powers the TCXO at 1.8 V. Without the TCXO control the radio has no clock
     // and will neither TX nor RX. Enable both, then calibrate.
@@ -95,6 +102,12 @@ Status Sx1262::begin() {
     // only once the TCXO clock the calibration runs on is the chip's clock.
     cmd(sx::kCalibrateImage, sx::kImageBand863to870, sizeof(sx::kImageBand863to870));
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
+
+    // DS 9.6: without this the boosted receive gain is lost on every warm start,
+    // silently and with no symptom but range. Written once, in standby, before
+    // the first sleep can happen.
+    write_register(sx::kRetentionListRegister, sx::kRetainRxGain, sizeof(sx::kRetainRxGain));
+    configure_rx_gain();
 
     configured_ = false;
     mode_ = RadioMode::Standby;
@@ -165,6 +178,12 @@ void Sx1262::configure_modulation(const RadioConfig& cfg) {
     cmd(sx::kSetModulationParams, params, sizeof(params));
 }
 
+// About 2 mA for about 3 dB, taken deliberately (sx1262.h, kRxGainBoosted).
+void Sx1262::configure_rx_gain() {
+    const uint8_t gain = sx::kRxGainBoosted;
+    write_register(sx::kRxGainRegister, &gain, 1);
+}
+
 void Sx1262::configure_power() {
     cmd(sx::kSetPaConfig, sx::kPaConfigHighPower, sizeof(sx::kPaConfigHighPower));
     uint8_t params[2] = {static_cast<uint8_t>(sx::kConductedDbm), sx::kRampTime200Us};
@@ -206,12 +225,17 @@ Status Sx1262::configure_radio(const RadioConfig& cfg) {
     cfg_ = cfg;
     uint8_t gfsk = 0x00;
     cmd(sx::kSetPacketType, &gfsk, 1);
-    uint64_t frf = (static_cast<uint64_t>(cfg.freq_hz) << 25) / 32000000ULL;
+    // The reference's own error is taken out here, at the one place the PLL word
+    // is computed, so receive and transmit are trimmed by construction and
+    // nothing downstream carries a second copy of the correction.
+    const uint32_t tuned_hz = sx::trimmed_hz(cfg.freq_hz, cfg.freq_corr_e1_ppm);
+    uint64_t frf = (static_cast<uint64_t>(tuned_hz) << 25) / 32000000ULL;
     uint8_t f[4] = {static_cast<uint8_t>(frf >> 24), static_cast<uint8_t>(frf >> 16),
                     static_cast<uint8_t>(frf >> 8), static_cast<uint8_t>(frf)};
     cmd(sx::kSetRfFrequency, f, 4);
     configure_power();
     configure_modulation(cfg);
+    configure_rx_gain();
     configure_frame(cfg);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
     configured_ = true;
