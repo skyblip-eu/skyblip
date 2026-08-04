@@ -5,10 +5,13 @@
 
 The inputs are the two images sysbuild builds separately - MCUboot at
 boot_partition and the signed, confirmed application at slot0 - which this script
-merges. Vanilla Zephyr sysbuild does not emit a combined `merged.hex` (that is an
-nRF Connect SDK feature), and merging Intel HEX is a dozen lines on top of the
-parser this script already needs for its range checks, so it does it here rather
-than taking a dependency on `mergehex`.
+merges. Sysbuild CAN merge them itself (SB_CONFIG_MERGED_HEX_FILES, Zephyr
+doc/build/sysbuild/index.rst "Merged hex files"), but it merges each image's
+default hex output, which for the application is the unconfirmed
+`zephyr.signed.hex` - and the whole point here is the CONFIRMED image, see below.
+Merging Intel HEX is a dozen lines on top of the parser this script already needs
+for its range checks, so it does it here rather than taking a dependency on
+`mergehex`.
 
 The application image must be the *confirmed* one. A slot0 written directly by a
 bootloader never goes through a swap, so it never gets a chance to mark itself
@@ -123,6 +126,37 @@ def zephyr_uf2conv():
     )
 
 
+def check_window(ranges):
+    """Refuse a merged image the factory bootloader cannot safely write.
+
+    Returns an error message, or None when every byte lands in the writable
+    window. No I/O and no Zephyr: scripts/test_mkuf2.py exercises the three
+    guards directly, because they are the only reason this script exists and a
+    partition edit is what silently defeats them.
+    """
+    low = min(start for start, _ in ranges)
+    high = max(end for _, end in ranges)
+    if low < SOFTDEVICE_END:
+        return (
+            f"image starts at 0x{low:06X}, below 0x{SOFTDEVICE_END:06X}. "
+            "This would overwrite the factory MBR/SoftDevice. Check that "
+            "CONFIG_USE_DT_CODE_PARTITION=y and that boot_partition is at 0x26000."
+        )
+    if high > UF2_BOOTLOADER_START:
+        return (
+            f"image ends at 0x{high:06X}, inside the factory UF2 bootloader at "
+            f"0x{UF2_BOOTLOADER_START:06X}. That bootloader is the only way to "
+            "install anything without a programmer; it is never a target."
+        )
+    if high > USER_FLASH_END:
+        return (
+            f"image ends at 0x{high:06X}, past USER_FLASH_END 0x{USER_FLASH_END:06X}. "
+            "The UF2 bootloader silently drops writes above that, so the device "
+            "would be flashed with a truncated image."
+        )
+    return None
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -145,26 +179,9 @@ def main():
     for start, end in ranges:
         print(f"  0x{start:08X} - 0x{end - 1:08X}  ({end - start} bytes)")
 
-    low = min(start for start, _ in ranges)
-    high = max(end for _, end in ranges)
-    if low < SOFTDEVICE_END:
-        return fail(
-            f"image starts at 0x{low:06X}, below 0x{SOFTDEVICE_END:06X}. "
-            "This would overwrite the factory MBR/SoftDevice. Check that "
-            "CONFIG_USE_DT_CODE_PARTITION=y and that boot_partition is at 0x26000."
-        )
-    if high > UF2_BOOTLOADER_START:
-        return fail(
-            f"image ends at 0x{high:06X}, inside the factory UF2 bootloader at "
-            f"0x{UF2_BOOTLOADER_START:06X}. That bootloader is the only way to "
-            "install anything without a programmer; it is never a target."
-        )
-    if high > USER_FLASH_END:
-        return fail(
-            f"image ends at 0x{high:06X}, past USER_FLASH_END 0x{USER_FLASH_END:06X}. "
-            "The UF2 bootloader silently drops writes above that, so the device "
-            "would be flashed with a truncated image."
-        )
+    problem = check_window(ranges)
+    if problem:
+        return fail(problem)
 
     merged = out.with_suffix(".merged.hex")
     write_hex(byte_map, merged)

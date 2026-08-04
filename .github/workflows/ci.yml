@@ -37,6 +37,12 @@ jobs:
         run: make test
       - name: test-coverage structural gate
         run: python3 scripts/check_test_coverage.py
+      # The .uf2 range guards are the only thing between a partition edit and an
+      # install that erases the factory bootloader or lands truncated. Stdlib
+      # only and no Zephyr, so it belongs on the fast job rather than the
+      # 5-minute device build.
+      - name: mkuf2 range guards
+        run: python3 scripts/test_mkuf2.py
       # docs/BEHAVIOR.md is the test names, so a rename that is not committed with
       # the doc leaves the repo claiming behavior the suite no longer states.
       - name: behavior index matches the suite
@@ -118,6 +124,26 @@ jobs:
             > "$RUNNER_TEMP/signing.conf"
           cat "$RUNNER_TEMP/signing.conf"
 
+      # The build number is what orders two images of the same release, and it is
+      # NOT in the VERSION file: Zephyr rejects a tweak above 255
+      # (cmake/modules/version.cmake:79-81) and a local build has no run number.
+      # github.run_number only ever increases for this workflow, so an image can
+      # never be built with a build number the fleet has already seen.
+      - name: stamp the image version
+        working-directory: firmware
+        run: |
+          file=products/${{ matrix.product }}/VERSION
+          major=$(sed -n 's/^VERSION_MAJOR *= *\([0-9][0-9]*\).*/\1/p' "$file")
+          minor=$(sed -n 's/^VERSION_MINOR *= *\([0-9][0-9]*\).*/\1/p' "$file")
+          patch=$(sed -n 's/^PATCHLEVEL *= *\([0-9][0-9]*\).*/\1/p' "$file")
+          test -n "$major" && test -n "$minor" && test -n "$patch" \
+            || { echo "FAIL: no version triple in $file"; exit 1; }
+          version="$major.$minor.$patch+${{ github.run_number }}"
+          echo "CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION=\"$version\"" \
+            > "$RUNNER_TEMP/version.conf"
+          echo "IMAGE_VERSION=$version" >> "$GITHUB_ENV"
+          cat "$RUNNER_TEMP/version.conf"
+
       # The app dir IS the product, and the board comes out of the product's own
       # CMakeLists - sysbuild needs one named before the app is configured, and
       # the product refuses any other. Reading it here keeps CI from becoming a
@@ -130,9 +156,12 @@ jobs:
                   products/$product/CMakeLists.txt)
           test -n "$board" || { echo "FAIL: $product declares no board"; exit 1; }
           echo "building $product for $board"
+          # -D<image>_ is sysbuild's namespace for one image's variables, and the
+          # main image is named after the app directory, i.e. the product.
           west build -b "$board" products/$product --sysbuild \
             -- -DBOARD_ROOT=$(pwd)/hardware \
-               -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf"
+               -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf" \
+               -D${product}_EXTRA_CONF_FILE="$RUNNER_TEMP/version.conf"
 
       # Guards against silently regressing to a key anyone can sign with. The
       # default lives in the mcuboot module directory, so any resolved key path
@@ -148,6 +177,23 @@ jobs:
               echo "FAIL: signed with an MCUboot sample key"; exit 1 ;;
           esac
 
+      # An image signed 0.0.0+0 is one MCUboot can never order against another,
+      # so downgrade prevention protects nothing and every unit reports the same
+      # version. The default is 0.0.0+0 whenever the VERSION file stops being
+      # picked up (modules/Kconfig.mcuboot:110-113), which is silent otherwise.
+      - name: assert the signed image carries a real version
+        working-directory: firmware
+        run: |
+          image=build/${{ matrix.product }}/zephyr/zephyr.signed.bin
+          stamped=$(imgtool verify "$image" | sed -n 's/^Image version: //p')
+          echo "imgtool stamped: ${stamped:-<nothing>}"
+          case "$stamped" in
+            "") echo "FAIL: imgtool verify printed no version for $image"; exit 1 ;;
+            0.0.0+0) echo "FAIL: signed 0.0.0+0, the VERSION file was not used"; exit 1 ;;
+          esac
+          test "$stamped" = "$IMAGE_VERSION" \
+            || { echo "FAIL: expected $IMAGE_VERSION"; exit 1; }
+
       # scripts/ is at the repo root, but the .elf is under firmware/build, so this
       # step runs from firmware/ and reaches back up for the script.
       - name: flash-size budget
@@ -159,9 +205,29 @@ jobs:
         working-directory: firmware
         run: find build -maxdepth 3 -name '*.hex' -o -name '*.bin' -o -name '*.uf2' | sort
 
-      # Merges the two sysbuild images (vanilla sysbuild emits no combined hex -
-      # that is an NCS feature) and guards that the result cannot land on the
-      # factory MBR/SoftDevice or above the bootloader's silent write ceiling.
+      # The .uf2 must carry the CONFIRMED image, and mkuf2.py cannot tell one hex
+      # from another. Dropping CONFIG_MCUBOOT_GENERATE_CONFIRMED_IMAGE would
+      # either lose the file at the last step of a long build, or - worse, if
+      # someone then points the merge at zephyr.signed.hex - ship an image that
+      # boots once and reverts.
+      - name: assert the confirmed image exists and is not the plain signed one
+        working-directory: firmware
+        run: |
+          out=build/${{ matrix.product }}/zephyr
+          if [ ! -f "$out/zephyr.signed.confirmed.hex" ]; then
+            echo "FAIL: no zephyr.signed.confirmed.hex"
+            echo "is CONFIG_MCUBOOT_GENERATE_CONFIRMED_IMAGE still y?"
+            exit 1
+          fi
+          if cmp -s "$out/zephyr.signed.hex" "$out/zephyr.signed.confirmed.hex"; then
+            echo "FAIL: the confirmed hex is byte-identical to the unconfirmed one"
+            exit 1
+          fi
+
+      # Merges the two sysbuild images and guards that the result cannot land on
+      # the factory MBR/SoftDevice or above the bootloader's silent write ceiling.
+      # Not SB_CONFIG_MERGED_HEX_FILES: that merges each image's DEFAULT hex, and
+      # for the application that is the unconfirmed one.
       # The application image must be the CONFIRMED one: a slot0 written directly
       # never swaps, so it never marks itself good and would be reverted.
       - name: build the drag-and-drop .uf2
