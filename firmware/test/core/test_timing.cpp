@@ -467,3 +467,113 @@ TEST_CASE("transmit: the design rate never reaches the limit, so nothing is ever
     CHECK(a.go);
     CHECK_FALSE(a.over_budget);
 }
+
+// M. hal::Clock::millis() wraps every 49.7 days and this device flies through
+// that instant. The wrap is a value, not a wait: every case below sets the clock
+// a few hundred milliseconds short of 0xFFFFFFFF and steps past it.
+//
+// This one was a real bug, and the worst of the section: the quiet window after a
+// forced transmission was held as the instant it ENDS, so a forced burst inside
+// the last two seconds before the wrap left `now_ms < quiet_until_ms_` true for
+// the whole of the next count - the transmitter went silent for 49.7 days and
+// reported nothing at all, because a refusal for being inside the quiet window is
+// not counted anywhere. It is held as the instant it began plus a flag now.
+namespace {
+constexpr uint32_t kBeforeWrap = 0xFFFFFC00u;  // 1024 ms short of the wrap
+}
+
+TEST_CASE("transmit: the quiet window after a forced burst ends across the 49.7-day wrap") {
+    Transmitter t = airborne_transmitter();
+    // Forced, 1024 ms before the counter wraps. The 2000 ms of quiet the standard
+    // asks for therefore ends 976 ms AFTER the wrap.
+    t.sent(10, kBeforeWrap, /*forced=*/true);
+
+    CHECK_FALSE(t.attempt(slot_plan(900), 11, kBeforeWrap + 500, true, 0).go);
+    // Past the wrap and still inside the window: the old arithmetic answered
+    // "clear" here, because a small now_ms is not less than a huge deadline.
+    CHECK_FALSE(t.attempt(slot_plan(900), 12, 500u, true, 0).go);
+    CHECK_FALSE(t.attempt(slot_plan(900), 12, 975u, true, 0).go);
+    // 2000 ms after the burst, to the millisecond, whichever side of zero it fell.
+    CHECK(t.attempt(slot_plan(900), 12, 976u, true, 0).go);
+    // And it is a window, not a state: a minute later it has not come back.
+    CHECK(t.attempt(slot_plan(900), 13, 60000u, true, 0).go);
+}
+
+// §D.3's 3000 ms bound on failed attempts, measured across the same instant. The
+// second half is the zero-instant: busy() at exactly 0 used to record nothing,
+// because 0 meant "no attempt in progress", so the first run of failures after
+// every wrap could never force a burst.
+TEST_CASE("transmit: the forced-transmission bound survives the 49.7-day wrap") {
+    Transmitter t = airborne_transmitter();
+    t.busy(kBeforeWrap);
+    CHECK_FALSE(t.attempt(slot_plan(500), 11, kBeforeWrap + 2999u, true, 0).force);
+    CHECK(t.attempt(slot_plan(500), 12, kBeforeWrap + 3000u, true, 0).force);
+
+    Transmitter zero = airborne_transmitter();
+    zero.busy(0);  // the wrap instant itself
+    CHECK_FALSE(zero.attempt(slot_plan(500), 11, 2999u, true, 0).force);
+    CHECK(zero.attempt(slot_plan(500), 12, 3000u, true, 0).force);
+}
+
+TEST_CASE("transmit: the ground rate holds across the 49.7-day wrap") {
+    Transmitter g = airborne_transmitter();
+    g.sent(10, kBeforeWrap, false);
+    CHECK_FALSE(g.attempt(slot_plan(900), 11, 8000u, false, 0).go);   // 9024 ms elapsed
+    CHECK(g.attempt(slot_plan(900), 12, 9000u, false, 0).go);         // 10024 ms elapsed
+}
+
+// The regulatory one. EN 300 220-2 V3.3.1 Table 4 band M is 1% of any hour, and
+// the hour that straddles the wrap is an hour like any other. Buckets numbered
+// now_ms / kBucketMs cannot do this: that number restarts at zero at the wrap and
+// 2^32 ms is not a whole number of minutes either, so the ring dropped everything
+// it held at the wrap and the following hour could spend the allowance a second
+// time. The ring turns by elapsed time now.
+TEST_CASE("channel: the rolling duty-cycle hour spans the 49.7-day wrap") {
+    AirTime air;
+    // Half an hour of the design rate up to the wrap, half an hour after it.
+    const uint32_t start = 0xFFFFFFFFu - 1800u * 1000u + 1u;
+    for (uint32_t i = 0; i < 3600; i++) air.spend(start + i * 1000u, Transmitter::kAirTimeMs);
+
+    const uint32_t last = start + 3599u * 1000u;
+    CHECK(air.bursts() == 3600);
+    CHECK(air.total_ms() == 3600 * Transmitter::kAirTimeMs);
+    // Every one of the 3600 bursts is inside the hour that ends at the last one,
+    // whichever side of zero it was spent on. Before the fix this read 9000: the
+    // half hour before the wrap had been forgotten.
+    CHECK(air.window_ms(last) == 18000);
+    CHECK(air.permille(last) == 5);
+    // So the budget is still the band's, and a device at twice the design rate
+    // through the wrap is still refused at 1%.
+    AirTime hot;
+    uint32_t spent = 0;
+    for (uint32_t i = 0; i < 36000; i++) {
+        const uint32_t at = start + i * 100u;
+        if (!hot.may_spend(at, Transmitter::kAirTimeMs)) continue;
+        hot.spend(at, Transmitter::kAirTimeMs);
+        spent += Transmitter::kAirTimeMs;
+    }
+    CHECK(spent <= AirTime::kBudgetMs);
+    CHECK(hot.window_ms(start + 35999u * 100u) == AirTime::kBudgetMs);
+}
+
+TEST_CASE("channel: air time spent before the wrap leaves the hour after it") {
+    AirTime air;
+    air.spend(0xFFFFF000u, 1000);
+    CHECK(air.window_ms(0xFFFFF000u) == 1000);
+    // Still inside the hour, 59 minutes and 55 seconds later, past the wrap.
+    CHECK(air.window_ms(0xFFFFF000u + AirTime::kWindowMs - 5000u) == 1000);
+    // And out of it, five seconds after that.
+    CHECK(air.window_ms(0xFFFFF000u + AirTime::kWindowMs) == 0);
+    CHECK(air.total_ms() == 1000);
+}
+
+// A device parked for a day and then flown: the ring has no bucket the hour can
+// reach, so it holds nothing, and the total it has spent since boot is untouched.
+TEST_CASE("channel: a silence longer than the window empties it and keeps the total") {
+    AirTime air;
+    air.spend(1000, 5);
+    air.spend(1000 + 24u * 3600u * 1000u, 5);
+    CHECK(air.window_ms(1000 + 24u * 3600u * 1000u) == 5);
+    CHECK(air.total_ms() == 10);
+    CHECK(air.bursts() == 2);
+}

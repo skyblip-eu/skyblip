@@ -36,7 +36,7 @@ Transmitter::Attempt Transmitter::attempt(const SlotPlan& plan, uint32_t utc, ui
     Attempt a{};
     if (!plan.tx_allowed) return a;
     if (fix_age_ms > kFixAgeMaxMs) return a;
-    if (now_ms < quiet_until_ms_) return a;
+    if (quiet_ && now_ms - quiet_since_ms_ < kQuietAfterForcedMs) return a;
     if (ever_sent_ && airborne && utc == last_sent_utc_) return a;
     if (ever_sent_ && !airborne && now_ms - last_sent_ms_ < kGroundPeriodMs) return a;
 
@@ -58,7 +58,7 @@ Transmitter::Attempt Transmitter::attempt(const SlotPlan& plan, uint32_t utc, ui
     a.go = true;
     a.at_ms = instant_in(slot, utc);
     a.freq_hz = Scheduler::slot_freq(slot);
-    a.force = first_attempt_ms_ != 0 && now_ms - first_attempt_ms_ >= kForceAfterMs;
+    a.force = attempting_ && now_ms - attempt_since_ms_ >= kForceAfterMs;
     return a;
 }
 
@@ -68,13 +68,16 @@ void Transmitter::sent(uint32_t utc, uint32_t now_ms, bool forced) {
     ever_sent_ = true;
     last_sent_utc_ = utc;
     last_sent_ms_ = now_ms;
-    first_attempt_ms_ = 0;
-    quiet_until_ms_ = forced ? now_ms + kQuietAfterForcedMs : 0;
+    attempting_ = false;
+    quiet_ = forced;
+    quiet_since_ms_ = now_ms;
 }
 
 void Transmitter::busy(uint32_t now_ms) {
     busy_++;
-    if (first_attempt_ms_ == 0) first_attempt_ms_ = now_ms;
+    if (attempting_) return;
+    attempting_ = true;
+    attempt_since_ms_ = now_ms;
 }
 
 }  // namespace skyblip::timing

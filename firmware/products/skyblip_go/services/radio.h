@@ -39,15 +39,18 @@ class RadioService : public runtime::Service {
    private:
     static constexpr uint8_t kFlightStateAirborne = 2;
 
-    int phase_ms(uint32_t now_ms) const;
-    uint64_t pps_epoch_us(uint32_t now_ms) const;
+    // Both from micros(), which is 64-bit and does not wrap: nothing about where
+    // the radio believes it is inside the second reads the 32-bit millisecond
+    // counter (hal/clock.h).
+    int phase_ms() const;
+    uint64_t pps_epoch_us() const;
     // Slot 1 spans the UTC second, so inside its tail the dwell, the burst it
     // carries and the second they are accounted to all belong to the second the
     // slot started in.
-    uint64_t dwell_epoch_us(uint32_t now_ms) const;
-    uint32_t slot_utc(uint32_t now_ms) const;
+    uint64_t dwell_epoch_us() const;
+    uint32_t slot_utc() const;
     protocol::BurstInstant burst_instant(const timing::Transmitter::Attempt& attempt,
-                                         uint64_t tx_at_us, uint32_t now_ms) const;
+                                         uint64_t tx_at_us) const;
     static hal::RfMode mode_for(const timing::SlotPlan& plan);
     static void listen_for(timing::Band band, hal::RfPlan& plan);
     timing::Transmitter::Attempt attempt(const timing::SlotPlan& plan, uint32_t now_ms) const;
@@ -60,6 +63,17 @@ class RadioService : public runtime::Service {
     timing::Scheduler scheduler_{};
     timing::Transmitter transmitter_{};
     timing::NoiseFloor noise_{};
+    // The transmit buffer, and the only writer it has: protocol::from_own, out of
+    // own-ship state, the device address and the settings. There is deliberately no
+    // loopback guard in front of it. SoftRF has one, because a transmission that
+    // was the last frame received did happen to it ("$PSRFE,RF loopback is
+    // detected on Tx", src/driver/RF.cpp:381-396), and the shape of that firmware
+    // is why: one driver owning a shared Tx/Rx buffer pair, with relay and bridge
+    // paths that do put received traffic back on air. Here a received frame's only
+    // path is the RfEvent queue into TrafficService and the traffic table, and
+    // nothing transmits from either. Adding the comparison would put work inside a
+    // dwell to defend against a state this composition cannot reach; the property
+    // is asserted over the air instead, in test/products/test_rf_timing.cpp.
     protocol::AdslPacket outgoing_{};
     uint8_t outgoing_chips_[protocol::kTxChipBytes]{};
     hal::RfMode armed_{hal::RfMode::Idle};

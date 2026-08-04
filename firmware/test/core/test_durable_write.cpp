@@ -255,3 +255,44 @@ TEST_CASE("durable write: a change at any phase of the second is placed within t
         CHECK(window.worst_wait_ms() <= DurableWriteWindow::kSettleMs + 1000);
     }
 }
+
+// M. The whole policy is unsigned differences from the first and last request, so
+// the 49.7-day wrap of hal::Clock::millis() costs it nothing - but "costs it
+// nothing" is a claim, and this is the case that holds it. A pilot stepping a
+// setting through the wrap instant must not have their change deferred for seven
+// weeks, and a dwell view stamped before the wrap must read as 84 ms old after it
+// rather than as a lifetime.
+TEST_CASE("durable write: the settle, the bound and the stale view span the 49.7-day wrap") {
+    const uint32_t before = 0xFFFFFF00u;  // 256 ms short of the wrap
+
+    DurableWriteWindow window;
+    window.request(before);
+    // Inside the settle, at a phase the write would otherwise fit: held.
+    CHECK(window.decide(anchored_plan(50), view_at(50, before + 100u), before + 100u) ==
+          DurableWriteVerdict::Hold);
+    // The settle expires 750 ms after the request, which is 494 ms past zero.
+    const uint32_t settled = before + DurableWriteWindow::kSettleMs;
+    REQUIRE(settled < before);  // the case is worthless unless it wrapped
+    CHECK(window.decide(anchored_plan(50), view_at(50, settled), settled) ==
+          DurableWriteVerdict::Place);
+    window.placed(settled, false);
+    // 750 ms waited, not 49.7 days: worst_wait_ms is the same subtraction.
+    CHECK(window.worst_wait_ms() == DurableWriteWindow::kSettleMs);
+
+    // The bound, measured from a request made before the wrap and spent after it.
+    DurableWriteWindow bound;
+    bound.request(before);
+    const uint32_t spent = before + DurableWriteWindow::kMaxDeferMs;
+    CHECK(bound.decide(anchored_plan(500), view_at(500, spent), spent) ==
+          DurableWriteVerdict::Forced);
+
+    // The stamped view: asked at 20 ms past the wrap, about a dwell that published
+    // its phase 64 ms before it.
+    DurableWriteWindow view;
+    const uint32_t asked = 20u;
+    view.request(asked - 800u);
+    const DwellPhase fresh = view_at(20, 0xFFFFFFC0u);   // 84 ms old
+    const DwellPhase stale = view_at(20, 0xFFFFFF00u);   // 276 ms old, past the bound
+    CHECK(view.decide(anchored_plan(104), fresh, asked) == DurableWriteVerdict::Place);
+    CHECK(view.decide(anchored_plan(104), stale, asked) == DurableWriteVerdict::Hold);
+}

@@ -136,7 +136,7 @@ class World {
     uint32_t last_aircraft_ms_{0};
     uint32_t last_baro_ms_{0};
     uint32_t airmass_qnh_pa_{flight::kIsaSeaLevelPa};
-    uint32_t press_until_ms_{0};
+    uint32_t press_since_ms_{0};
     int32_t origin_lat_1e7_{0};
     int32_t origin_lon_1e7_{0};
     bool origin_set_{false};
@@ -145,6 +145,7 @@ class World {
     int failures_{0};
     bool armed_{false};
     bool press_pending_{false};
+    bool pressing_{false};
     char failure_[96]{0};
 };
 

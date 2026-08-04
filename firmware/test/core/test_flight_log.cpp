@@ -189,6 +189,31 @@ TEST_CASE("log session: a record every four seconds and no more") {
     CHECK(session.update(flying(kBaseUtc + 4, 200), 4000) == flight::LogAction::AppendRecord);
 }
 
+// M. The four-second record cadence across the 49.7-day wrap of
+// hal::Clock::millis(). A flight log that stops sampling for seven weeks is a
+// flight log with a hole in it that no badge claim survives, and the sampled_ flag
+// beside the stamp is what keeps zero from meaning "never sampled" at the one
+// instant the counter produces it.
+TEST_CASE("log session: the four-second cadence spans the 49.7-day wrap") {
+    flight::LogSession session;
+    const uint32_t before = 0xFFFFFF00u;  // 256 ms short of the wrap
+    session.update(flying(kBaseUtc, 200), before);
+    flight::LogRecord drained{};
+    while (session.take(drained)) {
+    }
+
+    CHECK(session.update(flying(kBaseUtc + 1, 200), before + 1000u) == flight::LogAction::Idle);
+    CHECK(session.update(flying(kBaseUtc + 3, 200), before + 3999u) == flight::LogAction::Idle);
+    // 4000 ms after the last sample, which is 3744 ms past zero.
+    const uint32_t due = before + flight::kLogRecordPeriodMs;
+    REQUIRE(due < before);  // the case is worthless unless it wrapped
+    CHECK(session.update(flying(kBaseUtc + 4, 200), due) == flight::LogAction::AppendRecord);
+    // And the cadence continues from there rather than from zero.
+    CHECK(session.update(flying(kBaseUtc + 5, 200), due + 3999u) == flight::LogAction::Idle);
+    CHECK(session.update(flying(kBaseUtc + 8, 200), due + 4000u) ==
+          flight::LogAction::AppendRecord);
+}
+
 TEST_CASE("log session: the file opens before the criterion agreed, so the roll is in it") {
     flight::LogSession session;
     uint32_t now_ms = 0;

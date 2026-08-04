@@ -165,3 +165,25 @@ TEST_CASE("flight: the motion figure is speed plus four times the climb, DOP der
     // A receiver that reports no DOP at all is not punished for it.
     CHECK(motion_e8(solution(0, 4.0, 0.0, 500, 0)) == kTakeoffMotionE8);
 }
+
+// M. The takeoff and landing holds are sums of unsigned differences between
+// consecutive samples, so the 49.7-day wrap of hal::Clock::millis() is one
+// ordinary second to this monitor. What it would cost if it were not: the gap
+// across the wrap reads as 4.29 billion milliseconds, which is past
+// kMaxSampleGapMs, so the sample is thrown away and a takeoff in progress loses
+// its evidence - or worse, a landing declares itself in the air.
+TEST_CASE("flight: the takeoff hold is counted across the 49.7-day wrap") {
+    FlightMonitor monitor;
+    uint32_t t = 0xFFFFF000u - 1000u;  // the roll starts 4096 ms before the wrap
+    REQUIRE(hold(monitor, t, 3, 0.0, 0.0) == FlightState::OnGround);
+
+    // Five seconds of evidence, straddling zero (the first sample of the roll is
+    // refused as a speed jerk, as it is on any other day), and the sample that
+    // crossed the wrap counted as one second like the others.
+    CHECK(hold(monitor, t, 5, 20.0, 1.0) == FlightState::OnGround);
+    CHECK(hold(monitor, t, 1, 20.0, 1.0) == FlightState::Airborne);
+
+    // And the landing hold, ten seconds later, on the far side.
+    CHECK(hold(monitor, t, 9, 0.0, 0.0) == FlightState::Airborne);
+    CHECK(hold(monitor, t, 1, 0.0, 0.0) == FlightState::OnGround);
+}

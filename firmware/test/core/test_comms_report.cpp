@@ -233,3 +233,141 @@ TEST_CASE("comms: timing carries the carrier-sense threshold in force and its in
     }
     CHECK(body.find("\"refused\":0") != std::string::npos);
 }
+
+// L. The whole dump, over the link the phone already has open: the same five
+// subsystems the USB console prints, so a laptop on the bench and a companion page
+// on a wing cannot report a device differently. The formatter itself is proved in
+// test/core/test_diagnostics.cpp; this is the dispatch and the ceiling.
+TEST_CASE("comms: one question answers every subsystem, in frames the link can carry") {
+    platform::host::Link link;
+    link.declare_payload_bytes(kSmallestSupportedPayload);
+    settings::Settings s = settings::defaults(0xAA55);
+    ConfigService cs(link, s);
+
+    // What the product tells this service, through the doors it already had.
+    cs.set_reset_reason(power::ResetReason::Watchdog);
+    cs.set_battery_state(battery_of(64, false), power::PowerLevel::Normal);
+    cs.set_die_temperature(415, true);
+    cs.set_range_refused(5);
+
+    // And what the product's collector fills in, once a second.
+    Diagnostics& dump = cs.diagnostics();
+    dump.refreshes = 3;
+    dump.supply_warnings = 1;
+    dump.battery_implausible = 2;
+    dump.uptime_s = 3725;
+    dump.noise_dbm = -101;
+    dump.lbt_dbm = -91;
+    dump.rx_ok = 1204;
+    dump.tracked = 4;
+    dump.gnss_fixes = 5210;
+    dump.gnss_baud = 9600;
+    dump.gnss_identified = true;
+    dump.gnss_firmware = "URANUS5,V5.1.0.0";
+    dump.gnss_reject = gnss::FixReject::Stale;
+    dump.gnss_rejected = 6;
+
+    link.clear();
+    cs.on_rx(frame("{\"cmd\":\"diag\"}"));
+    REQUIRE(!link.sent.empty());
+    const std::string body = joined(link);
+
+    CHECK(body.find("\"group\":\"sys\"") != std::string::npos);
+    CHECK(body.find("\"up_s\":3725") != std::string::npos);
+    CHECK(body.find("\"reset\":\"WATCHDOG\"") != std::string::npos);
+    CHECK(body.find("\"noise_dbm\":-101") != std::string::npos);
+    CHECK(body.find("\"lbt_dbm\":-91") != std::string::npos);
+    CHECK(body.find("\"rx_ok\":1204") != std::string::npos);
+    CHECK(body.find("\"range_refused\":5") != std::string::npos);
+    CHECK(body.find("\"tracked\":4") != std::string::npos);
+    CHECK(body.find("\"fixes\":5210") != std::string::npos);
+    CHECK(body.find("\"baud\":9600") != std::string::npos);
+    CHECK(body.find("\"firmware\":\"URANUS5,V5.1.0.0\"") != std::string::npos);
+    CHECK(body.find("\"reject\":\"STALE\"") != std::string::npos);
+    CHECK(body.find("\"rejected\":6") != std::string::npos);
+    CHECK(body.find("\"supply_warnings\":1") != std::string::npos);
+    CHECK(body.find("\"implausible\":2") != std::string::npos);
+    // The gauge and the die sensor are the SAME numbers the status reply carries,
+    // because there is one snapshot behind both replies and not two copies.
+    CHECK(body.find("\"percent\":64") != std::string::npos);
+    CHECK(body.find("\"die_temp_c\":42") != std::string::npos);
+    cs.on_rx(frame("{\"cmd\":\"status\"}"));
+    CHECK(link.last().bytes.find("\"battery_percent\":64") != std::string::npos);
+    CHECK(link.last().bytes.find("\"die_temp_c\":42") != std::string::npos);
+
+    // Every frame whole, none longer than the narrowest phone in the field, and
+    // nothing refused on the way out.
+    for (const platform::host::Link::Frame& f : link.sent) {
+        CHECK(f.bytes.front() == '{');
+        CHECK(f.bytes.back() == '}');
+        CHECK(f.bytes.size() <= static_cast<size_t>(kSmallestSupportedPayload));
+    }
+    CHECK(cs.link_drops() == 0);
+}
+
+TEST_CASE("comms: a dump nobody has collected says so, not zeros") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(0xAA55);
+    ConfigService cs(link, s);
+    cs.on_rx(frame("{\"cmd\":\"diag\"}"));
+    REQUIRE(link.sent.size() == 1);
+    CHECK(link.last().bytes.find("no_stats") != std::string::npos);
+    // A device with a dead receiver and a dead radio reports zeros for real, so
+    // the difference has to be visible: the refusal names the wiring.
+    CHECK(link.last().bytes.find("\"ack\":false") != std::string::npos);
+
+    // The radio group is not gated, and that asymmetry is deliberate: its own key
+    // has a writer that runs every pass, and a radio that has heard nothing
+    // truthfully has zero receptions. A receiver's firmware string does not.
+    link.clear();
+    cs.on_rx(frame("{\"cmd\":\"radio\"}"));
+    CHECK(link.last().bytes.find("\"cmd\":\"radio\"") != std::string::npos);
+}
+
+// Asking is not clearing. Every counter in the dump belongs to somebody else and
+// keeps counting; two questions in a row must produce the same answer.
+TEST_CASE("comms: asking for the dump twice answers the same numbers twice") {
+    platform::host::Link link;
+    link.declare_payload_bytes(kSmallestSupportedPayload);
+    settings::Settings s = settings::defaults(0xAA55);
+    ConfigService cs(link, s);
+    cs.diagnostics().refreshes = 1;
+    cs.diagnostics().rx_ok = 99;
+    cs.set_range_refused(7);
+
+    cs.on_rx(frame("{\"cmd\":\"diag\"}"));
+    const std::string first = joined(link);
+    link.clear();
+    cs.on_rx(frame("{\"cmd\":\"diag\"}"));
+    CHECK(joined(link) == first);
+    CHECK(cs.diagnostics().rx_ok == 99);
+    CHECK(cs.diagnostics().range_refused == 7);
+}
+
+// M. The other 32-bit boundary in this section, and it is not the clock: a count a
+// laboratory reads. json::Writer and the console writer both carry a long, which is
+// 64-bit on this host and 32-bit on the nRF52840, so a uint32_t counter cast
+// straight to long prints correctly here and NEGATIVELY on the device - the one
+// divergence a host suite cannot see, since the suite is the thing being trusted.
+// The timing report's sample counts were naked casts until 2026-08-06; they go
+// through the one saturating conversion both reports share now
+// (core/comms/frame_budget.h, pinned in test/core/test_diagnostics.cpp).
+TEST_CASE("comms: the timing report's counts are unsigned on every platform") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(0xAA55);
+    timing::SlotTimingStats stats;
+    stats.record_edge(0, true);
+    stats.record_edge(1000000, true);
+    stats.record_missed();
+    ConfigService cs(link, s, nullptr, &stats);
+    cs.on_rx(frame("{\"cmd\":\"timing\"}"));
+    const std::string body = joined(link);
+    CHECK(body.find("\"pps_samples\":1") != std::string::npos);
+    CHECK(body.find("\"dwell_samples\":0") != std::string::npos);
+    CHECK(body.find("\"missed\":1") != std::string::npos);
+    CHECK(body.find("_samples\":-") == std::string::npos);
+    CHECK(body.find("\"holdover\":-") == std::string::npos);
+    // The signed figures stay signed: an error in microseconds has a direction.
+    CHECK(body.find("\"pps_worst_us\":0") != std::string::npos);
+    CHECK(body.find("\"carrier_sense_us\":160") != std::string::npos);
+}
