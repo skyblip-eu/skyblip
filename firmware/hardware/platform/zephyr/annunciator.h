@@ -7,18 +7,38 @@
 #include <zephyr/kernel.h>
 
 #include "hal/annunciator.h"
+#include "hal/haptic.h"
 
 namespace skyblip::platform::zephyr {
 
+// A vibration motor wired straight to a pin. This is what the annunciator used
+// to be, inlined and named "vibro", and it is the wrong part for the T-Echo
+// Plus: P0.08 there is a DRV2605's enable, so driving it high brings a waveform
+// driver out of standby and moves nothing. Kept as the platform's default
+// haptic, because a pin is always a pin, and because a board that IS fitted with
+// a bare motor needs exactly this and nothing more.
+class PinMotor : public hal::Haptic {
+   public:
+    explicit PinMotor(const struct gpio_dt_spec& pin) : pin_(pin) {}
+
+    // Configured on use, not at bring-up. The same pin is a DRV2605's enable on
+    // this board, and a begin() that parked it low would switch the waveform
+    // driver off after the board had just enabled it.
+    void start() override { gpio_pin_configure_dt(&pin_, GPIO_OUTPUT_ACTIVE); }
+    void stop() override { gpio_pin_configure_dt(&pin_, GPIO_OUTPUT_INACTIVE); }
+
+   private:
+    struct gpio_dt_spec pin_;
+};
+
 class Annunciator : public hal::Annunciator {
    public:
-    Annunciator(const struct pwm_dt_spec& buzzer, const struct gpio_dt_spec& vibro)
-        : buzzer_(buzzer), vibro_(vibro) {}
+    Annunciator(const struct pwm_dt_spec& buzzer, hal::Haptic& haptic)
+        : buzzer_(buzzer), haptic_(&haptic) {}
 
     void begin() {
-        gpio_pin_configure_dt(&vibro_, GPIO_OUTPUT_INACTIVE);
-        k_timer_init(&vibro_timer_, vibro_off, nullptr);
-        k_timer_user_data_set(&vibro_timer_, this);
+        haptic_end_.owner = this;
+        k_work_init_delayable(&haptic_end_.work, haptic_off);
         silence();
     }
 
@@ -29,11 +49,26 @@ class Annunciator : public hal::Annunciator {
         uint32_t period = PWM_HZ(tone_hz(level));
         pwm_set_dt(&buzzer_, period, period / (5 - (volume > 3 ? 3 : volume)));
     }
+
+    // The pulse and the timer that ends it, per hal/annunciator.h. What the pulse
+    // reaches - a pin, or a DRV2605 over I2C - is the board's business: it
+    // attaches whichever it found.
+    // A delayed work item and not a k_timer: a timer's callback runs in interrupt
+    // context, and the DRV2605 is stopped over I2C, which may not be called from
+    // there. Rescheduled rather than started, so a second pulse that lands inside
+    // the first extends it instead of being cut short by the first one's deadline.
     void vibrate(uint16_t ms) override {
-        gpio_pin_set_dt(&vibro_, 1);
-        k_timer_start(&vibro_timer_, K_MSEC(ms), K_NO_WAIT);
+        haptic_->start();
+        k_work_reschedule(&haptic_end_.work, K_MSEC(ms));
     }
+
     void silence() override { pwm_set_dt(&buzzer_, PWM_HZ(kTransducerResonanceHz), 0); }
+
+    // The one pass of the loop the host platform needs to end a pulse; here the
+    // kernel timer has already done it.
+    void service(uint32_t) {}
+
+    void attach_haptic(hal::Haptic& haptic) { haptic_ = &haptic; }
 
    private:
     // INFO: fc 03aug26 The fitted transducer is not identified in LilyGO's own
@@ -51,13 +86,21 @@ class Annunciator : public hal::Annunciator {
         return kTransducerResonanceHz + (static_cast<int32_t>(level) - kMiddleLevel) * kLevelStepHz;
     }
 
-    static void vibro_off(struct k_timer* t) {
-        auto* self = static_cast<Annunciator*>(k_timer_user_data_get(t));
-        gpio_pin_set_dt(&self->vibro_, 0);
+    // A plain struct, so CONTAINER_OF is arithmetic on a standard-layout type
+    // rather than an offsetof into a class with a vtable.
+    struct PulseEnd {
+        struct k_work_delayable work;
+        Annunciator* owner;
+    };
+
+    static void haptic_off(struct k_work* work) {
+        PulseEnd* end = CONTAINER_OF(k_work_delayable_from_work(work), PulseEnd, work);
+        end->owner->haptic_->stop();
     }
+
     struct pwm_dt_spec buzzer_;
-    struct gpio_dt_spec vibro_;
-    struct k_timer vibro_timer_;
+    hal::Haptic* haptic_;
+    PulseEnd haptic_end_{};
 };
 
 }  // namespace skyblip::platform::zephyr
