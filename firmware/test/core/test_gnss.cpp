@@ -27,8 +27,9 @@ TEST_CASE("gnss: coord parse DDMM.mmmm -> 1e-7 deg") {
 
 TEST_CASE("gnss: RMC updates fix position, time, speed, track") {
     NmeaParser p;
-    const char* rmc = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A";
+    const char* rmc = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230825,003.1,W*6B";
     CHECK(p.parse_line(rmc, static_cast<int>(strlen(rmc))));
+    CHECK(p.last_sentence() == Sentence::Rmc);
     const GnssFix& f = p.fix();
     CHECK(f.valid);
     CHECK(f.utc_valid);
@@ -38,8 +39,56 @@ TEST_CASE("gnss: RMC updates fix position, time, speed, track") {
     CHECK(std::abs(int(f.speed_q) - 46) <= 3);
     // track 84.4 deg -> cordic ~120
     CHECK(std::abs(int(f.track_c9) - 120) <= 3);
-    // 1994-03-23 12:35:19 UTC epoch
-    CHECK(f.utc == 764426119u);
+    // 2025-08-23 12:35:19 UTC epoch
+    CHECK(f.utc == 1755952519u);
+}
+
+// I, row "Date and jump sanity". An MTK-lineage receiver with no almanac reports
+// a date in 1980 beside a position that looks entirely ordinary, and OGN refuses
+// it by name (oss/nrf52-ogn-tracker src/ogn.h:737-738). The pinned bug: we took
+// any six digits that parsed, so 1980 became an epoch, a flight log session name
+// and an ADS-L timestamp, all of them wrong and none of them detectable
+// afterwards. The position in the same sentence is not what is being doubted:
+// the date is, and it is the date that is dropped.
+TEST_CASE("gnss: the MTK year-1980 date is refused, and so is anything before 2000") {
+    NmeaParser p;
+    const char* lie = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230380,003.1,W*6F";
+    REQUIRE(p.parse_line(lie, static_cast<int>(strlen(lie))));
+    CHECK(p.fix().valid);  // the receiver still claims a solution
+    CHECK_FALSE(p.fix().utc_valid);
+    CHECK(p.fix().utc == 0);
+
+    // The boundary: 69 is 2069 and believable, 70 is 1970 and a lie. OGN draws
+    // the line in the same place.
+    CHECK(kMaxTwoDigitYear == 70);
+
+    // A receiver still counting up from nothing sends all zeroes, which is not a
+    // date either: month 0 and day 0 do not exist.
+    const char* zeroes = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,000000,003.1,W*65";
+    REQUIRE(p.parse_line(zeroes, static_cast<int>(strlen(zeroes))));
+    CHECK_FALSE(p.fix().utc_valid);
+
+    // And a good date after a bad one clears it: the flag follows the sentence,
+    // it is not sticky.
+    const char* good = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230825,003.1,W*6B";
+    REQUIRE(p.parse_line(good, static_cast<int>(strlen(good))));
+    CHECK(p.fix().utc_valid);
+}
+
+// I, row "Leap seconds": DOES NOT APPLY, and this is where it is written down.
+// RMC fields 1 and 9 are UTC as the receiver resolved them, so the GPS-UTC
+// offset (18 s in 2026) never enters our arithmetic. The moshe-braner fork
+// queries it, persists it and reboots when it changes
+// (.../src/driver/GNSS.cpp:1610-1679) because it reads u-blox NAV-TIMEGPS, which
+// is GPS time. Applying a correction here would move our clock 18 s off UTC.
+TEST_CASE("gnss: RMC time is UTC already, so no leap-second offset is applied") {
+    NmeaParser p;
+    const char* rmc = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230825,003.1,W*6B";
+    REQUIRE(p.parse_line(rmc, static_cast<int>(strlen(rmc))));
+    // Exactly the UTC epoch of 2025-08-23T12:35:19Z. Not 18 s past it, not 18 s
+    // short of it: the same integer any UTC clock would produce.
+    CHECK(p.fix().utc == 1755952519u);
+    CHECK(p.fix().utc != 1755952519u + 18u);
 }
 
 TEST_CASE("gnss: GGA updates altitude and sats") {
@@ -146,6 +195,62 @@ TEST_CASE("gnss: a fix is timestamped before its sentence arrived") {
     // Boot: the correction reaches back past zero, and the ages computed from it
     // stay right because the arithmetic wraps the same way on both sides.
     CHECK(static_cast<uint32_t>(500 - fix_instant_ms(f, 100)) == 535);
+}
+
+// I, row "Date and jump sanity", second half. A sentence that stopped early
+// still carries a checksum over the part that arrived, so the checksum cannot
+// catch it: moshe-braner measures the GGA and refuses anything under 40
+// characters (.../src/driver/GNSS.cpp:2226-2236). The pinned bug: a GGA cut
+// short after the fix quality left the previous altitude standing while the rest
+// of the fix moved on, which reads as an aircraft holding altitude perfectly.
+TEST_CASE("gnss: a truncated GGA is refused, checksum or no checksum") {
+    NmeaParser p;
+    const char* whole = "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47";
+    REQUIRE(p.parse_line(whole, static_cast<int>(strlen(whole))));
+    REQUIRE(p.fix().alt_msl_m == 545);
+
+    // Cut after HDOP, re-checksummed: eight fields where ten are needed.
+    const char* cut = "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9*7C";
+    REQUIRE(nmea_checksum_ok(cut, static_cast<int>(strlen(cut))));
+    CHECK_FALSE(p.parse_line(cut, static_cast<int>(strlen(cut))));
+
+    // Every field empty: the field count is fine and the length is not, which is
+    // the case the length rule exists for.
+    const char* empty = "$GPGGA,,,,,,,,,,,,,,*56";
+    REQUIRE(nmea_checksum_ok(empty, static_cast<int>(strlen(empty))));
+    CHECK(static_cast<int>(strlen(empty)) < kMinGgaLength);
+    CHECK_FALSE(p.parse_line(empty, static_cast<int>(strlen(empty))));
+
+    // Neither of them touched the solution we already had.
+    CHECK(p.fix().alt_msl_m == 545);
+    CHECK(p.fix().updates == 1);
+}
+
+// I, row "Receiver identification". $PCAS06 is answered with a $GPTXT banner and
+// nothing else on this receiver answers at all, so the banner is the only proof
+// the part in front of us speaks $PCAS. SoftRF reads the version out of the same
+// offset (oss/SoftRF-lyusupov .../src/driver/GNSS.cpp:981-1010, 1015-1025).
+TEST_CASE("gnss: the receiver names itself in a $GPTXT, and the version is kept") {
+    NmeaParser p;
+    CHECK_FALSE(p.identified());
+    CHECK(p.firmware_version()[0] == 0);
+
+    const char* banner = "$GPTXT,01,01,02,SW=URANUS5,V5.1.0.0*1F";
+    CHECK(p.parse_line(banner, static_cast<int>(strlen(banner))));
+    CHECK(p.last_sentence() == Sentence::Txt);
+    CHECK(p.identified());
+    CHECK(strcmp(p.firmware_version(), "URANUS5,V5.1.0.0") == 0);
+
+    // A banner is not a solution: the verification window counts fixes, and a
+    // receiver introducing itself must not satisfy it.
+    CHECK(p.fix().updates == 0);
+
+    // The part emits other $GPTXT lines (antenna status, start-up notices). A
+    // version field that is sometimes an antenna warning is worse than none, so
+    // only the SW= banner is taken and the version already learned stands.
+    const char* antenna = "$GPTXT,01,01,01,ANTSTATUS=OK*38";
+    CHECK_FALSE(p.parse_line(antenna, static_cast<int>(strlen(antenna))));
+    CHECK(strcmp(p.firmware_version(), "URANUS5,V5.1.0.0") == 0);
 }
 
 TEST_CASE("gnss: corrupt checksum is rejected, no update") {

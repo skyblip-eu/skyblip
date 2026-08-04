@@ -1,0 +1,15 @@
+# The application image version. Zephyr reads this file twice, so nothing but
+# assignments and comments may appear in it: cmake/modules/version.cmake turns
+# it into APP_VERSION_*, and Kconfig osources it verbatim (Kconfig.zephyr:10),
+# which is what makes CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION default to
+# "$(APP_VERSION_TWEAK_STRING)" rather than 0.0.0+0 (modules/Kconfig.mcuboot:
+# 110-113). imgtool stamps that string into the image header, and it is what
+# the bootloader compares on the next OTA.
+#
+# The tweak stays 0 here. CI overrides the signing version with this triple plus
+# github.run_number instead of editing this file, because version.cmake:79-81
+# refuses a tweak above 255 and because a local build has no run number.
+VERSION_MAJOR = 0
+VERSION_MINOR = 1
+PATCHLEVEL = 0
+VERSION_TWEAK = 0

@@ -3,10 +3,13 @@
 // pin down that the gauge says which curve it read, never walks the wrong way, and
 // ignores the sag of a 22 dBm burst. A percentage that jumps when the radio keys
 // is a gauge a pilot stops believing.
+#include <string>
+
 #include "core/power/battery.h"
 #include "core/power/cutoff.h"
 #include "core/power/reset_reason.h"
 #include "core/power/shutdown.h"
+#include "core/power/wake.h"
 #include "doctest/doctest.h"
 
 using namespace skyblip;
@@ -338,6 +341,134 @@ TEST_CASE("shutdown: the hold is readable while it fills up") {
     CHECK(seq.held_ms(700) == 0);
 }
 
+// M. The whole sequencer across the 49.7-day wrap of hal::Clock::millis(): the
+// long press, the park, and the settle after the button comes up. It is written as
+// unsigned differences from a stamp guarded by a flag, and this is the case that
+// keeps it that way. What the two failures would be: a press that never reaches
+// two seconds, so the device cannot be switched off at all until the counter comes
+// round; or a park that expires the instant it starts, so the rails go while the
+// panel is still refreshing.
+TEST_CASE("shutdown: the press, the park and the settle span the 49.7-day wrap") {
+    ShutdownSequencer seq;
+    const uint32_t before = 0xFFFFFF00u;  // 256 ms short of the wrap
+    uint32_t t = before;
+    seq.tick(t, false);  // the button starts up: the hold is armed
+
+    // Pressed 256 ms before the wrap, held through it. The hold reads as elapsed
+    // time on both sides of zero.
+    seq.tick(t, true);
+    CHECK(seq.held_ms(before + 500u) == 500);
+    for (t = before; t != before + kLongPressMs - 10u; t += 10) seq.tick(t, true);
+    CHECK(seq.phase() == ShutdownPhase::Running);
+    seq.tick(before + kLongPressMs, true);
+    CHECK(seq.phase() == ShutdownPhase::Parking);
+    CHECK(seq.reason() == ShutdownReason::LongPress);
+
+    // The park is three seconds of panel time, not zero and not seven weeks.
+    const uint32_t parking_since = before + kLongPressMs;
+    seq.tick(parking_since + kParkMs - 1u, true);
+    CHECK(seq.phase() == ShutdownPhase::Parking);
+    seq.tick(parking_since + kParkMs, true);
+    CHECK(seq.phase() == ShutdownPhase::AwaitRelease);
+
+    // The finger comes up, and the settle before the wake pin is armed is
+    // measured the same way.
+    const uint32_t released = parking_since + kParkMs + 40u;
+    seq.tick(released, false);
+    seq.tick(released + kReleaseSettleMs - 1u, false);
+    CHECK_FALSE(seq.ready_to_power_off());
+    seq.tick(released + kReleaseSettleMs, false);
+    CHECK(seq.phase() == ShutdownPhase::Off);
+    CHECK(seq.ready_to_power_off());
+}
+
+// The order the rails are allowed to collapse in. Nothing here is about WHEN
+// the device switches off - the sequencer above owns that - and everything is
+// about what is still powered when each command is sent. Three of these steps
+// are silently useless one position later.
+
+namespace {
+
+class RecordingSink : public power::PowerDownSink {
+   public:
+    void perform(power::PowerDownStep step) override {
+        if (count < power::kPowerDownStepCount) steps[count++] = step;
+    }
+    int at(power::PowerDownStep step) const {
+        for (int i = 0; i < count; i++)
+            if (steps[i] == step) return i;
+        return -1;
+    }
+    power::PowerDownStep steps[power::kPowerDownStepCount]{};
+    int count{0};
+};
+
+}  // namespace
+
+TEST_CASE("power down: every step runs once, in the order the table declares") {
+    RecordingSink sink;
+    power_down(sink);
+    REQUIRE(sink.count == kPowerDownStepCount);
+    for (int i = 0; i < kPowerDownStepCount; i++) {
+        CHECK(sink.steps[i] == kPowerDownOrder[i]);
+        CHECK(sink.at(kPowerDownOrder[i]) == i);
+        CHECK(to_string(kPowerDownOrder[i])[0] != '\0');
+    }
+}
+
+// The bug this whole sequence exists to prevent: 0xB9 arrives at a part that has
+// already lost its supply, the command does nothing, and an external flash draws
+// its full standby current for the whole night the device spends in a flight bag
+// looking switched off.
+TEST_CASE("power down: the external flash is told to sleep while it still has a rail") {
+    RecordingSink sink;
+    power_down(sink);
+    CHECK(sink.at(PowerDownStep::ExternalFlashDeepPowerDown) <
+          sink.at(PowerDownStep::PeripheralRailOff));
+    // And over the lines the command travels on, which is why they are released
+    // after it and not with the rest of the pins.
+    CHECK(sink.at(PowerDownStep::ExternalFlashDeepPowerDown) <
+          sink.at(PowerDownStep::ExternalFlashLinesReleased));
+}
+
+TEST_CASE("power down: the radio is asleep before anything touches its reset line") {
+    RecordingSink sink;
+    power_down(sink);
+    CHECK(sink.at(PowerDownStep::RadioSleep) < sink.at(PowerDownStep::RadioResetAsserted));
+    CHECK(sink.at(PowerDownStep::RadioSleep) < sink.at(PowerDownStep::DrivenPinsReleased));
+}
+
+TEST_CASE("power down: the GNSS is switched off, and before its supply goes") {
+    RecordingSink sink;
+    power_down(sink);
+    // The receiver with a fix is tens of milliamps: the one part that decides
+    // whether an 850 mAh pack survives a night.
+    REQUIRE(sink.at(PowerDownStep::GnssBackupOff) >= 0);
+    CHECK(sink.at(PowerDownStep::GnssBackupOff) < sink.at(PowerDownStep::GnssResetAsserted));
+    CHECK(sink.at(PowerDownStep::GnssResetAsserted) < sink.at(PowerDownStep::PeripheralRailOff));
+}
+
+TEST_CASE("power down: the rails go last, and the pins are released after them") {
+    RecordingSink sink;
+    power_down(sink);
+    const int rail = sink.at(PowerDownStep::PeripheralRailOff);
+    const int aux = sink.at(PowerDownStep::AuxRailOff);
+    for (const PowerDownStep step :
+         {PowerDownStep::RadioSleep, PowerDownStep::ExternalFlashDeepPowerDown,
+          PowerDownStep::ExternalFlashLinesReleased, PowerDownStep::GnssBackupOff,
+          PowerDownStep::GnssResetAsserted, PowerDownStep::RadioResetAsserted}) {
+        CHECK(sink.at(step) < rail);
+        CHECK(sink.at(step) < aux);
+    }
+    // A pin driven high into a part with no supply powers it through its own
+    // protection diode, so nothing is released until both rails are down.
+    CHECK(rail < sink.at(PowerDownStep::DrivenPinsReleased));
+    CHECK(aux < sink.at(PowerDownStep::DrivenPinsReleased));
+    // And the wake pin is level-sensed: armed before the rails, it wakes the
+    // device the instant they drop.
+    CHECK(sink.at(PowerDownStep::WakePinArmed) == kPowerDownStepCount - 1);
+}
+
 // Which reset the device came out of. Seven causes, one register, and the nRF52
 // latches them: after a watchdog bite that was followed by a soft reset, both
 // bits are set and only one of the two is the diagnosis.
@@ -358,6 +489,7 @@ TEST_CASE("reset: every cause the silicon can raise has one name") {
     CHECK(classify(ResetCause::Watchdog) == ResetReason::Watchdog);
     CHECK(classify(ResetCause::Lockup) == ResetReason::Lockup);
     CHECK(classify(ResetCause::LowPowerWake) == ResetReason::LowPowerWake);
+    CHECK(classify(ResetCause::UsbVbus) == ResetReason::ChargerWake);
     CHECK(classify(ResetCause::Debug) == ResetReason::Debug);
 
     // A reason with no name reaches the panel as a blank, which is the one
@@ -366,4 +498,139 @@ TEST_CASE("reset: every cause the silicon can raise has one name") {
         const char* name = to_string(static_cast<ResetReason>(i));
         CHECK(name[0] != '\0');
     }
+}
+
+// D. The wake cause decides the boot path. On this board a VBUS event is a wake
+// source, so plugging a charger into a device that was switched off brings the
+// SoC up - and a device that boots in a flight bag because someone plugged it in
+// arrives flat. These are the four bits that have to agree before a boot is
+// refused, and the many ways they can fail to.
+
+// The one the item exists for.
+TEST_CASE("wake: a charger plugged into a sleeping device does not switch it on") {
+    const ResetCause charger = ResetCause::LowPowerWake | ResetCause::UsbVbus;
+    CHECK(boot_path(charger, /*button_down=*/false) == BootPath::SleepAgain);
+    // And the page a bench eye reads names it, rather than calling it a wake.
+    CHECK(classify(charger) == ResetReason::ChargerWake);
+    CHECK(std::string(to_string(ResetReason::ChargerWake)) == "CHARGER");
+}
+
+TEST_CASE("wake: a pilot holding the button while plugging in gets the device") {
+    const ResetCause charger = ResetCause::LowPowerWake | ResetCause::UsbVbus;
+    CHECK(boot_path(charger, /*button_down=*/true) == BootPath::Run);
+}
+
+// The failure that would be catastrophic and silent: a unit that refuses to boot
+// the first time a cell is connected. On the nRF52840 RESETREAS is all-zero after
+// a power-on or brown-out reset, so the wake bit is what separates the two, and
+// the rule needs BOTH bits rather than either.
+TEST_CASE("wake: nothing that could be a first power-on ever refuses a boot") {
+    CHECK(boot_path(ResetCause::PowerOn, false) == BootPath::Run);
+    CHECK(boot_path(ResetCause::None, false) == BootPath::Run);
+    CHECK(boot_path(ResetCause::Brownout, false) == BootPath::Run);
+    // VBUS with no wake bit: not a wake at all, whatever raised it.
+    CHECK(boot_path(ResetCause::UsbVbus, false) == BootPath::Run);
+    CHECK(boot_path(ResetCause::PowerOn | ResetCause::UsbVbus, false) == BootPath::Run);
+}
+
+TEST_CASE("wake: the button and the reset pin are both a request for a device") {
+    // The ordinary way out of SYSTEM OFF: a press on the wake pin.
+    CHECK(boot_path(ResetCause::LowPowerWake, false) == BootPath::Run);
+    // A deliberate reset while the cable happens to be in.
+    CHECK(boot_path(ResetCause::LowPowerWake | ResetCause::UsbVbus | ResetCause::Pin, false) ==
+          BootPath::Run);
+    CHECK(boot_path(ResetCause::Pin, false) == BootPath::Run);
+    // And a fault is never answered by going back to sleep, whatever else is set.
+    CHECK(boot_path(ResetCause::Watchdog | ResetCause::UsbVbus, false) == BootPath::Run);
+}
+
+TEST_CASE("wake: a charger wake is named without hiding a fault that came with it") {
+    // The diagnosis a pilot needs is still the fault: the charger only names the
+    // boot when nothing worse did.
+    CHECK(classify(ResetCause::Watchdog | ResetCause::UsbVbus) == ResetReason::Watchdog);
+    CHECK(classify(ResetCause::Pin | ResetCause::UsbVbus) == ResetReason::Pin);
+    CHECK(std::string(to_string(BootPath::SleepAgain)) == "SLEEP AGAIN");
+    CHECK(std::string(to_string(BootPath::Run)) == "RUN");
+}
+
+// E1. Below the warning level nothing durable is written except the record that
+// must survive. The rule is one function over the levels the monitor above
+// already publishes, so "stop writing" happens at the same voltage the panel says
+// LOW at, and there is no second threshold to keep in step with the first.
+
+TEST_CASE("write gate: a settings write is refused below the warning, the log record is not") {
+    CHECK(may_write(PowerLevel::Normal, false, DurableWrite::Settings));
+    CHECK_FALSE(may_write(PowerLevel::Low, false, DurableWrite::Settings));
+    CHECK_FALSE(may_write(PowerLevel::Cutoff, false, DurableWrite::Settings));
+
+    // The one write whose value is highest exactly when the cell is lowest. A
+    // landing out with no log is the flight a pilot needed the log for.
+    for (const PowerLevel level :
+         {PowerLevel::Unknown, PowerLevel::Normal, PowerLevel::Low, PowerLevel::Cutoff})
+        CHECK(may_write(level, /*supply_warned=*/true, DurableWrite::FlightRecord));
+}
+
+// A gauge that never read a believable millivolt is not a reason to make the
+// settings page stop working: an unpopulated or unconnected divider is Unknown,
+// which the same floor keeps out of the cutoff decision.
+TEST_CASE("write gate: a device with no believable reading still writes its settings") {
+    CHECK(may_write(PowerLevel::Unknown, false, DurableWrite::Settings));
+
+    CutoffMonitor floating;
+    for (int i = 0; i < 20; i++) floating.apply(sample(0));
+    REQUIRE(floating.level() == PowerLevel::Unknown);
+    CHECK(floating.may_write(DurableWrite::Settings));
+}
+
+TEST_CASE("write gate: the monitor answers it from the samples it already has") {
+    CutoffMonitor monitor;
+    CHECK(monitor.may_write(DurableWrite::Settings));
+
+    for (int i = 0; i < kConsecutiveSamples; i++) monitor.apply(sample(3400));
+    REQUIRE(monitor.level() == PowerLevel::Low);
+    CHECK_FALSE(monitor.may_write(DurableWrite::Settings));
+    CHECK(monitor.may_write(DurableWrite::FlightRecord));
+
+    // A charger arriving is what makes it writable again: the terminal is held
+    // above the cell and nothing may be read into it, so the monitor is Normal.
+    for (int i = 0; i < 2; i++) monitor.apply(sample(3400, /*external_power=*/true));
+    CHECK(monitor.level() == PowerLevel::Normal);
+    CHECK(monitor.may_write(DurableWrite::Settings));
+}
+
+// POFCON. The comparator watches the SoC's own rail, which is at or below the
+// cell, so by the time it fires the divider's opinion is no longer the question.
+TEST_CASE("write gate: a fired power-failure comparator outranks a healthy reading") {
+    CutoffMonitor monitor;
+    for (int i = 0; i < 4; i++) monitor.apply(sample(4000));
+    REQUIRE(monitor.level() == PowerLevel::Normal);
+    REQUIRE(monitor.may_write(DurableWrite::Settings));
+
+    monitor.on_supply_warning();
+    CHECK(monitor.supply_warned());
+    CHECK(monitor.supply_warnings() == 1);
+    CHECK_FALSE(monitor.may_write(DurableWrite::Settings));
+    CHECK(monitor.may_write(DurableWrite::FlightRecord));
+
+    // Latching: a rail that came back up does not make it un-happen, and a
+    // charger does not either.
+    for (int i = 0; i < 10; i++) monitor.apply(sample(4100, /*external_power=*/true));
+    CHECK_FALSE(monitor.may_write(DurableWrite::Settings));
+}
+
+// It refuses writes; it does not power the device off. POFCON warns about VDD,
+// well under any healthy cell, so there is no orderly shutdown left to run: the
+// panel park alone is kParkMs and the brownout reset is milliseconds away. The
+// voltage rule keeps the shutdown, where three consecutive samples are the
+// evidence.
+TEST_CASE("write gate: the comparator stops writes without switching the device off") {
+    CutoffMonitor monitor;
+    for (int i = 0; i < 4; i++) monitor.apply(sample(3900));
+    monitor.on_supply_warning();
+    CHECK_FALSE(monitor.cutoff());
+    CHECK(monitor.level() == PowerLevel::Normal);
+
+    monitor.on_supply_warning();
+    CHECK(monitor.supply_warnings() == 2);
+    CHECK_FALSE(monitor.cutoff());
 }

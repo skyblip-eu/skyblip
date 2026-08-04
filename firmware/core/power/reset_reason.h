@@ -20,6 +20,14 @@ enum class ResetCause : uint32_t {
     Lockup = 1u << 5,
     LowPowerWake = 1u << 6,
     Debug = 1u << 7,
+    // INFO: fc 05aug26 A separate cause and not a flavour of PowerOn, because
+    // the boot path turns on it (core/power/wake.h): VBUS rising is what a
+    // charger does to a device that was switched off, and a device that switches
+    // itself on in a flight bag because someone plugged it in arrives flat.
+    // Zephyr's hwinfo cannot carry it - drivers/hwinfo/hwinfo_nrf.c maps
+    // NRFX_RESET_REASON_VBUS_MASK onto RESET_POR, the same flag a genuine
+    // power-on would raise - so the adapter reads the bit itself.
+    UsbVbus = 1u << 8,
 };
 
 constexpr ResetCause operator|(ResetCause a, ResetCause b) {
@@ -43,6 +51,7 @@ enum class ResetReason : uint8_t {
     Software,
     Watchdog,
     Lockup,
+    ChargerWake,
     LowPowerWake,
     Debug,
 };

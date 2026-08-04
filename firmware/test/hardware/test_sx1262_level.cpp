@@ -6,6 +6,7 @@
 // the same public surface either way.
 #include "core/protocol/adsl_uplink.h"
 #include "core/protocol/air.h"
+#include "core/settings/settings.h"
 #include "doctest/doctest.h"
 #include "hardware/parts/sx1262/model.h"
 #include "hardware/parts/sx1262/sx1262.h"
@@ -141,4 +142,82 @@ TEST_CASE("radio: a modem left on its reset defaults frames nothing off the air"
     const size_t chip_len =
         protocol::encode_mband(protocol::kAdslSyncWord, payload, sizeof(payload), chips);
     CHECK_FALSE(chip.receive_air(chips, static_cast<uint8_t>(chip_len)));
+}
+
+// --- J. Frequency trim ------------------------------------------------------
+// The board fits a TCXO, so zero is the expected value on every unit and the
+// field exists for the batch that disappoints. What matters is that it is a
+// no-op when it is zero and moves the carrier the right way by the right amount
+// when it is not, because nothing on the device can measure the answer back.
+
+TEST_CASE("radio: with no frequency trim the PLL word is exactly the channel asked for") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    RadioConfig cfg{};
+    cfg.freq_hz = 868200000;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    const uint32_t untrimmed = chip.freq_hz;
+
+    cfg.freq_corr_e1_ppm = 0;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.freq_hz == untrimmed);
+}
+
+TEST_CASE("radio: a frequency trim moves the programmed carrier by its own ppm, both ways") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    RadioConfig cfg{};
+    cfg.freq_hz = 868200000;
+
+    // A tenth of a ppm is 86.82 Hz at 868.2 MHz, so ten ppm is 8682 Hz. The PLL
+    // step is 32 MHz / 2^25, under a hertz, and the model resolves the word back
+    // to the frequency it programmed: a couple of hertz of slack is the two
+    // truncations, not the trim.
+    cfg.freq_corr_e1_ppm = 100;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.freq_hz >= 868208680u);
+    CHECK(chip.freq_hz <= 868208682u);
+
+    cfg.freq_corr_e1_ppm = -100;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.freq_hz >= 868191316u);
+    CHECK(chip.freq_hz <= 868191318u);
+
+    // And it applies to the O band, on which we only ever listen: a reference
+    // that is out is out on both bands, and a trim that only reached the band we
+    // transmit on would leave the uplink dwell mistuned.
+    cfg.freq_hz = 869525000;
+    cfg.freq_corr_e1_ppm = 100;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.freq_hz >= 869533693u);
+    CHECK(chip.freq_hz <= 869533695u);
+}
+
+TEST_CASE("radio: a trim past the band's own limit is clamped, not programmed") {
+    // The two bounds are the same number in two layers: what the flash blob
+    // accepts and what the PLL word is allowed to carry. If they ever part, a
+    // stored value would be silently altered on its way to the synthesiser.
+    CHECK(int(sx::kFreqTrimLimitTenthsPpm) == int(settings::kFreqTrimLimitTenthsPpm));
+
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    RadioConfig cfg{};
+    cfg.freq_hz = 868200000;
+    cfg.freq_corr_e1_ppm = sx::kFreqTrimLimitTenthsPpm;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    const uint32_t at_limit = chip.freq_hz;
+
+    cfg.freq_corr_e1_ppm = 32767;  // whatever wrote this, it was not a bench
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.freq_hz == at_limit);
+    // ERC 70-03 band h1.4 is 868.0-868.6 MHz and the clamp is what keeps a
+    // trimmed carrier inside it whatever it was handed.
+    CHECK(chip.freq_hz < 868600000u);
+
+    cfg.freq_corr_e1_ppm = -32768;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+    CHECK(chip.freq_hz > 868000000u);
 }

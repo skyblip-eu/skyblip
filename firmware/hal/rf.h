@@ -39,6 +39,11 @@ struct RfPlan {
     uint32_t fdev_hz{0};
     uint32_t bandwidth_hz{0};
     uint16_t gaussian_bt_e2{0};
+    // The reference's own error, in tenths of a ppm, positive upwards. It travels
+    // with the dwell rather than being programmed once at boot because freq_hz
+    // is: the executor retunes on every dwell, so a trim that was not part of the
+    // plan would be a value the next retune throws away.
+    int16_t freq_corr_e1_ppm{0};
     const uint8_t* tx{nullptr};
     uint8_t tx_len{0};
     uint64_t tx_at_us{0};

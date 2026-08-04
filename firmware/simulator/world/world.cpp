@@ -51,9 +51,13 @@ void World::step(uint32_t now_ms, const bus::State& state) {
 void World::service_button(uint32_t now_ms) {
     if (press_pending_) {
         press_pending_ = false;
-        press_until_ms_ = now_ms + kPressMs;
+        press_since_ms_ = now_ms;
+        pressing_ = true;
     }
-    platform_.board_gpio().button_down = now_ms < press_until_ms_;
+    // A start instant and a flag, not an end instant: hal/clock.h's rule, and the
+    // same shape as the wrap bug section M found in the transmitter. A simulator
+    // that models a button with arithmetic nobody may copy is worse than useless.
+    platform_.board_gpio().button_down = pressing_ && now_ms - press_since_ms_ < kPressMs;
 }
 
 // INFO: fc 03aug26 An aircraft is placed where the pilot would point at it - so

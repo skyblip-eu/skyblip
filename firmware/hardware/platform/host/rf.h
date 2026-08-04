@@ -93,6 +93,7 @@ class Rf : public hal::Rf {
         if (plan.fdev_hz != 0) cfg.fdev_hz = plan.fdev_hz;
         if (plan.bandwidth_hz != 0) cfg.bandwidth_hz = plan.bandwidth_hz;
         cfg.gaussian_bt_e2 = plan.gaussian_bt_e2;
+        cfg.freq_corr_e1_ppm = plan.freq_corr_e1_ppm;
         cfg.sync = plan.sync;
         cfg.sync_bits = plan.sync_bits;
         cfg.payload_bytes = plan.rx_len;

@@ -4,6 +4,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/drivers/uart.h>
 
@@ -56,9 +57,55 @@ class Spi : public io::Spi {
     struct gpio_dt_spec cs_;
 };
 
-class Uart : public io::Uart {
+// The sensor bus. Zephyr's own drivers (the barometer) share it through the same
+// device, which is safe: i2c_transfer takes the bus's lock.
+//
+// A zero-length write is an address probe and nothing else, which is how a scan
+// asks "is anything there": it is what Zephyr's own i2c shell does
+// (drivers/i2c/i2c_shell.c, an I2C_MSG_WRITE | I2C_MSG_STOP message of length 0).
+// UNBUILT HERE: on nRF TWIM a zero-length transfer is handled by the driver
+// rather than the peripheral, so this is the one call in the class that has to be
+// confirmed on silicon.
+class I2c : public io::I2c {
+   public:
+    explicit I2c(const struct device* bus) : bus_(bus) {}
+
+    bool write(uint8_t addr, const uint8_t* data, size_t len) override {
+        if (!device_is_ready(bus_)) return false;
+        if (len == 0) {
+            uint8_t nothing = 0;
+            struct i2c_msg msg{&nothing, 0, I2C_MSG_WRITE | I2C_MSG_STOP};
+            return i2c_transfer(bus_, &msg, 1, addr) == 0;
+        }
+        return i2c_write(bus_, data, len, addr) == 0;
+    }
+
+    bool read(uint8_t addr, uint8_t* data, size_t len) override {
+        if (!device_is_ready(bus_)) return false;
+        return i2c_read(bus_, data, len, addr) == 0;
+    }
+
+   private:
+    const struct device* bus_;
+};
+
+class Uart : public io::Uart, public io::UartRate {
    public:
     explicit Uart(const struct device* uart) : uart_(uart) {}
+
+    // Retuning the port, which is what makes the L76K's autobaud recovery more
+    // than a table: a receiver that comes up at a rate the devicetree did not
+    // expect leaves the unit silently GNSS-less, and the driver can only walk its
+    // candidates if something can move the UART with it. False means the port
+    // refused, which is a capability we do not have rather than a call that
+    // quietly did nothing.
+    bool set(uint32_t baud) override {
+        struct uart_config config{};
+        if (uart_config_get(uart_, &config) != 0) return false;
+        if (config.baudrate == baud) return true;
+        config.baudrate = baud;
+        return uart_configure(uart_, &config) == 0;
+    }
     size_t write(const uint8_t* data, size_t len) override {
         for (size_t i = 0; i < len; i++) uart_poll_out(uart_, data[i]);
         return len;

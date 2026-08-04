@@ -63,6 +63,28 @@ class Uart {
     virtual size_t available() = 0;
 };
 
+// Retuning the port, which the byte pipe above deliberately cannot do: the rate
+// is the platform's, not the stream's. It lives here rather than beside the one
+// driver that needs it because a platform must not include a part to implement a
+// seam, and this header is the bus vocabulary both ends already share.
+class UartRate {
+   public:
+    virtual ~UartRate() = default;
+    // False means this port cannot change rate. That is a capability we do not
+    // have, not a call that silently did nothing, and the caller is expected to
+    // behave differently rather than to hope.
+    virtual bool set(uint32_t baud) = 0;
+};
+
+class FixedUartRate : public UartRate {
+   public:
+    bool set(uint32_t) override { return false; }
+};
+
+// The null port, so a board without the capability passes an object rather than a
+// null pointer.
+inline FixedUartRate kFixedUartRate{};
+
 }  // namespace skyblip::io
 
 #endif

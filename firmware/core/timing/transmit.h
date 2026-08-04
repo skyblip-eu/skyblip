@@ -70,9 +70,14 @@ class Transmitter {
     uint32_t busy_{0};
     uint32_t last_sent_ms_{0};
     uint32_t last_sent_utc_{0};
-    uint32_t first_attempt_ms_{0};
-    uint32_t quiet_until_ms_{0};
+    // The two deadlines this policy holds, each kept as the instant it STARTED
+    // plus a flag, never as the instant it ends and never as a zero stamp: both
+    // halves of hal/clock.h, and both were wrong here before 2026-08-06.
+    uint32_t attempt_since_ms_{0};
+    uint32_t quiet_since_ms_{0};
     bool ever_sent_{false};
+    bool attempting_{false};
+    bool quiet_{false};
 };
 
 }  // namespace skyblip::timing

@@ -346,6 +346,91 @@ TEST_CASE(
     CHECK(std::abs(standard_cm - on_subscale_cm) > 20000);
 }
 
+// G. Battery state reaches the panel and stops there. $LK8EX1 is the one
+// sentence LK8000, XCSoar and their descendants already parse that carries a
+// cell, and it carries the vario picture with it. Field 5 is a voltage below
+// 1000 and a percentage plus 1000 at or above it, which is the distinction the
+// whole sentence turns on: 55 in that field is fifty-five volts.
+TEST_CASE("nmea: the cell reaches a pilot's tablet in $LK8EX1, at the $PGRMZ cadence") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    // A cell in the flat middle, and air the aircraft is really flying through.
+    rig.platform.battery().millivolts = 3800;
+    rig.platform.baro().chip.set_pressure_pa(90000);
+    fly(rig, t, 3);
+    rig.raise_link();
+    fly(rig, t, 2);
+    REQUIRE(rig.state().baro_active);
+    REQUIRE(rig.state().battery.valid);
+
+    std::string lk8;
+    for (const std::string& s : sentences(rig))
+        if (s.rfind("$LK8EX1,", 0) == 0) lk8 = s;
+    REQUIRE_FALSE(lk8.empty());
+    CHECK(checksum_ok(lk8));
+
+    const std::vector<std::string> f = fields(lk8);
+    REQUIRE(f.size() == 6);
+    // Field 1 is the raw pressure in pascals, which is what a consumer prefers
+    // over field 2 because it can apply its own datum to it.
+    CHECK(std::stol(f[1]) == static_cast<long>(rig.state().pressure_pa));
+    // Field 2 is metres on 1013.25, the same datum-free figure $PGRMZ carries.
+    CHECK(std::abs(std::stol(f[2]) - flight::pressure_to_alt_cm(rig.state().pressure_pa) / 100) <=
+          1);
+    // Field 5 is the gauge's own percentage, offset by 1000. A device that says
+    // 55% on its panel and something else on the tablet is a support call.
+    CHECK(std::stol(f[5]) == 1000 + rig.state().battery.percent);
+    CHECK(std::stol(f[5]) >= 1000);
+    CHECK(int(rig.state().battery.percent) == 55);
+    // Nothing publishes a temperature, so the field carries its "not available"
+    // sentinel rather than a plausible number nobody measured.
+    CHECK(f[4] == "99");
+
+    // Same pass as $PGRMZ, so the same cadence, second for second.
+    rig.platform.link().clear();
+    fly(rig, t, 3);
+    CHECK(count_of(rig, "$LK8EX1") >= 3);
+    CHECK(count_of(rig, "$LK8EX1") == count_of(rig, "$PGRMZ"));
+    CHECK(count_of(rig, "$LK8EX1") == count_of(rig, "$PFLAU"));
+}
+
+// $PGRMZ is gated on a barometer because a GNSS altitude under that sentence
+// name would feed a geometric height into an app's altimeter. $LK8EX1 is not,
+// because the cell is not a barometric quantity and this is the only sentence we
+// speak that says anything about power: silence here is a pilot with no way to
+// see a flat unit coming. SoftRF MB sends the same battery-only sentence when no
+// baro chip answered (src/protocol/data/NMEA.cpp:1398-1401).
+TEST_CASE("nmea: a unit with no barometer still tells the tablet about its cell") {
+    Rig rig(kBaroByHand);
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.platform.battery().millivolts = 3600;
+    fly(rig, t, 3);
+    rig.raise_link();
+    fly(rig, t, 2);
+    REQUIRE_FALSE(rig.state().baro_active);
+    REQUIRE(rig.state().battery.valid);
+
+    // No $PGRMZ at all, and an $LK8EX1 every second regardless.
+    CHECK(count_of(rig, "$PGRMZ") == 0);
+    CHECK(count_of(rig, "$LK8EX1") >= 2);
+
+    std::string lk8;
+    for (const std::string& s : sentences(rig))
+        if (s.rfind("$LK8EX1,", 0) == 0) lk8 = s;
+    REQUIRE_FALSE(lk8.empty());
+    CHECK(checksum_ok(lk8));
+
+    const std::vector<std::string> f = fields(lk8);
+    REQUIRE(f.size() == 6);
+    CHECK(f[1] == "999999");  // no pressure
+    CHECK(f[2] == "99999");   // no pressure altitude
+    CHECK(f[4] == "99");      // no temperature
+    CHECK(std::stol(f[5]) == 1000 + rig.state().battery.percent);
+    CHECK(int(rig.state().battery.percent) == 12);
+}
+
 // The cadence arithmetic this relies on: emit_ownship() is two calls inside
 // run_pass(), the same pass PFLAU and PGRMZ already share, at the pass's fixed
 // 1 Hz. NmeaService::kTargetsPerPass and kPassesPerRefreshBound are derived
@@ -437,4 +522,27 @@ TEST_CASE("nmea: a product that does not declare the companion link says nothing
     for (uint32_t t = 0; t <= 5000; t += 100) speaking.nmea.tick(t);
     CHECK(speaking.nmea.enabled());
     CHECK(speaking.frames() > 0);
+}
+
+// M. The pass cadence across the 49.7-day wrap of hal::Clock::millis(). The
+// service defers a pass while a burst is armed and otherwise redraws every second,
+// both of them measured as differences from the last pass, and the flag beside the
+// stamp is what keeps a zero from meaning "never passed". If it were an instant
+// comparison, a paired tablet would go quiet for seven weeks with a device that is
+// tracking perfectly well behind it - and $PFLAU going quiet is what XCSoar reads
+// as the device having failed.
+TEST_CASE("nmea: a paired tablet keeps hearing the device across the 49.7-day wrap") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0xFFFFFF00u - 2000u;  // a couple of seconds short of the wrap
+    rig.raise_link();
+    for (int i = 0; i < 2; i++) rig.second_across(t, 100, 900);
+    REQUIRE(rig.link_up());
+    REQUIRE(count_of(rig, "$PFLAU") >= 2);
+
+    // Four more seconds, stepped straight through zero.
+    rig.platform.link().clear();
+    for (int i = 0; i < 4; i++) rig.second_across(t, 100, 900);
+    CHECK(count_of(rig, "$PFLAU") >= 4);
+    for (const std::string& s : sentences(rig)) CHECK(checksum_ok(s));
 }

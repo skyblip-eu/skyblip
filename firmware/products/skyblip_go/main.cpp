@@ -1,8 +1,10 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
+#include "hardware/platform/zephyr/console.h"
 #include "hardware/platform/zephyr/platform.h"
 #include "products/skyblip_go/product.h"
+#include "products/skyblip_go/services/diagnostics.h"
 #include "runtime/tasks.h"
 
 LOG_MODULE_REGISTER(skyblip, LOG_LEVEL_INF);
@@ -16,6 +18,11 @@ using Go = go::Product<platform::zephyr::Platform>;
 platform::zephyr::Platform g_platform;
 Go g_product{g_platform};
 
+// Reads what the services and the board already count, one line per subsystem on
+// the USB console, and holds the snapshot the `diag` command answers from. Not a
+// service: it consumes the product rather than being stepped by it.
+go::DiagnosticsDump<Go, platform::zephyr::Console> g_diagnostics;
+
 // Capture-less so it converts to the plain function pointer the hook takes.
 bool dfu_gate() { return g_product.config().config().upload_allowed(); }
 
@@ -27,6 +34,22 @@ int main(void) {
 
     const Status started = g_product.setup();
     LOG_INF("reset reason: %s", power::to_string(g_product.reset_reason()));
+
+    // A charger plugged into a device that was switched off must not switch it
+    // on. core/power/wake.h decided that; this performs it, and it does not
+    // return. Nothing has been painted and no service has run.
+    if (g_product.boot_path() == power::BootPath::SleepAgain) {
+        LOG_INF("woken by VBUS with the button up: back to sleep, the cell charges either way");
+        g_platform.system_power().system_off();
+    }
+
+    // Not fatal and not silent: without the comparator the write rule still
+    // holds, on the divider alone, and a cell that collapses between two samples
+    // can land inside a settings write. See hardware/platform/zephyr/
+    // supply_monitor.h for what arms it.
+    if (!g_platform.system_power().supply_monitor_armed())
+        LOG_ERR("POFCON: not armed, a collapsing rail can land inside a flash write");
+
     if (started == Status::Ok) {
         LOG_INF("skyBlip up: capabilities=%u degraded=%u",
                 static_cast<unsigned>(g_product.capabilities()),
@@ -48,6 +71,7 @@ int main(void) {
     for (;;) {
         const uint32_t now_ms = static_cast<uint32_t>(k_uptime_get());
         g_product.step(now_ms);
+        g_diagnostics.step(g_product, now_ms);
 
         if (g_product.may_feed_watchdog(now_ms)) {
             g_platform.watchdog().feed();

@@ -10,6 +10,7 @@
 #include <string>
 
 #include "core/fec/crc.h"
+#include "core/power/battery.h"
 #include "core/settings/address.h"
 #include "core/settings/settings.h"
 #include "core/util/json_min.h"
@@ -204,6 +205,244 @@ TEST_CASE("settings: a blob written by version-1 firmware comes back as itself")
     CHECK(again.stealth);
 }
 
+// H. The per-unit gauge trim: one signed millivolt offset, set once on the line
+// against a bench supply, bounded because a calibration field that accepts
+// anything is a support incident of its own.
+TEST_CASE("settings: the battery trim is bounded at the boundary, in both framings") {
+    Settings s = defaults(0x0ABBCC);
+    CHECK(int(s.battery_offset_mv) == 0);  // an uncalibrated unit reads as it always did
+
+    // The bound itself is inclusive, and one millivolt past it is not.
+    s.battery_offset_mv = power::kCalibrationLimitMv;
+    CHECK(validate(s) == Status::Ok);
+    s.battery_offset_mv = -power::kCalibrationLimitMv;
+    CHECK(validate(s) == Status::Ok);
+    s.battery_offset_mv = power::kCalibrationLimitMv + 1;
+    CHECK(validate(s) == Status::OutOfRange);
+    s.battery_offset_mv = -(power::kCalibrationLimitMv + 1);
+    CHECK(validate(s) == Status::OutOfRange);
+
+    // A blob is the other way in, and it is validated on the way out of flash:
+    // a unit whose stored trim is impossible falls back rather than reading its
+    // cell through it.
+    s.battery_offset_mv = -47;
+    uint8_t blob[128] = {0};
+    to_blob(s, blob, sizeof(blob));
+    Settings out;
+    REQUIRE(from_blob(blob, blob_size(), out) == Status::Ok);
+    CHECK(int(out.battery_offset_mv) == -47);
+
+    Settings impossible = s;
+    impossible.battery_offset_mv = 3000;
+    to_blob(impossible, blob, sizeof(blob));
+    CHECK(from_blob(blob, blob_size(), out) == Status::Invalid);
+}
+
+TEST_CASE("settings: the battery trim is set over the link and refused whole when it is not") {
+    Settings s = defaults(1);
+    const char* trim = "{\"battery_offset_mv\":-40}";
+    CHECK(apply_json(s, trim, static_cast<int>(strlen(trim))) == Status::Ok);
+    CHECK(int(s.battery_offset_mv) == -40);
+
+    // Out of bound, and the rest of the patch does not land either.
+    const char* far_out = "{\"alarm_volume\":1,\"battery_offset_mv\":900}";
+    CHECK(apply_json(s, far_out, static_cast<int>(strlen(far_out))) == Status::OutOfRange);
+    CHECK(int(s.battery_offset_mv) == -40);
+    CHECK(int(s.alarm_volume) == 3);
+
+    // The boundary a narrowing cast would hide: 65536 truncates to 0 in an
+    // int16, and 65576 truncates to 40 - both inside the bound, neither what
+    // the client sent. The check has to happen before the narrowing.
+    const char* wraps_to_zero = "{\"battery_offset_mv\":65536}";
+    CHECK(apply_json(s, wraps_to_zero, static_cast<int>(strlen(wraps_to_zero))) ==
+          Status::OutOfRange);
+    CHECK(int(s.battery_offset_mv) == -40);
+    const char* wraps_into_range = "{\"battery_offset_mv\":65576}";
+    CHECK(apply_json(s, wraps_into_range, static_cast<int>(strlen(wraps_into_range))) ==
+          Status::OutOfRange);
+    CHECK(int(s.battery_offset_mv) == -40);
+}
+
+// H, the migration. The battery trim went in beside the address rather than at
+// the end, which costs no padding, so version 3 is the same LENGTH as version 2
+// and a different layout. A length check cannot tell them apart and the version
+// byte must: read the old bytes as the new struct and a page_mask of 15 becomes
+// a callsign, an aircraft type becomes a trim of several hundred millivolts.
+TEST_CASE("settings: a blob written by version-2 firmware comes back as itself, untrimmed") {
+    // The version-2 payload, byte for byte as that firmware memcpy'd its struct.
+    struct V2 {
+        uint8_t version{1};
+        uint32_t device_addr{0};
+        uint8_t addr_table{0};
+        uint8_t aircraft_type{4};
+        bool alarm_enabled{true};
+        uint8_t alarm_volume{3};
+        bool stealth{false};
+        Units units{Units::Metric};
+        uint8_t page_mask{0x0F};
+        char callsign[10]{0};
+    };
+
+    V2 old{};
+    old.device_addr = 0x0ABBCC;
+    old.addr_table = 6;
+    old.aircraft_type = 9;
+    old.alarm_enabled = false;
+    old.alarm_volume = 5;
+    old.stealth = true;
+    old.units = Units::Imperial;
+    old.page_mask = 0x05;
+    std::memcpy(old.callsign, "D-KXYZ", 7);
+
+    uint8_t blob[128] = {0};
+    blob[0] = 2;
+    std::memcpy(blob + 1, &old, sizeof(V2));
+    const uint32_t crc = fec::crc32(blob, 1 + sizeof(V2));
+    for (int i = 0; i < 4; i++) blob[1 + sizeof(V2) + i] = static_cast<uint8_t>(crc >> (8 * i));
+
+    Settings out;
+    REQUIRE(from_blob(blob, 1 + sizeof(V2) + 4, out) == Status::Ok);
+    CHECK(out.device_addr == 0x0ABBCCu);
+    CHECK(int(out.addr_table) == 6);
+    CHECK(int(out.aircraft_type) == 9);
+    CHECK_FALSE(out.alarm_enabled);
+    CHECK(int(out.alarm_volume) == 5);
+    CHECK(out.stealth);
+    CHECK(out.units == Units::Imperial);
+    CHECK(int(out.page_mask) == 0x05);
+    CHECK(std::string(out.callsign) == "D-KXYZ");
+    // A unit that stored its settings before the trim existed was never
+    // calibrated, so it comes back reading exactly as it did yesterday.
+    CHECK(int(out.battery_offset_mv) == 0);
+
+    // And what it writes back is the current layout, which the current firmware
+    // reads and the old blob's version byte no longer claims.
+    uint8_t rewritten[128] = {0};
+    to_blob(out, rewritten, sizeof(rewritten));
+    CHECK(int(rewritten[0]) == int(kBlobVersion));
+    CHECK(int(kBlobVersion) == 4);
+}
+
+// J, the migration. Version 4 added the radio's frequency trim; the two 16-bit
+// per-unit trims now fill one word between the address and the byte fields, so
+// this blob is four bytes SHORTER than the current one rather than the same
+// length version 2 and 3 shared. Both mistakes are refused by the same reader.
+TEST_CASE("settings: a blob written by version-3 firmware comes back as itself, untrimmed") {
+    // The version-3 payload, byte for byte as that firmware memcpy'd its struct.
+    struct V3 {
+        uint8_t version{1};
+        uint32_t device_addr{0};
+        int16_t battery_offset_mv{0};
+        uint8_t addr_table{0};
+        uint8_t aircraft_type{4};
+        bool alarm_enabled{true};
+        uint8_t alarm_volume{3};
+        bool stealth{false};
+        Units units{Units::Metric};
+        uint8_t page_mask{0x0F};
+        char callsign[10]{0};
+    };
+    CHECK(sizeof(V3) + 4 == blob_size() - 5);
+
+    V3 old{};
+    old.device_addr = 0x0ABBCC;
+    old.battery_offset_mv = -120;  // a unit that WAS calibrated keeps its trim
+    old.addr_table = 6;
+    old.aircraft_type = 9;
+    old.alarm_enabled = false;
+    old.alarm_volume = 5;
+    old.stealth = true;
+    old.units = Units::Imperial;
+    old.page_mask = 0x05;
+    std::memcpy(old.callsign, "D-KXYZ", 7);
+
+    uint8_t blob[128] = {0};
+    blob[0] = 3;
+    std::memcpy(blob + 1, &old, sizeof(V3));
+    const uint32_t crc = fec::crc32(blob, 1 + sizeof(V3));
+    for (int i = 0; i < 4; i++) blob[1 + sizeof(V3) + i] = static_cast<uint8_t>(crc >> (8 * i));
+
+    Settings out;
+    REQUIRE(from_blob(blob, 1 + sizeof(V3) + 4, out) == Status::Ok);
+    CHECK(out.device_addr == 0x0ABBCCu);
+    CHECK(int(out.battery_offset_mv) == -120);
+    CHECK(int(out.addr_table) == 6);
+    CHECK(int(out.aircraft_type) == 9);
+    CHECK_FALSE(out.alarm_enabled);
+    CHECK(int(out.alarm_volume) == 5);
+    CHECK(out.stealth);
+    CHECK(out.units == Units::Imperial);
+    CHECK(int(out.page_mask) == 0x05);
+    CHECK(std::string(out.callsign) == "D-KXYZ");
+    // A unit that stored its settings before the radio trim existed was never
+    // measured, so it comes back on the reference its TCXO actually has: the
+    // frequency it has been transmitting on all along.
+    CHECK(int(out.freq_trim_e1_ppm) == 0);
+
+    uint8_t rewritten[128] = {0};
+    to_blob(out, rewritten, sizeof(rewritten));
+    CHECK(int(rewritten[0]) == int(kBlobVersion));
+    Settings again;
+    REQUIRE(from_blob(rewritten, blob_size(), again) == Status::Ok);
+    CHECK(int(again.battery_offset_mv) == -120);
+    CHECK(int(again.freq_trim_e1_ppm) == 0);
+}
+
+// J. The frequency trim: the field exists because a TCXO gives no way to find
+// out it is wrong, so the bound is what says "out of trim" rather than "broken".
+TEST_CASE("settings: the frequency trim is bounded at the boundary, in both framings") {
+    Settings s = defaults(0x0ABBCC);
+    CHECK(int(s.freq_trim_e1_ppm) == 0);  // the design intent on a TCXO part
+
+    s.freq_trim_e1_ppm = kFreqTrimLimitTenthsPpm;
+    CHECK(validate(s) == Status::Ok);
+    s.freq_trim_e1_ppm = -kFreqTrimLimitTenthsPpm;
+    CHECK(validate(s) == Status::Ok);
+    s.freq_trim_e1_ppm = kFreqTrimLimitTenthsPpm + 1;
+    CHECK(validate(s) == Status::OutOfRange);
+    s.freq_trim_e1_ppm = -(kFreqTrimLimitTenthsPpm + 1);
+    CHECK(validate(s) == Status::OutOfRange);
+
+    // And it survives the flash framing, sign and all: a stored trim that came
+    // back as its own negation would move the carrier twice as far the wrong way.
+    s.freq_trim_e1_ppm = -37;
+    REQUIRE(validate(s) == Status::Ok);
+    uint8_t blob[128] = {0};
+    to_blob(s, blob, sizeof(blob));
+    Settings out;
+    REQUIRE(from_blob(blob, blob_size(), out) == Status::Ok);
+    CHECK(int(out.freq_trim_e1_ppm) == -37);
+}
+
+TEST_CASE("settings: the frequency trim is set over the link and refused whole when it is not") {
+    Settings s = defaults(0x0ABBCC);
+    const char* set = "{\"freq_trim_e1_ppm\":-25,\"alarm_volume\":2}";
+    REQUIRE(apply_json(s, set, static_cast<int>(strlen(set))) == Status::Ok);
+    CHECK(int(s.freq_trim_e1_ppm) == -25);
+    CHECK(int(s.alarm_volume) == 2);
+
+    // Out of range is refused as a whole patch, not clamped and not partly
+    // applied: a bench that asked for 500 ppm has the wrong number written down,
+    // and silently storing 10 ppm instead would hide that.
+    const char* far = "{\"freq_trim_e1_ppm\":5000,\"alarm_volume\":5}";
+    CHECK(apply_json(s, far, static_cast<int>(strlen(far))) == Status::OutOfRange);
+    CHECK(int(s.freq_trim_e1_ppm) == -25);
+    CHECK(int(s.alarm_volume) == 2);
+
+    // Narrowed before it is validated: 65536 tenths of a ppm truncates to 0 in
+    // an int16 and would pass a bound check that never saw the value sent.
+    const char* wrapped = "{\"freq_trim_e1_ppm\":65536}";
+    CHECK(apply_json(s, wrapped, static_cast<int>(strlen(wrapped))) == Status::OutOfRange);
+    CHECK(int(s.freq_trim_e1_ppm) == -25);
+
+    // Write-only over the link, for the same reason battery_offset_mv is: the
+    // "get" reply is one frame at comms::kSmallestSupportedPayload with nine
+    // bytes of headroom, and "freq_trim_e1_ppm" alone is nineteen.
+    char buf[256];
+    const int n = to_json(s, buf, sizeof(buf));
+    CHECK(std::string(buf, static_cast<size_t>(n)).find("freq_trim") == std::string::npos);
+}
+
 TEST_CASE("settings: a blob from a version this firmware never wrote is refused") {
     Settings s = defaults(0x0ABBCC);
     uint8_t blob[128];
@@ -231,6 +470,13 @@ TEST_CASE("settings: the JSON offers nothing the firmware does not read") {
     // six-pack graduates its dials in km/h, metres and m/s or in kt, ft and
     // fpm, and there is nowhere else a value appears exactly once.
     CHECK(json.find("units") != std::string::npos);
+    // The one exception, and it goes the other way: the firmware reads
+    // battery_offset_mv and the reply does not offer it. The "config" reply is
+    // one frame at comms::kSmallestSupportedPayload, its worst case is already
+    // 173 of those 182 bytes, and no honest name for a signed millivolt trim
+    // fits in nine. It is written on the line and read back as the millivolts
+    // the status reply and the panel already show.
+    CHECK(json.find("battery_offset_mv") == std::string::npos);
     const char* imperial = "{\"units\":1}";
     CHECK(apply_json(s, imperial, static_cast<int>(strlen(imperial))) == Status::Ok);
     CHECK(s.units == Units::Imperial);

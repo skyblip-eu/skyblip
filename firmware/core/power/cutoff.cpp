@@ -12,6 +12,22 @@ const char* to_string(PowerLevel level) {
     return "--";
 }
 
+// A flight log record is written whatever the level says, and that is the point
+// of the rule rather than an exception to it: it is the one write whose value is
+// highest exactly when the cell is lowest. It is also the cheap one - an append
+// to the external SPI NOR log region, not a rewrite of an NVS sector that
+// garbage-collects the flash the image runs from.
+bool may_write(PowerLevel level, bool supply_warned, DurableWrite kind) {
+    if (kind == DurableWrite::FlightRecord) return true;
+    if (supply_warned) return false;
+    return level != PowerLevel::Low && level != PowerLevel::Cutoff;
+}
+
+void CutoffMonitor::on_supply_warning() {
+    supply_warnings_++;
+    supply_warned_ = true;
+}
+
 PowerLevel CutoffMonitor::apply(const messages::BatterySample& sample) {
     if (level_ == PowerLevel::Cutoff) return level_;
 

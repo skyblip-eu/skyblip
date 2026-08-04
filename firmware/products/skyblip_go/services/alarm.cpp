@@ -36,6 +36,7 @@ void AlarmService::tick(uint32_t now_ms) {
     situation.enabled = context_.state.settings.alarm_enabled;
     situation.running = running_;
     drive(situation, now_ms);
+    drive_lamp(now_ms, running_);
 
     // Haptics only on the way UP, and only from "important": this device rides in
     // a pocket or a harness where the buzzer is muffled, which is exactly when a
@@ -53,6 +54,33 @@ void AlarmService::park(uint32_t now_ms) {
     annunciation::Situation situation{};
     situation.running = false;
     drive(situation, now_ms);
+    // Dark first, through the same table that lit it, and only then let go of the
+    // pins. The order matters on silicon: these LEDs are active-low, so dark is a
+    // pin driven high, and releasing before darkening would leave the last colour
+    // lit on a floating line for as long as the rail lasts.
+    drive_lamp(now_ms, /*running=*/false);
+    indicator_->park();
+}
+
+// Everything the table reads is already published on bus::State by the service
+// that owns it - the cell and its level by PowerService, the fix by
+// OwnshipService, the worst standing level by this one, a few lines above. Nothing
+// is derived a second time here, which is what keeps the lamp saying LOW at
+// exactly the voltage the panel and the tablet do.
+void AlarmService::drive_lamp(uint32_t now_ms, bool running) {
+    const power::BatteryState& battery = context_.state.battery;
+    indication::Situation situation{};
+    situation.running = running;
+    situation.alarm_level = context_.state.alarm_level;
+    situation.external_power = battery.external_power;
+    // core/power/battery.h: charging is external power AND a cell still below the
+    // float voltage, so the cable in with charging false is a charge that finished.
+    situation.charge_complete = battery.external_power && !battery.charging;
+    situation.power_level = context_.state.power_level;
+    situation.fix_valid = context_.state.own.fix_valid;
+
+    const indication::Command command = lamp_.update(situation, now_ms);
+    if (command.changed) indicator_->show(command.lamp);
 }
 
 void AlarmService::drive(const annunciation::Situation& situation, uint32_t now_ms) {

@@ -4,6 +4,7 @@
 #include <zephyr/dt-bindings/adc/nrf-saadc.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
 
 
 / {
@@ -22,10 +23,21 @@
 		radio-spi = &spi3;
 		epd-spi = &spi2;
 		gnss-uart = &uart0;
+		sensor-i2c = &i2c0;
 		buzzer = &buzzer_pwm;
 		vibro = &vibro_gpio;
 		button = &button_gpio;
 		gnss-pps = &gnss_pps_gpio;
+		led-green = &led_green;
+		led-red = &led_red;
+		led-blue = &led_blue;
+		gnss-enable = &gnss_enable_gpio;
+		gnss-reset = &gnss_reset_gpio;
+		peripheral-rail = &peripheral_rail_gpio;
+		aux-rail = &aux_rail_gpio;
+		flash-wp = &flash_wp_gpio;
+		flash-hold = &flash_hold_gpio;
+		radio-reset = &radio_reset_gpio;
 		watchdog0 = &wdt0;
 	};
 
@@ -51,10 +63,176 @@
 		};
 	};
 
+	/*
+	 * Every pin that switches power or holds a part in reset, in one place, so
+	 * board.c and the shutdown path read the same numbers.
+	 *
+	 * `status = "disabled"` is load-bearing and not a mistake: this node is a
+	 * pin map, never a device. The gpio-keys binding is borrowed because it is
+	 * the one upstream binding that declares a plain `gpios` property, and its
+	 * driver (CONFIG_INPUT_GPIO_KEYS) walks DT_INST_FOREACH_STATUS_OKAY. Left
+	 * enabled, the day a product turns CONFIG_INPUT on, that driver would
+	 * reconfigure a rail enable as an interrupt input at POST_KERNEL and the
+	 * board would switch its own peripherals off while booting. Disabled, the
+	 * DT_NODELABEL/GPIO_DT_SPEC macros still resolve and no driver ever binds.
+	 */
+	board_power_gpios {
+		compatible = "gpio-keys";
+		status = "disabled";
+
+		/* PIN_POWER_EN (P0.12): e-paper, external flash, GNSS and the sensor
+		 * bus on REV_2 and the Plus. SoftRF iomap/LilyGO_TEcho.h:80-81. */
+		peripheral_rail_gpio: peripheral_rail {
+			gpios = <&gpio0 12 GPIO_ACTIVE_HIGH>;
+			label = "peripheral-rail";
+		};
+
+		/* P0.13, the REV_2 RF rail (SoftRF iomap/LilyGO_TEcho.h:82-83). Both
+		 * SoftRF and the moshe-braner fork leave this pin alone on REV_2 - they
+		 * never raise it, so they have nothing to drop. We raise it, so we own
+		 * dropping it. */
+		aux_rail_gpio: aux_rail {
+			gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>;
+			label = "aux-rail";
+		};
+
+		/* Flash WP# (IO2) and HOLD# (IO3) in single-line mode: real inputs, and
+		 * a floating one write-protects the chip or stalls a transfer. */
+		flash_wp_gpio: flash_wp {
+			gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
+			label = "flash-wp";
+		};
+
+		flash_hold_gpio: flash_hold {
+			gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;
+			label = "flash-hold";
+		};
+
+		/* L76K wake (P1.02) and active-low reset (P1.05). SoftRF drives both
+		 * high for the Plus (platform/nRF52.cpp:1589-1593); meshcore's
+		 * lilygo_techo variant.h:139-140 has the same pins with
+		 * PIN_GPS_RESET_ACTIVE=LOW. */
+		gnss_enable_gpio: gnss_enable {
+			gpios = <&gpio1 2 GPIO_ACTIVE_HIGH>;
+			label = "gnss-enable";
+		};
+
+		gnss_reset_gpio: gnss_reset {
+			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
+			label = "gnss-reset";
+		};
+
+		/* SX1262 NRESET (P0.25). The radio driver drives it through io::Gpio
+		 * with a flat pin number from pins.h; it is named here because the
+		 * shutdown path is the one other caller and it has no board header. */
+		radio_reset_gpio: radio_reset {
+			gpios = <&gpio0 25 GPIO_ACTIVE_LOW>;
+			label = "radio-reset";
+		};
+	};
+
+	/*
+	 * The pins board.c has to ask a question BEFORE any bus driver claims them,
+	 * and the only place on this SoC where that is possible: the e-paper's
+	 * fingerprint needs its single data line reversed (the SPIM owns MOSI and SCK
+	 * from POST_KERNEL onwards, and this board's SPI MISO is a placeholder), and
+	 * the buzzer pin has to be read high-Z against a pull-up before the PWM
+	 * peripheral starts driving it.
+	 *
+	 * `status = "disabled"` for the same load-bearing reason as board_power_gpios
+	 * above: this is a pin map, never a device.
+	 */
+	board_probe_gpios {
+		compatible = "gpio-keys";
+		status = "disabled";
+
+		/* SSD1681 control lines. DC and RST are plain GPIOs in normal
+		 * operation too; MOSI and SCK are bit-banged for the fingerprint read
+		 * and belong to spi2's pinctrl for everything else. */
+		epd_dc_gpio: epd_dc {
+			gpios = <&gpio0 28 GPIO_ACTIVE_HIGH>;
+			label = "epd-dc";
+		};
+
+		epd_reset_gpio: epd_reset {
+			gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
+			label = "epd-reset";
+		};
+
+		epd_busy_gpio: epd_busy {
+			gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+			label = "epd-busy";
+		};
+
+		epd_mosi_gpio: epd_mosi {
+			gpios = <&gpio0 29 GPIO_ACTIVE_HIGH>;
+			label = "epd-mosi";
+		};
+
+		epd_sck_gpio: epd_sck {
+			gpios = <&gpio0 31 GPIO_ACTIVE_HIGH>;
+			label = "epd-sck";
+		};
+
+		/* The same P0.06 the buzzer PWM drives. Read once, before pwm0 binds. */
+		buzzer_sense_gpio: buzzer_sense {
+			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+			label = "buzzer-sense";
+		};
+	};
+
 	pwmleds {
 		compatible = "pwm-leds";
 		buzzer_pwm: buzzer_pwm {
 			pwms = <&pwm0 0 PWM_HZ(2000) PWM_POLARITY_NORMAL>;
+		};
+	};
+
+	/*
+	 * The RGB status LEDs. Until now the only `pwmleds` node on this board was
+	 * the buzzer and nothing named an LED anywhere, which meant an off device and
+	 * a running device looked identical: e-paper holds its last image with the
+	 * rails down, which is why the wordmark is painted before power off. What
+	 * each state looks like is one table, core/indication/lamp.h.
+	 *
+	 * REV_2 / Plus map, active-low. Sources and the disagreement with the older
+	 * T-Echo map are written out in pins.h next to the same three numbers; they
+	 * are here as well because this node is what the silicon reads and pins.h is
+	 * what the host reads, and neither is derived from the other.
+	 *
+	 * `gpio-leds`, NOT the disabled `gpio-keys` trick that board_power_gpios and
+	 * board_probe_gpios below use, and the difference is worth stating because the
+	 * two look interchangeable. That trick exists because there is no upstream
+	 * binding for "a list of pins that is not a device", so gpio-keys is borrowed
+	 * and then disabled to keep CONFIG_INPUT_GPIO_KEYS from binding a rail enable
+	 * as an interrupt input. Here there IS an exact upstream binding and these ARE
+	 * LEDs, so the node is left enabled: with no CONFIG_LED_GPIO in the image
+	 * nothing binds and GPIO_DT_SPEC_GET_OR still resolves, and if some later
+	 * product does enable the LED subsystem, led_gpio_init configures each pin
+	 * GPIO_OUTPUT_INACTIVE, which on an active-low LED is off. Either way the
+	 * board does not switch anything on behind our back, which is the property the
+	 * disabled nodes below had to buy the hard way.
+	 *
+	 * These sit on the P0.12 peripheral rail - SoftRF's comment on that pin reads
+	 * "Power: EINK, RGB, CN1" - so they go dark on their own when the rail drops.
+	 * That is not licence to leave them driven: see hal/indicator.h park().
+	 */
+	leds {
+		compatible = "gpio-leds";
+
+		led_green: led_green {
+			gpios = <&gpio1 1 GPIO_ACTIVE_LOW>;
+			label = "status-green";
+		};
+
+		led_red: led_red {
+			gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
+			label = "status-red";
+		};
+
+		led_blue: led_blue {
+			gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
+			label = "status-blue";
 		};
 	};
 
@@ -250,6 +428,37 @@
  *
  * The IMU header (0x28 BHI260AP / 0x68 ICM-20948) is deliberately not declared:
  * nothing drives it.
+ *
+ * Nor is the DRV2605 haptic driver at 0x5A, and that is not an omission: we DO
+ * drive it, with our own part under hardware/parts/drv2605/, because a haptic
+ * pulse is two register writes and a wait, and Zephyr has no haptic subsystem to
+ * put it behind. It is found by the bus scan, not declared here, for the reason
+ * the barometer is declared twice: what is fitted on this footprint is a
+ * procurement question the device answers about itself.
+ *
+ * Nor is the PCF8563 RTC at 0x51 that project/2-DEVICES.md:73 records as fitted,
+ * and that IS a decision. Zephyr has an `nxp,pcf8563` driver, so adding it is a
+ * node and CONFIG_RTC. It is deferred, on three findings:
+ *
+ *  1. Time across a POWER CYCLE needs the part powered across the power cycle.
+ *    P0.12 gates this bus (see board_power_gpios above: "REV_2: FLASH, GNSS,
+ *    SENSOR"), and dropping that rail on the way down is the whole point of the
+ *    shutdown work. There is no coin cell on this board and the PCF8563 has one
+ *    supply pin, so as fitted it cannot keep time through the state a flight log
+ *    would want it for. Confirming that needs the schematic, which is not in
+ *    project/reference/.
+ *  2. Neither reference reads it. SoftRF sets the RTC from GNSS
+ *    (platform/nRF52.cpp:2638) and never reads it back on the nRF52; it is a
+ *    PASS line on a self-test page and nothing else.
+ *  3. Our log record already says "no UTC" honestly: core/flight/log_record.h
+ *    carries kLogFlagUtcValid per record, so a pre-fix record is representable
+ *    without inventing a clock.
+ *
+ * What flips it: a schematic showing 0x51 fed from the ungated 3V3, plus a
+ * reader in the flight log. Then the node, `nxp,pcf8563`, CONFIG_RTC in the
+ * board defconfig, and a capability nothing is allowed to depend on. Until then
+ * the bus scan reports 0x51 on the self-test page, so the device answers the
+ * presence question itself rather than a table doing it for us.
  */
 &i2c0 {
 	compatible = "nordic,nrf-twim";
@@ -309,6 +518,33 @@ zephyr_udc0: &usbd {
  * retention_write() puts exactly 0x57 in the register, which is what the
  * bootloader compares against.
  */
+/*
+ * The SoC's own REG1 DC-DC converter instead of the LDO the SoC resets into
+ * (nrf52840.dtsi gives reg1 regulator-initial-mode = NRF5X_REG_MODE_LDO). It is
+ * a statement about THIS BOARD and not about the product: DC-DC needs the
+ * inductor on DCC/DEC4 to be fitted, and an nRF52840 switched to it without one
+ * does not regulate.
+ *
+ * The evidence that it is fitted is meshcore's shipped firmware for this exact
+ * board - variants/lilygo_techo/TechoBoard.h:16 derives TechoBoard from
+ * NRF52BoardDCDC, whose begin() writes NRF_POWER->DCDCEN = 1
+ * (src/helpers/NRF52Board.cpp:227-238). The T-Echo schematic is NOT in
+ * project/reference/, so this is a second-source claim and the bench measurement
+ * is what closes it.
+ *
+ * Devicetree and not Kconfig, and no driver is involved: soc/nordic/nrf52/soc.c
+ * :35-38 reads THIS PROPERTY at compile time and calls nrf_power_dcdcen_set()
+ * during SoC init. CONFIG_SOC_DCDC_NRF52X still reaches the same line but is
+ * deprecated, and its help text names this node property as the replacement
+ * (soc/nordic/nrf52/Kconfig:37-49). CONFIG_BOARD_ENABLE_DCDC, which most
+ * out-of-tree nRF52 boards still carry, does not exist unless the board itself
+ * defines it, and assigning an undefined symbol is the Kconfig warning that
+ * failed this build the first time.
+ */
+&reg1 {
+	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
+};
+
 &gpregret1 {
 	uf2_boot_retention: retention@0 {
 		compatible = "zephyr,retention";

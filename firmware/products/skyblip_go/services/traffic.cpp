@@ -11,6 +11,10 @@ Status TrafficService::setup() {
 }
 
 void TrafficService::tick(uint32_t now_ms) {
+    // The reference the table's range gate measures a claimed position against
+    // (core/traffic/sanity.h), refreshed before this pass drains a single frame:
+    // own-ship has already run this pass, so this is the newest fix there is.
+    context_.state.traffic.set_own_reference(context_.state.own);
     messages::RfEvent event{};
     while (context_.bus.rf.pop(event)) {
         switch (event.type) {

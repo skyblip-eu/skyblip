@@ -87,9 +87,8 @@ class CarrierSense {
 // cycle over. The 1% limit is the channel-access route this product declares,
 // and §D.3's listen-before-talk is a protocol behaviour on top of it rather
 // than an argument for leaving it: this is the evidence for the declaration.
-// Sixty one-minute buckets, each one stamped with the minute it holds, so a
-// bucket that fell out of the window contributes nothing without anything
-// having to sweep it.
+// Sixty one-minute buckets on a ring that turns by elapsed time, so a bucket that
+// fell out of the window contributes nothing without anything having to sweep it.
 class AirTime {
    public:
     static constexpr uint32_t kWindowMs = 3600000;
@@ -110,12 +109,17 @@ class AirTime {
     uint32_t total_ms() const { return total_ms_; }
 
    private:
-    static uint32_t minute_of(uint32_t now_ms) { return now_ms / kBucketMs; }
-
     uint32_t ms_[kBuckets]{};
-    // The minute a bucket holds, plus one: zero is a bucket nothing was ever
-    // spent in, which is not the same as the minute numbered zero.
-    uint32_t stamp_[kBuckets]{};
+    // The bucket now_ms falls in, and the instant it opened. The ring turns by
+    // ELAPSED time and every age below is an unsigned difference from that
+    // instant, because a bucket numbered now_ms / kBucketMs is not a bucket: that
+    // number restarts at zero when the counter wraps, and 2^32 ms is not a whole
+    // number of minutes either, so numbered buckets throw the whole hour away at
+    // the wrap and let the hour straddling it spend the band's allowance twice
+    // (hal/clock.h, rule 1).
+    uint32_t head_start_ms_{0};
+    uint8_t head_{0};
+    bool started_{false};
     uint32_t bursts_{0};
     uint32_t total_ms_{0};
 };

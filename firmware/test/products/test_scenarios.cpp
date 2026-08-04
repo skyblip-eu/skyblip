@@ -179,9 +179,9 @@ TEST_CASE("scenario: a gaggle in one thermal is traffic, not three collisions") 
     }
 }
 
-// Decision 5.3 of specs/2026-08-02_launch-gate.md: v1 ships the straight-line
-// closure model, and the limitation is pinned here rather than argued in a
-// meeting. The two fixtures below are the two sides of a thermal. What they
+// v1 ships the straight-line closure model and no circling prediction, which is a
+// decision and not an oversight: the limitation is pinned here rather than argued
+// in a meeting. The two fixtures below are the two sides of a thermal. What they
 // measure is deliberately not what we wish happened.
 //
 // What one encounter did, read off the public surface: the alarm level the

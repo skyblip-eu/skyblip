@@ -12,6 +12,26 @@ const char* to_string(ShutdownReason reason) {
     return "NONE";
 }
 
+const char* to_string(PowerDownStep step) {
+    switch (step) {
+        case PowerDownStep::RadioSleep: return "RADIO SLEEP";
+        case PowerDownStep::ExternalFlashDeepPowerDown: return "FLASH DPD";
+        case PowerDownStep::ExternalFlashLinesReleased: return "FLASH LINES";
+        case PowerDownStep::GnssBackupOff: return "GNSS OFF";
+        case PowerDownStep::GnssResetAsserted: return "GNSS RESET";
+        case PowerDownStep::RadioResetAsserted: return "RADIO RESET";
+        case PowerDownStep::PeripheralRailOff: return "RAIL OFF";
+        case PowerDownStep::AuxRailOff: return "AUX RAIL OFF";
+        case PowerDownStep::DrivenPinsReleased: return "PINS RELEASED";
+        case PowerDownStep::WakePinArmed: return "WAKE ARMED";
+    }
+    return "NONE";
+}
+
+void power_down(PowerDownSink& sink) {
+    for (int i = 0; i < kPowerDownStepCount; i++) sink.perform(kPowerDownOrder[i]);
+}
+
 void ShutdownSequencer::enter(ShutdownPhase phase, uint32_t now_ms) {
     phase_ = phase;
     since_ms_ = now_ms;

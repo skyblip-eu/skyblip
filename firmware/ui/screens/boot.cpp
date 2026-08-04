@@ -60,10 +60,32 @@ void draw_boot(Framebuffer& fb, const BootSnapshot& s) {
     for (int i = 0; i < rows; i++) {
         const BootPart& part = s.parts[i];
         const char* mark = verdict(part.state);
+        int name_end = kLeft + (length(part.name) + 1) * kCellW;
         fb.draw_text(kLeft, y, part.name, true, 1);
-        leaders(fb, kLeft + (length(part.name) + 1) * kCellW, kRight - (length(mark) + 1) * kCellW,
-                y);
+        // The identity sits with the name, not with the verdict: a row reads
+        // "what it is" then "how it answered", left to right.
+        if (part.detail) {
+            fb.draw_text(name_end, y, part.detail, true, 1);
+            name_end += (length(part.detail) + 1) * kCellW;
+        }
+        leaders(fb, name_end, kRight - (length(mark) + 1) * kCellW, y);
         right_aligned(fb, kRight, y, mark);
+        y += kLineH;
+    }
+
+    // The bus, as one more row: every address that answered, in hex, in the order
+    // the scan found them. No verdict, because nothing here is pass or fail - it
+    // is the evidence behind the rows above and behind the two parts this product
+    // does not drive.
+    if (s.i2c_addresses && s.n_i2c_addresses > 0 && rows < kBootRows) {
+        n = fmt_string(buf, "I2C");
+        const int room = static_cast<int>(sizeof(buf)) - 4;
+        for (int i = 0; i < s.n_i2c_addresses && n + 3 <= room; i++) {
+            n += fmt_string(buf + n, " ");
+            n += fmt_hex(buf + n, s.i2c_addresses[i], 2);
+        }
+        buf[n] = 0;
+        fb.draw_text(kLeft, y, buf, true, 1);
         y += kLineH;
     }
 

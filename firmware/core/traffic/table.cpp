@@ -54,6 +54,16 @@ int TrafficTable::allocate_slot(uint32_t now) {
 
 int TrafficTable::update(const messages::AircraftObs& obs, uint32_t now) {
     if (own_addr_ != 0 && (obs.addr & 0x00FFFFFF) == own_addr_) return -1;
+    // One observation at a time, deliberately: an uplink frame carries up to
+    // thirteen aircraft and one implausible entry among them says nothing about
+    // the other twelve, so a ghost is refused without taking a good report with
+    // it. A refused observation also never displaces the slot an aircraft of that
+    // address already holds - the refusal happens before find().
+    int32_t slant_m = 0;
+    if (range_check(own_, obs, slant_m) == Plausibility::TooFar) {
+        implausible_++;
+        return -1;
+    }
     int idx = find(obs.addr_table, obs.addr);
     if (idx >= 0) {
         if (prefer_new(obs, slots_[idx].obs)) slots_[idx].obs = obs;

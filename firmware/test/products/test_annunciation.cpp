@@ -12,6 +12,7 @@
 #include "core/power/shutdown.h"
 #include "doctest/doctest.h"
 #include "simulator/simulator.h"
+#include "test/support/product_rig.h"
 
 using namespace skyblip;
 
@@ -233,4 +234,75 @@ TEST_CASE("product: the first fix chirps, and traffic takes the buzzer off it") 
     sky.simulator.world().add_threat();
     sky.run(3000, 7000);
     CHECK(int(sky.announcing_level()) == 3);
+}
+
+// ---------------------------------------------------------------------------
+// The haptic, all the way down to the registers.
+//
+// Every case above counts pulses at the role. That counter was true and the
+// device still did not vibrate: the annunciator drove P0.08 as a plain GPIO, and
+// on a T-Echo Plus that pin is a DRV2605's enable. These drive the whole product
+// and then read the chip.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("product: an escalation reaches the haptic driver's registers") {
+    Sky sky;
+    models::Drv2605& chip = sky.simulator.platform().chips().haptic;
+
+    // Configured at bring-up and idle: standby, not a pin sitting high.
+    REQUIRE(sky.simulator.setup() == Status::Ok);
+    CHECK(chip.standby());
+    CHECK_FALSE(chip.moving());
+
+    sky.run(0, 2000);
+    sky.simulator.world().add_threat();
+
+    bool moved = false;
+    for (uint32_t t = 2000; t <= 8000; t += kStepMs) {
+        sky.simulator.step(t);
+        if (chip.moving()) moved = true;
+    }
+    CHECK(int(sky.announcing_level()) == 3);
+    // The pulse was made over the bus: a mode, a drive value and a stop. The
+    // enable pin is not wired into the host's virtual GPIO at all
+    // (hardware/platform/host/io.h), so nothing here could have moved the motor
+    // by driving P0.08 - which is what the annunciator used to do.
+    CHECK(moved);
+    CHECK(sky.buzzer().vibro_pulses() >= 1);
+}
+
+TEST_CASE("product: the motor is not left running after its pulse") {
+    Sky sky;
+    models::Drv2605& chip = sky.simulator.platform().chips().haptic;
+    uint32_t t = sky.with_an_urgent_threat();
+
+    // A pulse is 600 ms at urgent (services/alarm.h). Well past it, the driver is
+    // back in standby: a motor left on is a flat battery, and the DRV2605's own
+    // drive stage is milliamps.
+    sky.run(t, t + 3000);
+    CHECK_FALSE(chip.moving());
+    CHECK(chip.standby());
+}
+
+TEST_CASE("product: a unit with no haptic driver flies, sounds, and says what is missing") {
+    // The same board with nothing at 0x5A: an empty pad, a dead part, or a plain
+    // T-Echo that came down the line as a Plus.
+    constexpr hal::Capabilities kNoHaptic = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
+        ~static_cast<uint32_t>(hal::Capability::Vibro));
+    Rig rig{kNoHaptic};
+    REQUIRE(rig.setup() == Status::Ok);
+
+    // Optional, so the device flies and says so once.
+    CHECK(rig.product.flyable());
+    CHECK_FALSE(hal::has(rig.product.capabilities(), hal::Capability::Vibro));
+    CHECK(hal::has(rig.product.degraded(), hal::Capability::Vibro));
+
+    // And the voice it does have still works: the first fix is chirped by the
+    // same service that would have pulsed the motor.
+    uint32_t t = 0;
+    rig.push_timed_fix(/*speed_q=*/0, /*alt_msl_m=*/300);
+    rig.run(t, t + 1000);
+    CHECK(rig.platform.annunciator().tone_commands() >= 1);
+    CHECK(rig.platform.chips().haptic.moving() == false);
 }

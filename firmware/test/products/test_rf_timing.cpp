@@ -353,3 +353,168 @@ TEST_CASE("rf: the extrapolation residual is measured against the fix that arriv
     }
     CHECK(worst_m > 10);
 }
+
+// --- J. Transmit loopback ----------------------------------------------------
+// SoftRF suppresses a transmission whose buffer equals the last frame received
+// and reports "$PSRFE,RF loopback is detected on Tx" (src/driver/RF.cpp:381-396).
+// That guard exists because it happened in the field, and the shape of its
+// firmware is why: one RF driver owns a shared TxBuffer/RxBuffer pair, a received
+// frame is parsed out of the same memory a transmission is composed into, and
+// its relay and bridge paths do put received traffic back on air.
+//
+// Ours cannot reach that state, and this is the case that says so rather than a
+// paragraph claiming it. The transmit buffer (RadioService::outgoing_) is only
+// ever written by protocol::from_own, whose inputs are own-ship state, the device
+// address and the settings; a received frame's only path is the RfEvent queue
+// into TrafficService and the traffic table, which nothing transmits from. There
+// is no relay feature, no repeater and no second writer. So there is no guard in
+// the driver: a guard against an impossible fault is a test nobody can fail
+// honestly and a comparison in the one place a dwell cannot afford one.
+//
+// What we do instead is assert the property the guard would protect, over the
+// real air, with both directions live in the same second.
+TEST_CASE("rf: nothing own-ship transmits is a frame own-ship received") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_speed_kt(50);
+    // A neighbour transmitting inside the first M-band dwell, so every second
+    // carries a reception and a transmission on the same radio.
+    h.world().add_aircraft(1200, 300, 50, 30, 90, 600, 0);
+    run_on(h, past_settling(h), 6000);
+
+    const simulator::Air& air = h.world().air();
+    int received = 0, transmitted = 0;
+    for (int i = 0; i < air.record_count(); i++) {
+        const simulator::AirRecord& mine = air.record(i);
+        if (mine.event != simulator::AirEvent::Tx) continue;
+        transmitted++;
+        protocol::Frame sent{};
+        REQUIRE(simulator::Air::framed(mine, sent));
+        protocol::AdslPacket p{};
+        p.init();
+        std::memcpy(&p.Version, sent.data, protocol::kAdslFrameBytes);
+        REQUIRE(p.check_crc() == 0);
+        p.descramble();
+        // Every burst we put on air is ours, by address: a relayed frame would
+        // carry the neighbour's.
+        CHECK(p.address() == h.platform().device_addr());
+
+        for (int j = 0; j < air.record_count(); j++) {
+            const simulator::AirRecord& heard = air.record(j);
+            if (heard.event != simulator::AirEvent::Rx) continue;
+            const bool identical =
+                heard.len == mine.len && std::memcmp(heard.chips, mine.chips, mine.len) == 0;
+            CHECK_FALSE(identical);
+        }
+    }
+    for (int i = 0; i < air.record_count(); i++)
+        if (air.record(i).event == simulator::AirEvent::Rx) received++;
+    // Neither half may be zero, or the case above proves nothing.
+    CHECK(received > 0);
+    CHECK(transmitted > 0);
+    CHECK(h.product().state().rx_ok > 0);
+    CHECK(h.product().state().tx_ok > 0);
+}
+
+// --- J. Range sanity, end to end --------------------------------------------
+// The gate on the traffic table's door (core/traffic/sanity.h) with the whole
+// path in front of it: a real frame, on the real air, through the model's sync
+// detector, the driver, the executor and the decoder. A frame that survives all
+// of that and still claims to be 120 km away did not arrive from there.
+TEST_CASE("rf: a decoded burst claiming an impossible range never reaches the radar") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_pps_locked(false);  // receive only, so the tape is the neighbour's
+    h.world().add_aircraft(120000, 0, 0, 30, 180, 600, 0);
+    h.run(4000);
+
+    // Heard, decoded, CRC intact: the frame is not being refused by the radio or
+    // by the protocol layer.
+    CHECK(h.product().state().rx_ok > 0);
+    CHECK(h.product().state().rx_bad == 0);
+    // And refused by the table, counted, with nothing on the screen.
+    CHECK(h.product().state().traffic.count() == 0);
+    CHECK(h.product().state().traffic.implausible_count() > 0);
+    CHECK(h.product().state().alarm_level == 0);
+}
+
+// The same air with the same aircraft at a range this radio can actually reach:
+// the gate is a ceiling on nonsense, not a filter on traffic.
+TEST_CASE("rf: a burst from a range the link budget allows is traffic as before") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_pps_locked(false);
+    h.world().add_aircraft(8000, 0, 0, 30, 180, 600, 0);
+    h.run(4000);
+
+    CHECK(h.product().state().rx_ok > 0);
+    CHECK(h.product().state().traffic.count() == 1);
+    CHECK(h.product().state().traffic.implausible_count() == 0);
+}
+
+// M. The whole transmit chain stepped through the instant hal::Clock::millis()
+// turns over: the first-fix settling window, the fix-age gate, the once-a-second
+// rate rule, the channel alternation and the rolling duty-cycle hour. This is the
+// section's integration case, and it is the one that would have caught the two
+// bugs the unit cases above now pin: a transmitter that stops for seven weeks
+// after a forced burst, and an air-time window that forgets the hour at the wrap
+// and lets the next one spend the band's allowance twice.
+//
+// The wrap is a value, not a wait: the clock starts 25 seconds short of it.
+TEST_CASE("rf: own-ship keeps transmitting across the 49.7-day wrap") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_speed_kt(50);
+
+    // Thirty seconds before the wrap: the receiver's configuration sequence, the
+    // twenty-second settling window and a couple of seconds of transmitting all
+    // happen before the counter turns over.
+    uint32_t t = 0u - 30000u;
+    const uint32_t settled_at = t + 28000u;
+    while (t != settled_at) {
+        h.step(t);
+        t += simulator::Simulator::kStepMs;
+    }
+    REQUIRE(h.product().state().own.tx_settled);
+    const uint32_t sent_before = h.product().state().tx_ok;
+    REQUIRE(sent_before > 0);
+    h.world().air().clear();
+
+    // Eight seconds, four of them on each side of zero.
+    const uint32_t stop_at = t + 8000u;
+    while (t != stop_at) {
+        h.step(t);
+        t += simulator::Simulator::kStepMs;
+    }
+
+    const simulator::Air& air = h.world().air();
+    int transmissions = 0;
+    uint32_t last_freq = 0;
+    for (int i = 0; i < air.record_count(); i++) {
+        const simulator::AirRecord& r = air.record(i);
+        if (r.event != simulator::AirEvent::Tx) continue;
+        transmissions++;
+        // Still inside the direct slot, still alternating channel: the phase comes
+        // off the PPS edge in micros(), which is 64-bit and does not wrap.
+        CHECK(timing::Scheduler::in_direct_slot(r.phase_ms));
+        CHECK(r.phase_ms + timing::Transmitter::kAirTimeMs <= timing::kDirectEnd);
+        if (last_freq != 0) CHECK(r.freq_hz != last_freq);
+        last_freq = r.freq_hz;
+    }
+    // Eight seconds of flight is eight bursts, give or take the one the step
+    // boundary lands on. A wrap that broke the rate rule would show up as zero.
+    CHECK(transmissions >= 6);
+    CHECK(h.product().state().tx_ok == sent_before + static_cast<uint32_t>(transmissions));
+
+    // And the hour that straddles the wrap is still an hour: the design rate is
+    // half the band's allowance and the window did not forget what it holds.
+    const timing::AirTime& air_time = h.product().radio().transmitter().air_time();
+    CHECK(air_time.window_ms(t) >=
+          static_cast<uint32_t>(transmissions) * timing::Transmitter::kAirTimeMs);
+    CHECK(h.product().radio().duty_permille(t) < timing::AirTime::kLimitPermille);
+    CHECK_FALSE(h.product().radio().over_budget());
+}

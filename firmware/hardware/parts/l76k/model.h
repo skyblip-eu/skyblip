@@ -14,10 +14,15 @@
 #include "core/protocol/nmea_out.h"
 #include "core/util/format.h"
 #include "hardware/io/io.h"
+#include "hardware/parts/l76k/l76k.h"
 
 namespace skyblip::models {
 
-class L76k : public io::Uart {
+// The model is the receiver AND the wire to it: io::UartRate is the seam the
+// platform's UART fills on silicon, and here it is the rate the MCU end is set
+// to. Bytes crossing a rate mismatch are framing errors in both directions,
+// which is what "the receiver came up at 38400" actually looks like.
+class L76k : public io::Uart, public io::UartRate {
    public:
     // Modelled receiver state, driven by the caller.
     bool fix{true};
@@ -38,6 +43,9 @@ class L76k : public io::Uart {
     double turn_dps{0};
     int32_t climb_mps_e1{0};  // tenths of m/s, applied to alt over time
     uint32_t utc_sod{12 * 3600 + 34 * 60 + 56};
+    // RMC field 9, ddmmyy. "010180" is the MTK fake date a receiver with no
+    // almanac reports beside a position that looks perfectly ordinary.
+    const char* date{"010125"};
 
     // INFO: gn 09Jun25 The AT6558 core in the L76K takes $PCAS configuration
     // sentences and never acknowledges them: the only evidence they landed is
@@ -50,17 +58,88 @@ class L76k : public io::Uart {
     // clone with a different command set, a module held in a firmware-update mode.
     bool accepts_commands{true};
 
+    // INFO: fc 03aug26 The L76K wakes on UART activity and is deaf for about
+    // half a second afterwards, which is why SoftRF spends a byte and 500 ms
+    // before it says anything that matters (oss/SoftRF-lyusupov
+    // .../src/driver/GNSS.cpp:1383-1387). Default false: a receiver already
+    // running is the ordinary case, and `asleep = true` is the cold one.
+    static constexpr uint32_t kWakeMs = 500;
+    bool asleep{false};
+
+    // The rate the receiver itself is talking at. The MCU end is set through
+    // io::UartRate, and the two only agree because someone made them.
+    uint32_t baud{parts::L76k::kBaudRate};
+
+    // INFO: fc 03aug26 $PCAS06 is answered with the CASIC firmware banner. A
+    // clone that takes $PCAS sentences but never introduces itself is exactly
+    // what the handshake exists to expose.
+    bool answers_identification{true};
+    const char* firmware_version{"URANUS5,V5.1.0.0"};
+
+    // A cold start throws the orbit data away, and the receiver is blind until
+    // it has decoded a fresh almanac. This is the twenty minutes a pilot reads
+    // as a broken device, compressed to the datasheet's cold TTFF.
+    static constexpr uint32_t kColdStartTtffMs = 30000;
+    static constexpr uint32_t kRebootMs = 300;
+
     uint32_t solution_period_ms{kFactoryPeriodMs};
     uint8_t constellations{0};
     uint8_t dynamic_model{0};
     bool sentence_set_applied{false};
+    bool gga_enabled{false};
+    bool gsa_enabled{false};
+    bool rmc_enabled{false};
     uint32_t commands_seen{0};
     uint32_t commands_rejected{0};
+    uint32_t wake_bytes{0};
+    uint32_t deaf_bytes{0};
+    uint32_t garbled_bytes{0};
+    uint32_t baud_changes{0};
+    uint32_t restarts{0};
+    uint32_t factory_resets{0};
+    // Which $PCAS10 argument arrived last, so a test can tell a hot restart from
+    // the cold start that is the whole point of asking.
+    int last_restart_kind{-1};
 
     bool aviation_dynamic_model() const { return dynamic_model == kAviationDynamicModel; }
 
+    // Everything the receiver heard, in the order it heard it: "WAKE,PCAS06,...".
+    // A driver that sends the right sentences in the wrong order configures a
+    // receiver that was not listening yet.
+    const std::string& heard() const { return heard_; }
+
+    // io::UartRate: the MCU end of the link retunes. Always possible here;
+    // whether it is possible on silicon is the platform's answer, not the chip's.
+    bool set(uint32_t rate) override {
+        port_baud_ = rate;
+        baud_changes++;
+        return true;
+    }
+    uint32_t port_baud() const { return port_baud_; }
+
     size_t write(const uint8_t* data, size_t len) override {
         for (size_t i = 0; i < len; i++) {
+            // A rate mismatch is not silence: the bits arrive and frame as
+            // rubbish, which fails the checksum and is therefore indistinguishable
+            // from nothing having been said.
+            if (port_baud_ != baud) {
+                garbled_bytes++;
+                continue;
+            }
+            if (rebooting()) continue;
+            if (asleep) {
+                asleep = false;
+                deaf_since_ms_ = last_tick_ms_;
+                deaf_ = true;
+                wake_bytes++;
+                heard_ += "WAKE,";
+                continue;  // the byte that wakes it is the byte it loses
+            }
+            if (deaf()) {
+                deaf_bytes++;
+                command_len_ = 0;
+                continue;
+            }
             const char c = static_cast<char>(data[i]);
             if (c == '$') {
                 command_len_ = 0;
@@ -75,6 +154,13 @@ class L76k : public io::Uart {
         return len;
     }
     size_t read(uint8_t* data, size_t cap) override {
+        // It is talking and we cannot frame a byte of it: the sentences went
+        // past on the wire and are gone, they are not queued up waiting for
+        // someone to fix the rate.
+        if (port_baud_ != baud) {
+            pending_.clear();
+            return 0;
+        }
         size_t n = pending_.size() < cap ? pending_.size() : cap;
         for (size_t i = 0; i < n; i++) data[i] = static_cast<uint8_t>(pending_[i]);
         pending_.erase(0, n);
@@ -84,6 +170,7 @@ class L76k : public io::Uart {
 
     // Advance own-ship along its track and emit an NMEA burst per solution.
     void tick(uint32_t now_ms) {
+        last_tick_ms_ = now_ms;
         // First tick only anchors the cadence. Anchoring on `last_ms_ == 0`
         // instead would re-anchor on every call made at t=0, which is a legal
         // timestamp, not an "unset" marker.
@@ -94,6 +181,12 @@ class L76k : public io::Uart {
         }
         uint32_t dt = now_ms - last_ms_;
         if (dt < solution_period_ms) return;
+        // A receiver nobody has spoken to yet is not producing, and one that is
+        // rebooting after $PCAS10 has nothing to say either.
+        if (asleep || rebooting()) {
+            last_ms_ = now_ms;
+            return;
+        }
         last_ms_ = now_ms;
 
         // Integrate position along the current track at the current speed. In a
@@ -135,6 +228,21 @@ class L76k : public io::Uart {
     double turned_deg_{0};
     char command_[kCommandCap]{};
     int command_len_{0};
+    // Three windows, each a START instant plus a flag rather than an end instant.
+    // core/../hal/clock.h states the rule and section M found the bug it prevents:
+    // an end instant compared with `<` inverts across the 49.7-day wrap, and here
+    // it would invert PERMISSIVELY - a window that ends immediately is a model
+    // that answers when the real part would not, which is the one direction a
+    // test double must never fail in.
+    uint32_t last_tick_ms_{0};
+    uint32_t deaf_since_ms_{0};
+    uint32_t reboot_since_ms_{0};
+    uint32_t cold_since_ms_{0};
+    bool deaf_{false};
+    bool rebooting_{false};
+    bool cold_{false};
+    uint32_t port_baud_{parts::L76k::kBaudRate};
+    std::string heard_;
 
     static bool starts_with(const char* s, int len, const char* prefix) {
         int i = 0;
@@ -155,15 +263,81 @@ class L76k : public io::Uart {
             commands_rejected++;
             return;
         }
+        for (int i = 1; i < command_len_ && i < 7; i++) heard_ += command_[i];
+        heard_ += ',';
+
+        // The version banner is the part naming itself, not a setting: a
+        // receiver that obeys nothing still answers it.
+        if (starts_with(command_, command_len_, "$PCAS06,")) {
+            if (answers_identification) emit_version();
+            return;
+        }
         if (!accepts_commands) return;
         if (starts_with(command_, command_len_, "$PCAS04,"))
             constellations = static_cast<uint8_t>(argument(command_, command_len_, 8));
         else if (starts_with(command_, command_len_, "$PCAS03,"))
-            sentence_set_applied = true;
+            apply_sentence_set();
         else if (starts_with(command_, command_len_, "$PCAS11,"))
             dynamic_model = static_cast<uint8_t>(argument(command_, command_len_, 8));
         else if (starts_with(command_, command_len_, "$PCAS02,"))
             solution_period_ms = argument(command_, command_len_, 8);
+        else if (starts_with(command_, command_len_, "$PCAS10,"))
+            apply_restart(static_cast<int>(argument(command_, command_len_, 8)));
+    }
+
+    // $PCAS03,GGA,GLL,GSA,GSV,RMC,VTG,... each 0 or 1. Which sentences we asked
+    // for is not a bool: GSA is the one that carries VDOP, and its absence is a
+    // decision core/protocol/adsl.cpp has to live with.
+    void apply_sentence_set() {
+        int field = 0;
+        int at = 8;
+        while (at < command_len_ && field < 5) {
+            const bool on = command_[at] == '1';
+            if (field == 0) gga_enabled = on;
+            if (field == 2) gsa_enabled = on;
+            if (field == 4) rmc_enabled = on;
+            while (at < command_len_ && command_[at] != ',') at++;
+            at++;
+            field++;
+        }
+        sentence_set_applied = true;
+    }
+
+    // $PCAS10,n: 0 hot, 1 warm, 2 cold, 3 factory. The module reboots either
+    // way; a cold start also throws the orbit data away, and a factory reset
+    // takes every setting we applied with it.
+    void apply_restart(int kind) {
+        restarts++;
+        last_restart_kind = kind;
+        reboot_since_ms_ = last_tick_ms_;
+        rebooting_ = true;
+        pending_.clear();
+        if (kind >= 2) {
+            cold_since_ms_ = last_tick_ms_;
+            cold_ = true;
+        }
+        if (kind < 3) return;
+        factory_resets++;
+        constellations = 0;
+        dynamic_model = 0;
+        sentence_set_applied = false;
+        gga_enabled = gsa_enabled = rmc_enabled = false;
+        solution_period_ms = kFactoryPeriodMs;
+    }
+
+    bool deaf() const { return deaf_ && last_tick_ms_ - deaf_since_ms_ < kWakeMs; }
+    bool rebooting() const { return rebooting_ && last_tick_ms_ - reboot_since_ms_ < kRebootMs; }
+    bool cold() const { return cold_ && last_tick_ms_ - cold_since_ms_ < kColdStartTtffMs; }
+    bool solving() const { return fix && !cold(); }
+
+    // $GPTXT,01,01,02,SW=<version>: the reply SoftRF matches on
+    // (oss/SoftRF-lyusupov .../src/driver/GNSS.cpp:981-1010, 1015-1025).
+    void emit_version() {
+        char s[128];
+        int n = fmt_string(s, "$GPTXT,01,01,02,SW=");
+        n += fmt_string(s + n, firmware_version);
+        n = protocol::nmea_finish(s, n);
+        pending_.append(s, static_cast<size_t>(n));
     }
 
     void lat_lon_advance(double east_m, double coslat) {
@@ -183,7 +357,7 @@ class L76k : public io::Uart {
         char s[128];
         int n = fmt_string(s, "$GPRMC,");
         n += put_time(s + n);
-        n += fmt_string(s + n, fix ? ",A," : ",V,");
+        n += fmt_string(s + n, solving() ? ",A," : ",V,");
         n += fmt_nmea_lat(s + n, lat_1e7);
         s[n++] = ',';
         n += fmt_nmea_lon(s + n, lon_1e7);
@@ -191,7 +365,9 @@ class L76k : public io::Uart {
         n += fmt_uint(s + n, static_cast<uint32_t>(speed_kt < 0 ? 0 : speed_kt), 1);
         n += fmt_string(s + n, ".0,");
         n += fmt_uint(s + n, static_cast<uint32_t>((track_deg % 360 + 360) % 360), 1);
-        n += fmt_string(s + n, ",010125,,,A");
+        s[n++] = ',';
+        n += fmt_string(s + n, date);
+        n += fmt_string(s + n, ",,,A");
         n = protocol::nmea_finish(s, n);
         pending_.append(s, static_cast<size_t>(n));
     }
@@ -206,9 +382,9 @@ class L76k : public io::Uart {
         s[n++] = ',';
         n += fmt_nmea_lon(s + n, lon_1e7);
         s[n++] = ',';
-        n += fmt_uint(s + n, fix ? 1u : 0u, 1);
+        n += fmt_uint(s + n, solving() ? 1u : 0u, 1);
         s[n++] = ',';
-        n += fmt_uint(s + n, sats, 2);
+        n += fmt_uint(s + n, solving() ? sats : uint8_t{0}, 2);
         s[n++] = ',';
         n += fmt_uint(s + n, hdop_e2, 3, 2);
         s[n++] = ',';

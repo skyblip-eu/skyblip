@@ -10,7 +10,7 @@ Status RadioService::setup() {
 }
 
 void RadioService::tick(uint32_t now_ms) {
-    const timing::SlotPlan plan = scheduler_.plan(phase_ms(now_ms), context_.state.clock);
+    const timing::SlotPlan plan = scheduler_.plan(phase_ms(), context_.state.clock);
     context_.state.plan = plan;
     take_carrier_samples();
     collect_outcome(now_ms);
@@ -32,7 +32,7 @@ void RadioService::tick(uint32_t now_ms) {
 void RadioService::publish_dwell(uint32_t now_ms) {
     timing::DwellPhase& dwell = context_.state.dwell;
     dwell.at_ms = now_ms;
-    dwell.phase_ms = phase_ms(now_ms);
+    dwell.phase_ms = phase_ms();
     dwell.armed = armed_ != hal::RfMode::Idle;
     dwell.burst_armed = tx_armed_;
 }
@@ -40,12 +40,18 @@ void RadioService::publish_dwell(uint32_t now_ms) {
 // From the latched edge, at the instant it is asked for. Deriving it from a
 // phase the board sampled at the top of the pass costs however long the pass
 // takes to reach this service, which is the whole jitter guard on a bad pass.
-int RadioService::phase_ms(uint32_t now_ms) const {
+//
+// Both branches read micros(), which is 64-bit and does not wrap. The free-running
+// fallback used to be now_ms % 1000, and that is not a phase: 2^32 ms is not a
+// whole number of seconds, so at the 49.7-day wrap of hal::Clock::millis() the
+// second stepped 705 ms BACKWARDS and one dwell was armed out of order. It only
+// showed with the anchor already lost, which is the worst time to add a fault.
+int RadioService::phase_ms() const {
     const timing::ClockState& clock = context_.state.clock;
     const uint64_t now_us = context_.roles.clock.micros();
     if (clock.pps_locked && now_us >= clock.pps_edge_us)
         return static_cast<int>((now_us - clock.pps_edge_us) / 1000 % 1000);
-    return static_cast<int>(now_ms % 1000);
+    return static_cast<int>(now_us / 1000 % 1000);
 }
 
 // The executor assesses, the policy averages what the assessments report. One
@@ -58,15 +64,15 @@ void RadioService::take_carrier_samples() {
     noise_.sample(carrier.dbm);
 }
 
-uint64_t RadioService::pps_epoch_us(uint32_t now_ms) const {
+uint64_t RadioService::pps_epoch_us() const {
     const uint64_t now_us = context_.roles.clock.micros();
-    const uint64_t phase_us = static_cast<uint64_t>(phase_ms(now_ms)) * 1000;
+    const uint64_t phase_us = static_cast<uint64_t>(phase_ms()) * 1000;
     return now_us > phase_us ? now_us - phase_us : 0;
 }
 
-uint64_t RadioService::dwell_epoch_us(uint32_t now_ms) const {
-    const uint64_t epoch_us = pps_epoch_us(now_ms);
-    const bool in_slot1_tail = phase_ms(now_ms) < timing::kSlot1Wrap;
+uint64_t RadioService::dwell_epoch_us() const {
+    const uint64_t epoch_us = pps_epoch_us();
+    const bool in_slot1_tail = phase_ms() < timing::kSlot1Wrap;
     return (in_slot1_tail && epoch_us >= 1000000) ? epoch_us - 1000000 : epoch_us;
 }
 
@@ -76,18 +82,18 @@ uint64_t RadioService::dwell_epoch_us(uint32_t now_ms) const {
 // monotonic one. The dwell is armed before the slot opens, so the second figure
 // is the staleness already accrued plus the whole wait still to come.
 protocol::BurstInstant RadioService::burst_instant(const timing::Transmitter::Attempt& a,
-                                                   uint64_t tx_at_us, uint32_t now_ms) const {
+                                                   uint64_t tx_at_us) const {
     const uint32_t tx_ms = static_cast<uint32_t>(tx_at_us / 1000);
     protocol::BurstInstant at{};
-    at.utc = slot_utc(now_ms);
+    at.utc = slot_utc();
     at.into_utc_ms = a.at_ms;
     at.since_fix_ms = static_cast<int32_t>(tx_ms - context_.state.own.fix_ms);
     return at;
 }
 
-uint32_t RadioService::slot_utc(uint32_t now_ms) const {
+uint32_t RadioService::slot_utc() const {
     const uint32_t utc = context_.state.own.utc;
-    const bool in_slot1_tail = phase_ms(now_ms) < timing::kSlot1Wrap;
+    const bool in_slot1_tail = phase_ms() < timing::kSlot1Wrap;
     return (in_slot1_tail && utc > 0) ? utc - 1 : utc;
 }
 
@@ -136,16 +142,20 @@ timing::Transmitter::Attempt RadioService::attempt(const timing::SlotPlan& plan,
     if (!own.fix_valid || !own.utc_valid || !own.tx_settled) return timing::Transmitter::Attempt{};
     const uint32_t fix_age_ms = now_ms - own.fix_ms;
     const bool airborne = own.flight_state == kFlightStateAirborne;
-    return transmitter_.attempt(plan, slot_utc(now_ms), now_ms, airborne, fix_age_ms);
+    return transmitter_.attempt(plan, slot_utc(), now_ms, airborne, fix_age_ms);
 }
 
 void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
-    const uint64_t epoch_us = dwell_epoch_us(now_ms);
+    const uint64_t epoch_us = dwell_epoch_us();
     const uint64_t now_us = context_.roles.clock.micros();
 
     hal::RfPlan plan{};
     plan.mode = mode_for(slot);
     plan.freq_hz = slot.freq_hz;
+    // The one setting on this device that is a property of the unit's own
+    // reference rather than of the pilot: it belongs to every dwell, on both
+    // bands, receiving as well as transmitting (core/settings/settings.h).
+    plan.freq_corr_e1_ppm = context_.state.settings.freq_trim_e1_ppm;
     listen_for(slot.band, plan);
     plan.start_us = epoch_us + static_cast<uint64_t>(slot.start_ms) * 1000;
     plan.end_us = epoch_us + static_cast<uint64_t>(slot.end_ms) * 1000;
@@ -165,7 +175,7 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
     if (carries_tx) {
         protocol::from_own(outgoing_, context_.state.own, context_.roles.device_addr,
                            context_.state.settings.addr_table, context_.state.own.aircraft_cat,
-                           context_.state.settings.stealth, burst_instant(a, tx_at_us, now_ms));
+                           context_.state.settings.stealth, burst_instant(a, tx_at_us));
         outgoing_.scramble();
         outgoing_.set_crc();
         plan.tx = outgoing_chips_;
@@ -191,7 +201,7 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
     arm_count_++;
     tx_armed_ = carries_tx;
     if (carries_tx) {
-        tx_utc_ = slot_utc(now_ms);
+        tx_utc_ = slot_utc();
         tx_forced_ = a.force;
         tx_end_us_ = plan.end_us;
         tx_deadline_us_ = tx_at_us;

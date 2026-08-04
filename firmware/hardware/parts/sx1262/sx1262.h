@@ -37,6 +37,11 @@ struct RadioConfig {
     const uint8_t* sync{nullptr};
     uint8_t sync_bits{0};
     uint8_t payload_bytes{0};
+    // Tenths of a ppm added to freq_hz before the PLL word is computed, positive
+    // upwards. Zero is the design intent on a TCXO part; the field exists so a
+    // batch whose reference is out can be corrected in the field instead of
+    // returned. Clamped to sx::kFreqTrimLimitTenthsPpm either way.
+    int16_t freq_corr_e1_ppm{0};
 };
 
 class Sx1262 {
@@ -82,6 +87,7 @@ class Sx1262 {
     Status verify_link();
     Status enter_standby();
     void configure_modulation(const RadioConfig& cfg);
+    void configure_rx_gain();
     void configure_power();
     void configure_irq();
     void configure_frame(const RadioConfig& cfg);
@@ -102,6 +108,18 @@ class Sx1262 {
 
 namespace sx {
 constexpr uint8_t kSetStandby = 0x80;
+constexpr uint8_t kSetRegulatorMode = 0x96;
+// DS 13.1.4 regModeParam. The part comes out of reset on its LDO alone and the
+// converter roughly halves the supply current in receive and in transmit, which
+// on a dwell map that arms the receiver through about 980 ms of every second is
+// the largest single power term on the board. DC-DC needs the inductor on
+// DCC_SW to be fitted: SoftRF issues SetRegulatorMode(REGMODE_DCDC) as the first
+// line of its SX126x bring-up on this hardware
+// (libraries/arduino-basicmac/src/lmic/radio-sx126x.c:703, 855), which is the
+// evidence we have that the module carries it. Bench current in receive is what
+// closes it.
+constexpr uint8_t kRegulatorLdo = 0x00;
+constexpr uint8_t kRegulatorDcDc = 0x01;
 constexpr uint8_t kSetDio3AsTcxoCtrl = 0x97;
 constexpr uint8_t kSetDio2AsRfSwitch = 0x9D;
 constexpr uint8_t kCalibrate = 0x89;
@@ -125,6 +143,40 @@ constexpr uint8_t kSetSleep = 0x84;
 // thing that wakes this device is the button.
 constexpr uint8_t kSleepWarmStartNoRtc = 0x04;
 constexpr uint16_t kSyncWordRegister = 0x06C0;  // DS 13.4.9, 8 bytes
+
+// DS 9.6 ("Rx Gain") register 0x08AC: 0x94 is the power-saving gain the part
+// comes out of reset on, 0x96 the boosted one. The figures for what the boost
+// buys are the references', not the datasheet's - about 2 mA more supply current
+// in receive for about 3 dB of sensitivity, in SoftRF's own words on the line
+// that writes it (arduino-basicmac/src/lmic/radio-sx126x.c:365-372) - so both
+// halves of that trade are a bench measurement we owe.
+//
+// We take it, and it is a decision rather than an inherited default. 3 dB is
+// about 40% more range on a device whose whole job is to hear an aircraft before
+// it matters, and 2 mA is under a tenth of what the DC-DC converter above just
+// gave back on the same 980 ms of every second. SoftRF writes the boosted value
+// on every SetRx, and openace turns it on in both of its receive paths
+// (src/lib/sx1262/ace/src/sx1262.cpp:216, 380), so the value itself is what this
+// hardware is known to run on.
+//
+// The one caveat we could find is not that SetRx resets the register: it is that
+// 0x08AC is not part of what a warm start retains unless it is added to the
+// retention list at 0x029F (DS 9.6, just below table 9-3, which is the citation
+// RadioLib's SX126x_config.cpp:405-409 carries for the same three bytes). Our
+// sleep IS a warm start, so a radio that slept and came back would be a radio on
+// the power-saving gain again, with no symptom beyond a shorter range. Both
+// halves are therefore written: the retention list once in begin(), and the
+// register itself in every configure_radio(), which is the standby bracket every
+// dwell passes through anyway (register access outside standby is what the model
+// refuses, DS 13.1).
+constexpr uint16_t kRxGainRegister = 0x08AC;
+constexpr uint8_t kRxGainPowerSaving = 0x94;
+constexpr uint8_t kRxGainBoosted = 0x96;
+// DS 9.6: the retention list is three bytes at 0x029F - a count and one 16-bit
+// register address.
+constexpr uint16_t kRetentionListRegister = 0x029F;
+constexpr uint8_t kRetainRxGain[3] = {0x01, static_cast<uint8_t>(kRxGainRegister >> 8),
+                                      static_cast<uint8_t>(kRxGainRegister & 0xFF)};
 // Written and read back over the same register to prove the part answers. Two
 // bytes that are each other's complement: a MISO line stuck at either rail, or
 // tied to MOSI, gives back something else.
@@ -202,6 +254,29 @@ static_assert(kResultingErpCentiDb <= kSrd868ErpLimitDbm * 100,
 
 // DS 13.1.12 CalibrateImage, the 863-870 MHz band pair.
 constexpr uint8_t kImageBand863to870[2] = {0xD7, 0xDB};
+
+// The most the programmed centre frequency may be trimmed, in tenths of a ppm.
+// At 868.2 MHz a tenth of a ppm is 87 Hz, so this is +-8.7 kHz: enough to
+// correct a reference ten times worse than the TCXO this board fits, and small
+// against both the 200 kHz channel and the distance from 868.2 MHz to the edges
+// of ERC 70-03 band h1.4 (868.0-868.6 MHz), so no legal trim moves the carrier
+// out of the band it is licensed in. Kept equal to
+// settings::kFreqTrimLimitTenthsPpm, which is the same bound on the stored
+// value; test/hardware/test_sx1262_level.cpp pins the two together.
+constexpr int16_t kFreqTrimLimitTenthsPpm = 100;
+// Tenths of a ppm are parts in 10^7.
+constexpr int32_t kFreqTrimPerUnit = 10000000;
+
+// The frequency actually programmed, once the reference's own error is taken
+// out. Positive trim moves the carrier up, which is what a part measuring low
+// on a counter needs.
+constexpr uint32_t trimmed_hz(uint32_t freq_hz, int16_t corr_e1_ppm) {
+    int32_t corr = corr_e1_ppm;
+    if (corr > kFreqTrimLimitTenthsPpm) corr = kFreqTrimLimitTenthsPpm;
+    if (corr < -kFreqTrimLimitTenthsPpm) corr = -kFreqTrimLimitTenthsPpm;
+    const int64_t offset = (static_cast<int64_t>(freq_hz) * corr) / kFreqTrimPerUnit;
+    return static_cast<uint32_t>(static_cast<int64_t>(freq_hz) + offset);
+}
 
 // DS 13.4.1: the SetTx timeout counts 15.625 us steps, 24 bits wide. 0 disables
 // it, which is a PA that stays keyed when TxDone never arrives.
