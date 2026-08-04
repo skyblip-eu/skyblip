@@ -4,8 +4,8 @@
 // radio service that armed the O-band dwell for its sync word - and no product
 // caller at all. Every RxDone went to protocol::receive_mband, which frames the
 // two M-band systems and nothing else, so an uplink frame that arrived was
-// counted as rx_bad and thrown away. Feature::UplinkRx had no reader. The row
-// claiming this capability (specs/2026-08-02_launch-gate.md 1.1) was false.
+// counted as rx_bad and thrown away. Feature::UplinkRx had no reader, so the
+// capability the product claimed - ADS-L uplink receive - was not one it had.
 //
 // So nothing here pushes an RfEvent. A real encoded frame goes on the virtual
 // air, through the SX1262 model's own sync detector, into the dwell the product
@@ -158,6 +158,12 @@ struct FeatureRig {
         state.own.fix_valid = true;
         state.own.utc_valid = true;
         state.own.utc = Rig::kUtcBase;
+        // The same place Rig flies, because the table's range gate
+        // (core/traffic/sanity.h) measures a relayed position against own-ship's:
+        // a rig claiming a fix at 0N 0E is 5000 km from the aircraft this frame
+        // relays, and every one of them is then correctly refused as a ghost.
+        state.own.lat_1e7 = 485000000;
+        state.own.lon_1e7 = 85000000;
         traffic.setup();
     }
 

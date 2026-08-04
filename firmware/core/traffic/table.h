@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "core/messages/messages.h"
+#include "core/traffic/sanity.h"
 
 namespace skyblip::traffic {
 
@@ -44,6 +45,20 @@ class TrafficTable {
     // table nobody told has to assume.
     void set_own_address(uint32_t addr) { own_addr_ = addr & 0x00FFFFFF; }
 
+    // Where own-ship is, for the range gate below. This is the table's door and
+    // three paths come through it - a direct ADS-L frame, an ALP-TAS frame and up
+    // to thirteen aircraft relayed inside one uplink frame - so the gate lives
+    // here rather than on any one of them: a path added later is gated by
+    // construction instead of by remembering. Whoever drains the radio bus
+    // refreshes this each pass; a table nobody told has no reference and gates
+    // nothing, which is also what a device without a fix has.
+    void set_own_reference(const messages::OwnState& own) { own_ = own; }
+
+    // Receptions refused because the position they claimed was further away than
+    // this radio can hear (core/traffic/sanity.h). Not silent: a rate that climbs
+    // is a receiver at the edge of its budget or a decoder that is wrong.
+    uint32_t implausible_count() const { return implausible_; }
+
     int update(const messages::AircraftObs& obs, uint32_t now);
 
     void age_out(uint32_t now, uint32_t max_age = kDefaultMaxAgeSec);
@@ -57,7 +72,9 @@ class TrafficTable {
 
    private:
     std::array<Target, kCapacity> slots_{};
+    messages::OwnState own_{};
     uint32_t own_addr_{0};
+    uint32_t implausible_{0};
 
     static bool prefer_new(const messages::AircraftObs& incoming,
                            const messages::AircraftObs& existing);

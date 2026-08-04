@@ -245,7 +245,8 @@ TEST_CASE("uplink: a frame fits the window the dwell map is cut against") {
     // M-band dwell opens at 400 (§C.2.5 costs half the neighbours if we skip a
     // channel), so a third-party uplink transmitted in the second half of its
     // slot is one we do not hear. skyPost transmits at 210 for exactly this
-    // reason; specs/2026-08-02_launch-gate.md row 1.1 carries the rest.
+    // reason, and hearing our own network is the capability we ship; a
+    // third-party station that starts late is a known and accepted deaf spot.
     const uint32_t conforming_last_start_us = kUplinkSlotEndMs * 1000u - kUplinkBurstUs;
     CHECK(conforming_last_start_us > timing::kUplinkRxEnd * 1000u);
     CHECK(kUplinkSlotStartMs < timing::kUplinkRxStart);
