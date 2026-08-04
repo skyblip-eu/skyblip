@@ -8,6 +8,17 @@ CONFIG_SERIAL=y
 # nRF52840 uses the internal RC/xtal LF clock for the BT stack + kernel tick.
 CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL=y
 
+# The SoC's own REG1 DC-DC converter instead of its LDO. This is a statement
+# about the board and not about the product: enabling it needs the inductor on
+# DCC/DEC4 to be fitted, and an nRF52840 switched to DC-DC without one does not
+# regulate. The evidence that it is fitted is meshcore's shipped firmware for
+# this exact board - variants/lilygo_techo/TechoBoard.h:16 derives TechoBoard
+# from NRF52BoardDCDC, whose begin() writes NRF_POWER->DCDCEN = 1
+# (src/helpers/NRF52Board.cpp:227-238). The T-Echo schematic is NOT in
+# project/reference/, so this is a second-source claim and the bench measurement
+# is what closes it.
+CONFIG_BOARD_ENABLE_DCDC=y
+
 # Link into the `zephyr,code-partition` chosen in the board devicetree rather
 # than at flash base 0. Without this, CONFIG_FLASH_LOAD_OFFSET defaults to 0
 # (Kconfig.zephyr:133) and both the ELF and the generated .uf2 target 0x0:
