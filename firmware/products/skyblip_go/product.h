@@ -3,6 +3,7 @@
 
 #include "core/power/reset_reason.h"
 #include "core/power/shutdown.h"
+#include "core/power/wake.h"
 #include "hardware/boards/lilygo/t_echo_plus/board.h"
 #include "products/skyblip_go/features.h"
 #include "products/skyblip_go/services/alarm.h"
@@ -21,10 +22,11 @@ namespace skyblip::go {
 
 // What this product cannot fly without, and what it can lose and keep flying.
 constexpr hal::Capabilities kRequired = hal::Capability::Rf | hal::Capability::Gnss;
-constexpr hal::Capabilities kOptional =
-    hal::Capability::Display | hal::Capability::Baro | hal::Capability::Buzzer |
-    hal::Capability::Vibro | hal::Capability::Link | hal::Capability::Storage |
-    hal::Capability::Dfu | hal::Capability::Button | hal::Capability::Battery;
+constexpr hal::Capabilities kOptional = hal::Capability::Display | hal::Capability::Baro |
+                                        hal::Capability::Buzzer | hal::Capability::Vibro |
+                                        hal::Capability::Link | hal::Capability::Storage |
+                                        hal::Capability::Dfu | hal::Capability::Button |
+                                        hal::Capability::Battery | hal::Capability::Indicator;
 
 struct BootPartSpec {
     const char* name;
@@ -33,6 +35,12 @@ struct BootPartSpec {
 
 // The inventory the self-test page reads out, in the order a bench eye wants
 // it: what the device cannot fly without first.
+//
+// No INDICATOR row, and that is a decision. Capability::Indicator is granted from
+// the devicetree, so on silicon the row would be a PASS that cannot fail - and the
+// status lamp is the in-flight and in-the-bag indicator, not a second self test:
+// what a bench wants to know about it is which colours light, which is a look at
+// the unit rather than a line of text on it.
 constexpr BootPartSpec kBootParts[] = {
     {"RADIO", hal::Capability::Rf},      {"GNSS", hal::Capability::Gnss},
     {"PANEL", hal::Capability::Display}, {"BARO", hal::Capability::Baro},
@@ -67,13 +75,38 @@ class Product {
         // start on the same connection that opens the config channel and stop
         // on the same disconnection, because both read it from the same place.
         nmea_.attach_config(config_.config());
+        // The die sensor is not a role the board assembles - it has no pin and
+        // nothing to probe over a bus - so the platform hands it straight to the
+        // one service that samples the board on a slow cadence. Whether it is
+        // fitted at all is a capability, and the service reads that from roles.
+        power_.attach_die_temperature(platform_.die_temperature());
+        // The status lamp, to the one service that owns what this device says out
+        // loud. Attached only when the board found one: unattached, the alarm
+        // service holds the absent port from hal/indicator.h, runs the same table
+        // in core/indication and lights nothing.
+        if (hal::has(board_.capabilities(), hal::Capability::Indicator))
+            alarm_.attach_indicator(platform_.indicator());
 
         const Status board = board_.begin();
-        reset_reason_ = power::classify(platform_.system_power().reset_causes());
+        const power::ResetCause causes = platform_.system_power().reset_causes();
+        reset_reason_ = power::classify(causes);
         // The register is read once and then only remembered, so the companion
         // link is told at boot: a watchdog bite in the field is diagnosable
         // from a phone, without the panel in hand.
         config_.config().set_reset_reason(reset_reason_);
+
+        // The wake cause decides whether this boot becomes a device at all
+        // (core/power/wake.h). Answered here, before the panel is painted and
+        // before the loop is set up: a charger plugged into a device in a flight
+        // bag must leave no trace on the glass and start nothing. The shell drops
+        // the rails; every part is already in a known state, which is why this
+        // sits after board_.begin() rather than in front of it. A button pressed
+        // in the milliseconds between here and the rails dropping wakes the device
+        // again the moment they do, because the wake pin is level-sensed - which
+        // is the right answer to a pilot who has just pressed it.
+        boot_path_ = power::boot_path(causes, platform_.button_down());
+        if (boot_path_ == power::BootPath::SleepAgain) return Status::Ok;
+
         flyable_ = board == Status::Ok &&
                    hal::missing(board_.capabilities(), kRequired) == hal::Capability::None;
 
@@ -92,11 +125,23 @@ class Product {
     void step(uint32_t now_ms) {
         if (flyable_ && !shutdown_.going_down()) {
             board_.poll(state_, now_ms);
+            // Polled before the services run, so the pass that may write flash is
+            // the pass that already knows the rail is going. One atomic read on
+            // the silicon side; nothing here is allowed to be slower than that,
+            // because the warning's whole value is the milliseconds it is early.
+            if (platform_.system_power().take_supply_warning()) power_.on_supply_warning();
             loop_.step(now_ms);
             if (power_.cutoff()) shutdown_.request(power::ShutdownReason::LowBattery, now_ms);
             if (config_.config().power_off_requested()) {
                 config_.config().clear_power_off_request();
                 shutdown_.request(power::ShutdownReason::LinkRequest, now_ms);
+            }
+            // The receiver is the board's, not a service's, so the confirmed
+            // request is spent here. A cold start costs the next fix and the
+            // driver puts our configuration back behind it.
+            if (config_.config().gnss_cold_start_requested()) {
+                config_.config().clear_gnss_cold_start_request();
+                board_.gnss().request_restart(parts::L76k::Restart::Cold);
             }
         }
         shutdown_.tick(now_ms, platform_.button_down());
@@ -110,7 +155,13 @@ class Product {
     // self-test page stays on the glass and the button still works.
     bool flyable() const { return flyable_; }
     power::ResetReason reset_reason() const { return reset_reason_; }
+    // Run, or straight back to SYSTEM OFF. The shell reads this immediately after
+    // setup() and performs the second one.
+    power::BootPath boot_path() const { return boot_path_; }
     const ui::Framebuffer& boot_page() const { return boot_fb_; }
+    // The rows behind that page, so a test can read what a part answered instead
+    // of reading pixels back off the glass to find out.
+    const ui::BootPart* boot_rows() const { return boot_parts_; }
 
     power::ShutdownSequencer& shutdown() { return shutdown_; }
     const power::ShutdownSequencer& shutdown() const { return shutdown_; }
@@ -141,6 +192,26 @@ class Product {
     FlightLogService& flight_log() { return flight_log_; }
 
    private:
+    // Which part answered, for the three footprints LilyGO ships more than one
+    // part against. Everything here comes from the bring-up probes
+    // (hal/inventory.h), never from what the image was compiled expecting, which
+    // is the whole point of the page.
+    const char* boot_detail(hal::Capability capability) {
+        const hal::Inventory& found = board_.inventory();
+        switch (capability) {
+            case hal::Capability::Baro:
+                if (found.baro_address == 0) return nullptr;
+                baro_address_[fmt_hex(baro_address_, found.baro_address, 2)] = 0;
+                return baro_address_;
+            case hal::Capability::Display: return found.panel;
+            case hal::Capability::Vibro:
+                return found.haptic == hal::HapticKind::WaveformDriver ? "DRV2605"
+                       : found.haptic == hal::HapticKind::PinMotor     ? "PIN"
+                                                                       : nullptr;
+            default: return nullptr;
+        }
+    }
+
     void show_boot_page() {
         const hal::Capabilities fitted = board_.capabilities();
         for (int i = 0; i < kBootPartCount; i++) {
@@ -149,6 +220,7 @@ class Product {
             boot_parts_[i].state = hal::has(fitted, spec.capability)      ? ui::PartState::Pass
                                    : hal::has(kRequired, spec.capability) ? ui::PartState::Fail
                                                                           : ui::PartState::Absent;
+            boot_parts_[i].detail = boot_detail(spec.capability);
         }
 
         ui::BootSnapshot snapshot;
@@ -159,6 +231,8 @@ class Product {
         snapshot.flyable = flyable_;
         snapshot.battery_valid = state_.battery.valid;
         snapshot.battery_mv = state_.battery.millivolts;
+        snapshot.i2c_addresses = board_.inventory().i2c_addresses;
+        snapshot.n_i2c_addresses = board_.inventory().i2c_count;
         ui::draw_boot(boot_fb_, snapshot);
         roles_.display.present(boot_fb_, hal::Refresh::Full, 0);
     }
@@ -181,6 +255,11 @@ class Product {
         // that drives it, because from here the service loop no longer runs: a
         // buzzer mid-pattern would sound until the rails drop.
         alarm_.park(now_ms);
+        // The haptic is a part on a bus, so silence is not enough: a DRV2605 left
+        // out of standby draws through the rail it shares with the flash, and its
+        // enable pin has to be released before that rail goes
+        // (core/power/shutdown.h kPowerDownOrder).
+        board_.park();
         screen_.set_power(false);
     }
 
@@ -191,9 +270,11 @@ class Product {
     hal::Roles roles_{board_.roles()};
     runtime::Context ctx_{roles_, bus_, state_};
 
-    ConfigLinkService config_{ctx_};
-    OwnshipService ownship_{ctx_};
+    // Declared before the config service, which is handed it: the settings writer
+    // asks core/power whether the cell will survive a write before it makes one.
     PowerService power_{ctx_};
+    ConfigLinkService config_{ctx_, power_};
+    OwnshipService ownship_{ctx_};
     RadioService radio_{ctx_};
     TrafficService traffic_{ctx_, kFeatures};
     AlarmService alarm_{ctx_};
@@ -216,9 +297,14 @@ class Product {
 
     ui::Framebuffer boot_fb_{};
     ui::BootPart boot_parts_[kBootPartCount]{};
+    // The barometer's address as the page prints it. A member and not a local:
+    // ui::BootPart holds a pointer, and the page is drawn after boot_detail()
+    // has returned.
+    char baro_address_[3]{};
     power::ShutdownSequencer shutdown_{};
     power::ShutdownPhase acted_phase_{power::ShutdownPhase::Running};
     power::ResetReason reset_reason_{power::ResetReason::Unknown};
+    power::BootPath boot_path_{power::BootPath::Run};
     bool flyable_{false};
 };
 

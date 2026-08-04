@@ -75,6 +75,39 @@ struct Rig {
         for (uint32_t i = 0; i < n; i++) second(t, speed_q, alt_msl_m);
     }
 
+    // The same passes, counted instead of bounded: `t <= to` above cannot cross
+    // the 49.7-day wrap of hal::Clock::millis(), because that is a comparison of
+    // two instants (hal/clock.h). A case that wants the device stepped THROUGH the
+    // wrap advances by an elapsed span instead. Steps t forward by span + step.
+    void run_span(uint32_t& t, uint32_t span_ms, uint32_t step = 50) {
+        for (uint32_t stepped = 0; stepped <= span_ms; stepped += step) {
+            platform.clock().set_millis(t);
+            product.step(t);
+            t += step;
+        }
+    }
+
+    // The same passes, driven from the 64-bit clock the way both platforms do it:
+    // now_ms is the low 32 bits of the uptime micros() reports
+    // (hardware/platform/{host,zephyr}/clock.h), so this is the only way to step a
+    // case through the 49.7-day wrap of millis() while micros() keeps counting -
+    // which is what the silicon does and what set_millis() cannot express.
+    void run_span_from_us(uint64_t& us, uint32_t span_ms, uint32_t step_ms = 50) {
+        for (uint32_t stepped = 0; stepped <= span_ms; stepped += step_ms) {
+            platform.clock().set_micros(us);
+            product.step(platform.clock().millis());
+            us += static_cast<uint64_t>(step_ms) * 1000;
+        }
+    }
+
+    // One second of the world, wherever the counter happens to be: run_span(950)
+    // in 50 ms steps is the whole second.
+    void second_across(uint32_t& t, uint16_t speed_q, int32_t alt_msl_m) {
+        push_timed_fix(speed_q, alt_msl_m);
+        run_span(t, 950);
+        utc_offset_s++;
+    }
+
     void push_baro(int32_t alt_cm, uint32_t at_ms) {
         product.bus().baro.push(messages::BaroSample{flight::alt_cm_to_pressure(alt_cm), at_ms});
     }

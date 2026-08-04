@@ -216,3 +216,36 @@ TEST_CASE("watchdog: the loop refuses to feed for a service that is not progress
     CHECK(__builtin_strcmp(loop.feed_decision().name(loop.stalled_service(t)), "wedged") == 0);
     CHECK(wedged.ticks > 0);
 }
+
+// M. The dog's own arithmetic across the 49.7-day wrap of hal::Clock::millis().
+// This is the one deadline in the tree whose failure mode is the device biting
+// itself: a silence measured as 4.29 billion milliseconds is every task past every
+// deadline at once, so the loop would stop feeding and the aircraft would lose its
+// tracker in flight, once every seven weeks, for no reason at all.
+TEST_CASE("watchdog: silence is a difference, so the wrap is not a stall") {
+    runtime::FeedDecision feed;
+    const int radio = feed.add("radio", 1000);
+    const int gnss = feed.add("gnss", 1000);
+    const uint32_t before = 0xFFFFFF00u;  // 256 ms short of the wrap
+    feed.begin(before);
+
+    // Through the wrap at the loop's own cadence: every task inside its deadline.
+    for (uint32_t step = 0; step < 20; step++) {
+        const uint32_t t = before + step * 50u;
+        feed.check_in(radio, t);
+        feed.check_in(gnss, t);
+        CHECK(feed.may_feed(t));
+        CHECK(feed.silent_ms(radio, t) == 0);
+    }
+
+    // A task that went quiet 256 ms before the wrap is 1000 ms quiet 744 ms after
+    // it, and not one millisecond more.
+    feed.check_in(gnss, before);
+    feed.check_in(radio, 743u);
+    CHECK(feed.silent_ms(gnss, 744u) == 1000);
+    CHECK(feed.may_feed(743u));
+    CHECK_FALSE(feed.may_feed(744u));
+    CHECK(feed.stalled(744u) == gnss);
+    // The one that is still checking in is not the one named.
+    CHECK(feed.silent_ms(radio, 744u) == 1);
+}

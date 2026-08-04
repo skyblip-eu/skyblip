@@ -21,6 +21,124 @@ TEST_CASE("radio: begin configures the TCXO (DIO3) and RF switch (DIO2) for T-Ec
     CHECK(chip.saw_cmd(sx::kCalibrate));
 }
 
+// B1. The reset default is LDO-only and there is no symptom: the radio works,
+// and draws about twice the current it needs to for the ~980 ms of every second
+// the receiver is armed. So the model is stricter than the silicon.
+TEST_CASE("radio: begin puts the part on its DC-DC converter, before it calibrates against it") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    REQUIRE(r.begin() == Status::Ok);
+    CHECK(chip.saw_cmd(sx::kSetRegulatorMode));
+    CHECK(chip.regulator_dcdc);
+    CHECK(chip.regulator_mode == sx::kRegulatorDcDc);
+    // DS 13.1.4 is a standby-only command, and the calibration runs against the
+    // supply configuration that is in force when it runs.
+    CHECK(chip.cmd_order(sx::kSetRegulatorMode) < chip.cmd_order(sx::kCalibrate));
+    CHECK(chip.cmd_order(sx::kSetRegulatorMode) < chip.cmd_order(sx::kCalibrateImage));
+    CHECK(chip.fault == models::Sx1262::Fault::None);
+}
+
+TEST_CASE("radio: a chip that was never taken off its LDO is not believed") {
+    // Straight at the model, so the omission is the driver's absence rather than
+    // a driver doing something else wrong.
+    models::Sx1262 chip;
+    chip.standby = true;
+    const uint8_t rx[4] = {sx::kSetRx, 0xFF, 0xFF, 0xFF};
+    chip.select(true);
+    chip.transfer(rx, nullptr, sizeof(rx));
+    chip.select(false);
+    CHECK(chip.faults > 0);
+
+    // And the reset default is where it comes back to: NRESET returns every
+    // block to LDO, so a reinit that skipped the command would be a radio that
+    // silently doubled its receive current after the first watchdog recovery.
+    models::Sx1262 restarted;
+    Sx1262 r = make(restarted);
+    REQUIRE(r.begin() == Status::Ok);
+    REQUIRE(restarted.regulator_dcdc);
+    restarted.set(restarted.reset_pin, false);
+    for (uint32_t i = 0; i < sx::kResetLowSpins; i++) (void)restarted.get(restarted.busy_pin);
+    restarted.set(restarted.reset_pin, true);
+    CHECK_FALSE(restarted.regulator_dcdc);
+    CHECK(restarted.regulator_mode == sx::kRegulatorLdo);
+    REQUIRE(r.begin() == Status::Ok);
+    CHECK(restarted.regulator_dcdc);
+}
+
+// J1. The boosted receive gain: about 2 mA for about 3 dB (DS 9.6, and the same
+// trade written in SoftRF's radio-sx126x.c:365-372). Taken, because 3 dB is
+// about 40% more range on a collision warner and 2 mA is under a tenth of what
+// the DC-DC converter above gives back on the same dwell map.
+TEST_CASE("radio: the receiver runs on the boosted gain, not the reset default") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    REQUIRE(r.begin() == Status::Ok);
+    // The reset default is the power-saving gain, so this is a write or it is
+    // 3 dB nobody notices missing.
+    CHECK(chip.rx_gain == sx::kRxGainBoosted);
+    REQUIRE(r.configure_radio(RadioConfig{}) == Status::Ok);
+    CHECK(chip.rx_gain == sx::kRxGainBoosted);
+    REQUIRE(r.start_receive() == Status::Ok);
+    CHECK(chip.rx_gain == sx::kRxGainBoosted);
+}
+
+// DS 9.6, below table 9-3: 0x08AC is not retained across a warm start unless it
+// is on the retention list at 0x029F. Our sleep IS a warm start (DS 9.3), so
+// without the list the radio comes back on the power-saving gain with nothing in
+// any log to say the device lost 3 dB.
+TEST_CASE("radio: the boosted gain survives the warm start the radio sleeps into") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    REQUIRE(r.begin() == Status::Ok);
+    REQUIRE(r.configure_radio(RadioConfig{}) == Status::Ok);
+    REQUIRE(r.start_receive() == Status::Ok);
+    REQUIRE(chip.rx_gain == sx::kRxGainBoosted);
+
+    r.sleep();
+    CHECK(chip.sleeping);
+    CHECK(chip.rx_gain == sx::kRxGainBoosted);
+    REQUIRE(r.wake() == Status::Ok);
+    REQUIRE(r.start_receive() == Status::Ok);
+    CHECK(chip.rx_gain == sx::kRxGainBoosted);
+
+    // Straight at the model, so the datasheet's half of the contract is what is
+    // being asserted: a part that was never told to retain the register loses it
+    // on the same sleep.
+    models::Sx1262 forgetful;
+    forgetful.standby = true;
+    const uint8_t gain[4] = {sx::kWriteRegister, 0x08, 0xAC, sx::kRxGainBoosted};
+    forgetful.select(true);
+    forgetful.transfer(gain, nullptr, sizeof(gain));
+    forgetful.select(false);
+    REQUIRE(forgetful.rx_gain == sx::kRxGainBoosted);
+    const uint8_t sleep[2] = {sx::kSetSleep, sx::kSleepWarmStartNoRtc};
+    forgetful.select(true);
+    forgetful.transfer(sleep, nullptr, sizeof(sleep));
+    forgetful.select(false);
+    CHECK(forgetful.rx_gain == sx::kRxGainPowerSaving);
+}
+
+// And the reset default is where a recovered radio comes back to: NRESET clears
+// the register and the retention list together, so the reinit path has to write
+// both again or a device silently loses 3 dB after its first watchdog bite.
+TEST_CASE("radio: a reinitialised radio is on the boosted gain again") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    REQUIRE(r.begin() == Status::Ok);
+    REQUIRE(chip.rx_gain == sx::kRxGainBoosted);
+
+    chip.set(chip.reset_pin, false);
+    for (uint32_t i = 0; i < sx::kResetLowSpins; i++) (void)chip.get(chip.busy_pin);
+    chip.set(chip.reset_pin, true);
+    CHECK(chip.rx_gain == sx::kRxGainPowerSaving);
+
+    REQUIRE(r.begin() == Status::Ok);
+    CHECK(chip.rx_gain == sx::kRxGainBoosted);
+    // The register is written in standby, which is where DS 13.1 allows it and
+    // where the model insists on it.
+    CHECK(chip.fault == models::Sx1262::Fault::None);
+}
+
 TEST_CASE("radio: begin + configure + receive brings the modem to Rx") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);

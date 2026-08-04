@@ -422,3 +422,52 @@ TEST_CASE("product: a prompt nobody answers expires, and the device is not power
     rig.run(t, t + 200);
     CHECK(rig.product.screen().page() == go::Page::SixPack);
 }
+
+// I: a receiver with a poisoned almanac takes twenty minutes to fix and a pilot
+// reads that as a broken device. The driver has always been able to throw the
+// stored orbit data away; until this, nothing could ask it to. It costs the next
+// fix, so it sits behind the same confirmation as a firmware upload.
+TEST_CASE("product: a confirmed gnss_cold reaches the receiver, and an unconfirmed one does not") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.on_ground(t);
+    const uint32_t restarts_before = rig.platform.chips().gnss.restarts;
+
+    rig.send("{\"cmd\":\"gnss_cold\"}");
+    rig.run(t, t + 3000);
+    t += 3000;
+    // Staged and waiting for the device's own gesture: the phone cannot spend a
+    // pilot's next fix by itself.
+    REQUIRE(rig.config().pending() == comms::Pending::GnssCold);
+    CHECK(rig.platform.chips().gnss.restarts == restarts_before);
+
+    rig.double_press(t);
+    rig.run(t, t + 2000);
+    t += 2000;
+    CHECK(rig.config().pending() == comms::Pending::None);
+    CHECK(rig.platform.chips().gnss.restarts == restarts_before + 1);
+    // A cold start, not a hot one: the point is to discard the almanac.
+    CHECK(rig.platform.chips().gnss.last_restart_kind >= 2);
+    // And it is spent once, not once per pass.
+    rig.run(t, t + 5000);
+    CHECK(rig.platform.chips().gnss.restarts == restarts_before + 1);
+}
+
+// Airborne, the same request is refused at the door: losing the fix in flight is
+// the one moment the device must not do this.
+TEST_CASE("product: gnss_cold is refused in flight") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.airborne(t);
+    const uint32_t restarts_before = rig.platform.chips().gnss.restarts;
+
+    rig.send("{\"cmd\":\"gnss_cold\"}");
+    rig.run(t, t + 3000);
+    t += 3000;
+    CHECK(rig.config().pending() == comms::Pending::None);
+    rig.double_press(t);
+    rig.run(t, t + 2000);
+    CHECK(rig.platform.chips().gnss.restarts == restarts_before);
+}

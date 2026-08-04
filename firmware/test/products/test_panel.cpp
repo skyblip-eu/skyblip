@@ -229,3 +229,53 @@ TEST_CASE("product: the status page marks a low cell when the monitor says so, n
     // have changed on the glass is the marker.
     CHECK(rig.product.screen().framebuffer().count_black() > undecided);
 }
+
+// K: the page has to name which part answered, not only that one did. LilyGO
+// ships two barometer addresses, five e-paper lots and two kinds of haptic
+// against the same footprints, so "BARO PASS" on its own does not identify the
+// device a bench is holding.
+TEST_CASE("product: the self-test page carries what the probes found, not what was expected") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+
+    const ui::BootPart* baro = nullptr;
+    const ui::BootPart* haptic = nullptr;
+    const ui::BootPart* radio = nullptr;
+    for (int i = 0; i < go::kBootPartCount; i++) {
+        const ui::BootPart& row = rig.product.boot_rows()[i];
+        if (go::kBootParts[i].capability == hal::Capability::Baro) baro = &row;
+        if (go::kBootParts[i].capability == hal::Capability::Vibro) haptic = &row;
+        if (go::kBootParts[i].capability == hal::Capability::Rf) radio = &row;
+    }
+    REQUIRE(baro != nullptr);
+    REQUIRE(haptic != nullptr);
+    REQUIRE(radio != nullptr);
+
+    // The host bus answers the BOM's address, and the page prints the address
+    // that answered rather than the one in the devicetree.
+    REQUIRE(baro->detail != nullptr);
+    CHECK(std::string(baro->detail) == "76");
+    // The haptic on this platform is the waveform driver, so the row says which.
+    REQUIRE(haptic->detail != nullptr);
+    CHECK(std::string(haptic->detail) == "DRV2605");
+    // A footprint with only one part behind it gets no detail: the row is the row
+    // it always was, and a second verdict is not smuggled in as a name.
+    CHECK(radio->detail == nullptr);
+}
+
+// A barometer that did not answer must not print a stale or a zero address: the
+// row already says ABSENT, and "00" would read as a part at address zero.
+TEST_CASE("product: a footprint nothing answered prints no address") {
+    constexpr hal::Capabilities kNoBaro = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
+        ~static_cast<uint32_t>(hal::Capability::Baro));
+    Rig rig{kNoBaro};
+    REQUIRE(rig.setup() == Status::Ok);
+
+    for (int i = 0; i < go::kBootPartCount; i++) {
+        if (go::kBootParts[i].capability != hal::Capability::Baro) continue;
+        const ui::BootPart& row = rig.product.boot_rows()[i];
+        CHECK(row.state == ui::PartState::Absent);
+        CHECK(row.detail == nullptr);
+    }
+}
