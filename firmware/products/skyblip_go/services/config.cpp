@@ -26,6 +26,18 @@ void ConfigLinkService::tick(uint32_t now_ms) {
     // what a low cell is; this hands the already-decided numbers to the link
     // rather than keeping a second opinion, same as the flight gate above it.
     config_.set_battery_state(context_.state.battery, context_.state.power_level);
+    // And the half no voltage can report: the SoC's own power-failure comparator
+    // has fired. It is what turns a "set" from a phone into a refusal at the
+    // door, so it travels the same way the level does - decided in core/power,
+    // carried here, never re-derived.
+    config_.set_supply_warned(power_.supply_warned());
+    // Read where it is already sampled, on the cadence the sensor deserves: the
+    // service that owns the cell owns the die too, and this only carries the
+    // number to the link.
+    config_.set_die_temperature(power_.die_temperature_dc(), power_.die_temperature_valid());
+    // The range gate's own counter, read off the table that keeps it rather than
+    // recounted here (core/traffic/table.h).
+    config_.set_range_refused(context_.state.traffic.implausible_count());
 
     messages::RxFrame frame{};
     while (context_.bus.link_rx.pop(frame)) config_.on_rx(frame);
@@ -62,7 +74,25 @@ void ConfigLinkService::take_request(uint32_t now_ms) {
     writes_.request(now_ms);
 }
 
+// Asked BEFORE the request is taken, so a refusal leaves the change dirty rather
+// than pending: a pending change the policy cannot place is one the bound would
+// eventually force onto flash, which is exactly the write this refuses. Held
+// here, it survives until the cell does or does not come back. Counted once per
+// change rather than once per pass, so the number reads as changes waiting.
+bool ConfigLinkService::hold_for_power() {
+    if (may_persist()) {
+        held_ = false;
+        return false;
+    }
+    if (!held_ && (config_.settings_dirty() || writes_.pending())) {
+        held_ = true;
+        refused_++;
+    }
+    return true;
+}
+
 void ConfigLinkService::drain_settings(uint32_t now_ms) {
+    if (hold_for_power()) return;
     take_request(now_ms);
     const timing::DurableWriteVerdict verdict =
         writes_.decide(context_.state.plan, context_.state.dwell, now_ms);
@@ -73,7 +103,13 @@ void ConfigLinkService::drain_settings(uint32_t now_ms) {
     writes_.placed(now_ms, verdict == timing::DurableWriteVerdict::Forced);
 }
 
+// The deliberate power-off. Same gate: a cell that is collapsing takes the log
+// record with it and leaves the settings sector alone, which is the whole of
+// core/power's rule. A LowBattery shutdown is therefore the one power-off that
+// does not flush, and that is the trade written down in the header - the change a
+// pilot was making, against every change they ever made.
 void ConfigLinkService::flush_settings(uint32_t now_ms) {
+    if (hold_for_power()) return;
     take_request(now_ms);
     if (!writes_.pending()) return;
     persist();
