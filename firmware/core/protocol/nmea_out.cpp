@@ -141,6 +141,52 @@ int format_pgrmz(char* out, size_t cap, int32_t alt_ft, bool fix_valid) {
 
 namespace {
 
+int32_t clamp_i32(int32_t v, int32_t low, int32_t high) {
+    return v < low ? low : (v > high ? high : v);
+}
+
+}  // namespace
+
+// Field order, from the LK8000 definition and the three senders that agree on
+// it (SoftRF lyusupov src/protocol/data/NMEA.cpp:246-256, SoftRF MB
+// src/driver/Baro.cpp:404-415, GXAirCom src/main.cpp:4370-4385):
+//   1 raw pressure, pascals (a hundredth of a millibar)
+//   2 altitude, metres on the 1013.25 datum - a consumer that got field 1
+//     recomputes this for itself and ignores what is here
+//   3 vertical speed, centimetres per second
+//   4 temperature, degrees Celsius
+//   5 battery: volts below 1000, percent plus 1000 at or above it
+int format_lk8ex1(char* out, size_t cap, const Lk8Ex1& v) {
+    (void)cap;
+    const uint32_t pressure =
+        v.has_pressure ? (v.pressure_pa > kLk8MaxPressurePa ? kLk8MaxPressurePa : v.pressure_pa)
+                       : kLk8NoPressurePa;
+    const int32_t alt =
+        v.has_alt ? clamp_i32(v.alt_m, kLk8MinAltitudeM, kLk8MaxAltitudeM) : kLk8NoAltitudeM;
+    const int32_t vario =
+        v.has_vario ? clamp_i32(v.vario_cm_s, kLk8MinVarioCmS, kLk8MaxVarioCmS) : kLk8NoVarioCmS;
+    const int32_t temperature =
+        v.has_temperature ? clamp_i32(v.temperature_c, kLk8MinTemperatureC, kLk8MaxTemperatureC)
+                          : kLk8NoTemperatureC;
+    const uint32_t percent = v.battery_percent > 100 ? 100u : v.battery_percent;
+    const uint32_t battery = v.has_battery ? kLk8BatteryPercentBase + percent : kLk8NoBattery;
+
+    int n = 0;
+    n += fmt_string(out + n, "$LK8EX1,");
+    n += fmt_uint(out + n, pressure);
+    out[n++] = ',';
+    n += fmt_int(out + n, alt, 1, 0, true);
+    out[n++] = ',';
+    n += fmt_int(out + n, vario, 1, 0, true);
+    out[n++] = ',';
+    n += fmt_int(out + n, temperature, 1, 0, true);
+    out[n++] = ',';
+    n += fmt_uint(out + n, battery);
+    return nmea_finish(out, n);
+}
+
+namespace {
+
 // The inverse of the epoch core/gnss/nmea.cpp builds from a $GPRMC date and
 // time: own.utc keeps no calendar fields of its own, so writing one back out
 // means undoing the conversion. Howard Hinnant's civil_from_days, exact over

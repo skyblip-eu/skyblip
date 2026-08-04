@@ -90,6 +90,7 @@ class NmeaService : public runtime::Service {
     void emit_status();
     void emit_ownship();
     void emit_altitude();
+    void emit_vario_and_battery();
     void emit_targets();
     void write(const char* bytes, int len);
     void flush();

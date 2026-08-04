@@ -81,6 +81,7 @@ void NmeaService::run_pass() {
     emit_status();
     emit_ownship();
     emit_altitude();
+    emit_vario_and_battery();
     emit_targets();
     flush();
 }
@@ -152,6 +153,48 @@ void NmeaService::emit_altitude() {
     write(sentence_,
           protocol::format_pgrmz(sentence_, sizeof(sentence_), centimetres_to_feet(alt_cm),
                                  context_.state.own.fix_valid));
+}
+
+// $LK8EX1, on the same pass as $PGRMZ because it is the same second's answer to
+// the same question, and this is the whole route from our gauge to a pilot's
+// tablet: LK8000, XCSoar and their descendants already parse it, and none of
+// them learns the battery from $PFLAU or $PGRMZ. Unlike $PGRMZ it goes out with
+// no barometer fitted at all, carrying the sentinels for the three fields that
+// need one and the cell for the field that does not - the sentence is the only
+// one we speak that says anything about power, so silence here is a pilot with
+// no way to see a flat unit coming (SoftRF MB sends exactly the same
+// battery-only sentence in that case, src/protocol/data/NMEA.cpp:1398-1401).
+//
+// Temperature is absent and stays absent until something publishes one: the
+// BME280 measures it and nothing in the tree reads it, so the field carries its
+// "not available" sentinel rather than a plausible number nobody measured.
+void NmeaService::emit_vario_and_battery() {
+    const messages::OwnState& own = context_.state.own;
+    protocol::Lk8Ex1 v{};
+
+    if (context_.state.baro_active) {
+        v.pressure_pa = context_.state.pressure_pa;
+        v.has_pressure = true;
+        // Field 2 is the 1013.25 datum, the same datum-free figure $PGRMZ
+        // carries and for the same reason: the consumer applies its own
+        // subscale. A consumer that read field 1 recomputes this and ignores it.
+        v.alt_m = flight::pressure_to_alt_cm(context_.state.pressure_pa) / 100;
+        v.has_alt = true;
+    }
+
+    // Eighths of a metre per second to centimetres per second, rounded away from
+    // zero: 100/8 is 12.5, so the halves are real and dropping them would bias
+    // every climb towards level flight.
+    if (own.climb_valid) {
+        const int32_t eighths = static_cast<int32_t>(own.climb_e8) * 25;
+        v.vario_cm_s = (eighths >= 0 ? eighths + 1 : eighths - 1) / 2;
+        v.has_vario = true;
+    }
+
+    v.battery_percent = context_.state.battery.percent;
+    v.has_battery = context_.state.battery.valid;
+
+    write(sentence_, protocol::format_lk8ex1(sentence_, sizeof(sentence_), v));
 }
 
 // The rotation: at most kTargetsPerPass targets, resuming where the last pass
