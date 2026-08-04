@@ -15,6 +15,23 @@ namespace skyblip::gnss {
 // declare through geoid_separation_measured.
 constexpr int32_t kDefaultGeoidSeparationM = 46;
 
+// INFO: fc 03aug26 A GGA that stops mid-sentence still carries a checksum over
+// what did arrive, so the checksum cannot catch it. moshe-braner refuses any GGA
+// shorter than 40 characters and drops the fix with it (oss/SoftRF-moshe-braner
+// .../src/driver/GNSS.cpp:2226-2236, `write_size > 40` else `badGGA`).
+constexpr int kMinGgaLength = 40;
+
+// INFO: fc 03aug26 An MTK-lineage receiver with no almanac reports a date in
+// 1980 next to a position that looks perfectly ordinary; OGN refuses any
+// two-digit year at or above 70 for that reason (oss/nrf52-ogn-tracker
+// src/ogn.h:737-738, "MTK GPS can produce fake date with year 1980"). Every date
+// this device will ever see is 20xx.
+constexpr int kMaxTwoDigitYear = 70;
+
+// Which sentence a parse consumed. The caller ages GGA and RMC separately, so it
+// has to be told which one just arrived; a fix is not a fix on one of them.
+enum class Sentence : uint8_t { None, Rmc, Gga, Txt };
+
 struct GnssFix {
     bool valid{false};
     bool utc_valid{false};
@@ -52,13 +69,28 @@ class NmeaParser {
     const GnssFix& fix() const { return fix_; }
     void reset() { pos_ = 0; }
 
+    // Which sentence the last accepted parse was. Only meaningful right after
+    // feed() or parse_line() returned true.
+    Sentence last_sentence() const { return last_; }
+
+    // The receiver's answer to $PCAS06, "$GPTXT,01,01,02,SW=<version>": empty
+    // until the part has named itself. SoftRF takes the same substring and logs
+    // it (oss/SoftRF-lyusupov .../src/driver/GNSS.cpp:1015-1025).
+    const char* firmware_version() const { return version_; }
+    bool identified() const { return version_[0] != 0; }
+
    private:
+    static constexpr int kVersionCap = 24;
+
     char buf_[100];
     int pos_{0};
     GnssFix fix_;
+    char version_[kVersionCap]{};
+    Sentence last_{Sentence::None};
 
     bool apply_rmc(const char* fields[], int nf);
-    bool apply_gga(const char* fields[], int nf);
+    bool apply_gga(const char* fields[], int nf, int len);
+    bool apply_txt(const char* line, int len);
 };
 
 bool nmea_checksum_ok(const char* line, int len);

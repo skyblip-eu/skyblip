@@ -131,21 +131,62 @@ bool NmeaParser::parse_line(const char* line, int len) {
     }
     if (nf < 1) return false;
     const char* tag = fields[0];
-    if (strlen(tag) >= 6 && memcmp(tag + 3, "RMC", 3) == 0) return apply_rmc(fields, nf);
-    if (strlen(tag) >= 6 && memcmp(tag + 3, "GGA", 3) == 0) return apply_gga(fields, nf);
+    if (strlen(tag) < 6) return false;
+    if (memcmp(tag + 3, "RMC", 3) == 0) return apply_rmc(fields, nf);
+    if (memcmp(tag + 3, "GGA", 3) == 0) return apply_gga(fields, nf, len);
+    if (memcmp(tag + 3, "TXT", 3) == 0) return apply_txt(line, len);
     return false;
 }
 
+// $GPTXT,01,01,02,SW=URANUS5,V5.1.0.0 - the CASIC firmware banner, and the only
+// evidence that the part answering us speaks $PCAS at all. The version text is
+// everything after "SW=", which is where SoftRF reads it from too.
+// The version text carries commas of its own ("SW=URANUS5,V5.1.0.0"), so it is
+// read off the raw line rather than out of the split fields: it is one string,
+// not three, and SoftRF takes the same run of characters up to the checksum.
+bool NmeaParser::apply_txt(const char* line, int len) {
+    int at = 0;
+    for (int commas = 0; at < len && commas < 4; at++)
+        if (line[at] == ',') commas++;
+    // Only the SW= banner. The part also emits $GPTXT for antenna status and
+    // start-up notices, and a version field that is sometimes an antenna warning
+    // is worse than no version field.
+    if (len - at < 3 || line[at] != 'S' || line[at + 1] != 'W' || line[at + 2] != '=')
+        return false;
+    at += 3;
+    int n = 0;
+    for (; at < len && line[at] != '*' && n < kVersionCap - 1; at++, n++) version_[n] = line[at];
+    version_[n] = 0;
+    last_ = Sentence::Txt;
+    // Not a solution: `updates` counts fixes, and the verification window that
+    // reads it must not be satisfied by the receiver introducing itself.
+    return n > 0;
+}
+
+// INFO: fc 03aug26 RMC fields 1 and 9 are UTC as the receiver already resolved
+// it, so the GPS-UTC leap second count never enters this arithmetic. The
+// moshe-braner fork queries and persists the count and reboots when it changes
+// (.../src/driver/GNSS.cpp:1610-1679) because it reads u-blox NAV-TIMEGPS, which
+// reports GPS time; that correction has no reader here and adding one would be a
+// second, wrong, clock. This device's only failure mode in that direction is a
+// receiver whose almanac is stale, and the date sanity below is what catches it.
 bool NmeaParser::apply_rmc(const char* f[], int nf) {
     if (nf < 10) return false;
+    last_ = Sentence::Rmc;
     bool valid = f[2][0] == 'A';
     fix_.valid = valid;
+    fix_.utc_valid = false;
     if (f[1][0] && f[9][0] && strlen(f[1]) >= 6 && strlen(f[9]) >= 6) {
         int hh = d2(f[1]), mm = d2(f[1] + 2), ss = d2(f[1] + 4);
         int day = d2(f[9]), mon = d2(f[9] + 2), yy = d2(f[9] + 4);
-        int year = yy >= 80 ? 1900 + yy : 2000 + yy;
-        fix_.utc = to_epoch(year, mon, day, hh, mm, ss);
-        fix_.utc_valid = true;
+        // The MTK 1980 lie and its neighbours: a two-digit year of 70 or more is
+        // a receiver that has not decoded the almanac, not a date.
+        const bool date_sane = yy < kMaxTwoDigitYear && mon >= 1 && mon <= 12 && day >= 1 &&
+                               day <= 31 && hh < 24 && mm < 60 && ss < 62;
+        if (date_sane) {
+            fix_.utc = to_epoch(2000 + yy, mon, day, hh, mm, ss);
+            fix_.utc_valid = true;
+        }
     }
     if (valid) {
         if (f[3][0]) fix_.lat_1e7 = nmea_parse_coord(f[3], f[4][0]);
@@ -175,8 +216,11 @@ bool NmeaParser::apply_rmc(const char* f[], int nf) {
     return true;
 }
 
-bool NmeaParser::apply_gga(const char* f[], int nf) {
-    if (nf < 10) return false;
+bool NmeaParser::apply_gga(const char* f[], int nf, int len) {
+    // A sentence that stopped early still checksums: length is the only thing
+    // that catches it, which is why moshe-braner measures it.
+    if (nf < 10 || len < kMinGgaLength) return false;
+    last_ = Sentence::Gga;
     fix_.fix_quality = static_cast<uint8_t>(parse_long(f[6], 2));
     fix_.sats = static_cast<uint8_t>(parse_long(f[7], 2));
 
