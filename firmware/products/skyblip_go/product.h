@@ -4,6 +4,7 @@
 #include "core/power/reset_reason.h"
 #include "core/power/shutdown.h"
 #include "core/power/wake.h"
+#include "core/util/format.h"
 #include "hardware/boards/lilygo/t_echo_plus/board.h"
 #include "products/skyblip_go/features.h"
 #include "products/skyblip_go/services/alarm.h"
@@ -201,7 +202,7 @@ class Product {
         switch (capability) {
             case hal::Capability::Baro:
                 if (found.baro_address == 0) return nullptr;
-                baro_address_[fmt_hex(baro_address_, found.baro_address, 2)] = 0;
+                baro_address_[skyblip::fmt_hex(baro_address_, found.baro_address, 2)] = 0;
                 return baro_address_;
             case hal::Capability::Display: return found.panel;
             case hal::Capability::Vibro:
