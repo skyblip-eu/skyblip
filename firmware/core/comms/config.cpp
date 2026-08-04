@@ -25,6 +25,7 @@ const char* pending_title(Pending pending) {
         case Pending::Recovery: return "RECOVERY";
         case Pending::PowerOff: return "POWER OFF";
         case Pending::EraseLog: return "ERASE LOGS";
+        case Pending::GnssCold: return "GNSS RESET";
         case Pending::None: break;
     }
     return "";
@@ -38,6 +39,7 @@ const char* pending_detail(Pending pending) {
         case Pending::Recovery: return "REBOOT INTO THE USB BOOTLOADER";
         case Pending::PowerOff: return "SHUT THE DEVICE DOWN";
         case Pending::EraseLog: return "DELETE EVERY FLIGHT ON THE DEVICE";
+        case Pending::GnssCold: return "THROW AWAY THE STORED SATELLITE DATA";
         case Pending::None: break;
     }
     return "";
@@ -101,12 +103,12 @@ uint8_t battery_step(uint8_t percent) {
 }
 
 void ConfigService::set_battery_state(const power::BatteryState& battery, power::PowerLevel level) {
-    const bool charging_changed = battery.charging != battery_.charging;
-    const bool level_changed = level != power_level_;
-    const bool step_changed = battery_step(battery.percent) != battery_step(battery_.percent);
+    const bool charging_changed = battery.charging != diag_.battery.charging;
+    const bool level_changed = level != diag_.level;
+    const bool step_changed = battery_step(battery.percent) != battery_step(diag_.battery.percent);
 
-    battery_ = battery;
-    power_level_ = level;
+    diag_.battery = battery;
+    diag_.level = level;
 
     if (link_up_ && (charging_changed || level_changed || step_changed)) send_status();
 }
@@ -120,13 +122,13 @@ int ConfigService::payload() const { return static_cast<int>(link_.payload_bytes
 // recovery from a lost one is the phone's next command; the push has tick().
 Status ConfigService::reply(const char* json, int len) {
     if (len <= 0 || len > payload()) {
-        link_drops_++;
+        diag_.link_drops++;
         return Status::OutOfRange;
     }
     const Status sent =
         link_.send(messages::Endpoint::Config,
                    ConstByteSpan(reinterpret_cast<const uint8_t*>(json), static_cast<size_t>(len)));
-    if (!is_ok(sent)) link_drops_++;
+    if (!is_ok(sent)) diag_.link_drops++;
     return sent;
 }
 
@@ -175,16 +177,20 @@ void ConfigService::send_status() {
     char buf[kSmallestSupportedPayload + 1];
     json::Writer w(buf, sizeof(buf));
     w.kv_str("cmd", "status");
-    w.kv_str("reset", power::to_string(reset_reason_));
+    w.kv_str("reset", power::to_string(diag_.reset));
     w.kv_str("flight", flight_name(flight_));
     w.kv_bool("upload", upload_allowed());
-    w.kv_int("battery_percent", static_cast<long>(battery_.percent));
-    w.kv_bool("battery_valid", battery_.valid);
-    w.kv_bool("charging", battery_.charging);
-    w.kv_str("power_level", power::to_string(power_level_));
+    w.kv_int("battery_percent", static_cast<long>(diag_.battery.percent));
+    w.kv_bool("battery_valid", diag_.battery.valid);
+    w.kv_bool("charging", diag_.battery.charging);
+    w.kv_str("power_level", power::to_string(diag_.level));
+    // Last, and only when a reading exists. Whole degrees, rounded by the one
+    // rule the dump uses too (core/comms/diagnostics.h): a support case must not
+    // read a different temperature depending on which surface answered it.
+    if (diag_.die_valid) w.kv_int("die_temp_c", whole_celsius(diag_.die_decicelsius));
     const int len = w.finish();
     if (w.overflowed()) {
-        link_drops_++;
+        diag_.link_drops++;
         status_push_due_ = false;
         return;
     }
@@ -203,14 +209,14 @@ void ConfigService::send_timing() {
     }
     TimingReport report(*timing_stats_, carrier_sense_dbm_);
     if (!report.fits(payload())) {
-        link_drops_++;
+        diag_.link_drops++;
         return;
     }
     char buf[kTimingFrameCap];
     while (!report.exhausted()) {
         const int len = report.next_frame(payload(), buf, static_cast<int>(sizeof(buf)));
         if (len <= 0) {
-            link_drops_++;
+            diag_.link_drops++;
             return;
         }
         if (reply(buf, len) != Status::Ok) return;
@@ -235,6 +241,7 @@ void ConfigService::send_flash() {
     char buf[192];
     json::Writer w(buf, sizeof(buf));
     w.kv_str("cmd", "flash");
+    w.kv_bool("writable", settings_writable());
     w.kv_int("changes", static_cast<long>(writes_->requests()));
     w.kv_int("writes", static_cast<long>(writes_->writes()));
     w.kv_int("forced", static_cast<long>(writes_->forced()));
@@ -244,6 +251,48 @@ void ConfigService::send_flash() {
     w.kv_int("bound_ms", static_cast<long>(timing::DurableWriteWindow::kMaxDeferMs));
     w.finish();
     reply(buf);
+}
+
+// The radio's half of the same bench, still its own question rather than four
+// more keys on "status": that reply is the one this service PUSHES unsolicited
+// and it is already sized against the narrowest phone in the field at its worst
+// case. A status push that vanished whenever a unit was hot AND refusing packets
+// would be the exact failure the payload ceiling exists to prevent.
+void ConfigService::send_radio() {
+    DiagnosticsReport report(diag_, "radio", DiagnosticsReport::Group::Radio);
+    send_report(report);
+}
+
+// A whole dump nobody has collected is a dump of zeros, and zeros here read as a
+// receiver that has never seen a satellite and a supply that has never faltered -
+// which is a device reporting health it has not measured. So it is refused with a
+// reason, exactly as an unwired timing accumulator is. The radio group above is not
+// gated: it predates the collector, its own key is written every pass by whoever
+// owns the table (set_range_refused), and a radio that has heard nothing truthfully
+// has zero receptions.
+void ConfigService::send_diagnostics() {
+    if (diag_.refreshes == 0) {
+        ack(false, "no_stats");
+        return;
+    }
+    DiagnosticsReport report(diag_, "diag");
+    send_report(report);
+}
+
+void ConfigService::send_report(DiagnosticsReport& report) {
+    if (!report.fits(payload())) {
+        diag_.link_drops++;
+        return;
+    }
+    char buf[DiagnosticsReport::kFrameCap];
+    while (!report.exhausted()) {
+        const int len = report.next_frame(payload(), buf, static_cast<int>(sizeof(buf)));
+        if (len <= 0) {
+            diag_.link_drops++;
+            return;
+        }
+        if (reply(buf, len) != Status::Ok) return;
+    }
 }
 
 void ConfigService::on_rx(const messages::RxFrame& frame) {
@@ -270,7 +319,7 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
         settings::write_json_fields(w, settings_);
         const int reply_len = w.finish();
         if (w.overflowed()) {
-            link_drops_++;
+            diag_.link_drops++;
             return;
         }
         reply(buf, reply_len);
@@ -292,9 +341,26 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
         return;
     }
 
+    if (std::strcmp(cmd, "radio") == 0) {
+        send_radio();
+        return;
+    }
+
+    if (std::strcmp(cmd, "diag") == 0) {
+        send_diagnostics();
+        return;
+    }
+
     if (std::strcmp(cmd, "set") == 0) {
         if (!on_ground()) {
             ack(false, "in_flight");
+            return;
+        }
+        // Refused at the door and not after the button press: a prompt a pilot
+        // walks over and confirms, for a write that was never going to happen,
+        // is worse than a refusal they can read on the phone in their hand.
+        if (!settings_writable()) {
+            ack(false, "low_power");
             return;
         }
         pending_len_ = len < static_cast<int>(sizeof(pending_buf_)) - 1
@@ -325,6 +391,9 @@ void ConfigService::on_rx(const messages::RxFrame& frame) {
     } else if (std::strcmp(cmd, "power_off") == 0) {
         requested = Pending::PowerOff;
         reason = "confirm_power_off";
+    } else if (std::strcmp(cmd, "gnss_cold") == 0) {
+        requested = Pending::GnssCold;
+        reason = "confirm_gnss_cold";
     }
 
     if (requested != Pending::None) {
@@ -355,6 +424,14 @@ void ConfigService::confirm() {
         return;
     }
     if (pending_ == Pending::Set) {
+        // Asked again: the confirmation window is kConfirmWindowMs wide and a cell
+        // can cross the warning inside it.
+        if (!settings_writable()) {
+            pending_ = Pending::None;
+            pending_len_ = 0;
+            ack(false, "low_power");
+            return;
+        }
         Status st = settings::apply_json(settings_, pending_buf_, pending_len_);
         pending_ = Pending::None;
         pending_len_ = 0;
@@ -388,6 +465,10 @@ void ConfigService::confirm() {
         pending_ = Pending::None;
         log_erase_requested_ = true;
         ack(true, "erase_log");
+    } else if (pending_ == Pending::GnssCold) {
+        pending_ = Pending::None;
+        gnss_cold_requested_ = true;
+        ack(true, "gnss_cold");
     }
 }
 

@@ -1,6 +1,7 @@
 #ifndef SKYBLIP_CORE_COMMS_CONFIG_H
 #define SKYBLIP_CORE_COMMS_CONFIG_H
 
+#include "core/comms/diagnostics.h"
 #include "core/comms/timing_report.h"
 #include "core/flight/state.h"
 #include "core/messages/messages.h"
@@ -18,7 +19,7 @@ namespace skyblip::comms {
 
 enum class FlightState : uint8_t { Ground, Airborne, Unknown };
 
-enum class Pending : uint8_t { None, Set, Dfu, Apply, Recovery, PowerOff, EraseLog };
+enum class Pending : uint8_t { None, Set, Dfu, Apply, Recovery, PowerOff, EraseLog, GnssCold };
 
 // INFO: cf 02aug26 The gate reads whatever core/flight decided from the fix
 // stream, and only the two codes it recognises mean anything: ADS-L G.1.4
@@ -110,6 +111,46 @@ class ConfigService {
     // pushes an unsolicited status so the tablet's gauge moves without a poll.
     void set_battery_state(const power::BatteryState& battery, power::PowerLevel level);
 
+    // How warm the silicon is, in tenths of a degree, and whether anybody has
+    // actually read one. Invalid is not zero: a board with no sensor, a driver
+    // that refused a measurement and a device at freezing are three different
+    // things, and 0.0 C is a plausible hangar morning - so an invalid reading
+    // leaves the key out of the reply altogether rather than publishing a number
+    // nobody measured.
+    void set_die_temperature(int16_t decicelsius, bool valid) {
+        diag_.die_decicelsius = decicelsius;
+        diag_.die_valid = valid;
+    }
+
+    // The status dump, held here because this is the one service that can put it
+    // on a link (core/comms/diagnostics.h). Everything above writes its own half
+    // of it, so the reply, the unsolicited push and the console dump report one
+    // set of numbers rather than three copies of them; the product's collector
+    // fills the other half through this door, once a second.
+    Diagnostics& diagnostics() { return diag_; }
+    const Diagnostics& diagnostics() const { return diag_; }
+
+    // Receptions core/traffic refused because the position they claimed was
+    // further away than this radio can hear. The number a support case opens
+    // with: it says whether the range gate fires once a week or once a second,
+    // and the second one is a decoder or a link budget, not a sky full of
+    // aircraft.
+    void set_range_refused(uint32_t count) { diag_.range_refused = count; }
+
+    // The nRF52840's power-failure comparator has fired, latched by core/power.
+    // Kept beside the level because the two feed one rule
+    // (core/power/cutoff.h::may_write) and this service is the door that rule
+    // has to be enforced at.
+    void set_supply_warned(bool warned) { supply_warned_ = warned; }
+
+    // Whether a settings change may be accepted at all. A "set" refused here is
+    // refused to the phone, with a reason, rather than accepted and quietly not
+    // written: below the low-battery warning the settings sector is not touched,
+    // and a companion app that patched a value per keystroke has to be told so.
+    bool settings_writable() const {
+        return power::may_write(diag_.level, supply_warned_, power::DurableWrite::Settings);
+    }
+
     // INFO: cf 02aug26 BLE pairing is off on this product (encrypted GATT
     // characteristics break Web Bluetooth on Windows), so physical presence is
     // what stands in for it: nothing sensitive happens without a gesture made
@@ -135,8 +176,8 @@ class ConfigService {
 
     // Why the device came up. Read once at boot by the shell, reported here so
     // a watchdog bite in the field is diagnosable without the panel in hand.
-    void set_reset_reason(power::ResetReason reason) { reset_reason_ = reason; }
-    power::ResetReason reset_reason() const { return reset_reason_; }
+    void set_reset_reason(power::ResetReason reason) { diag_.reset = reason; }
+    power::ResetReason reset_reason() const { return diag_.reset; }
 
     // Erasing the flight log destroys evidence a pilot may need for a claim or
     // an incident, so it knocks on the same door a firmware upload does: the
@@ -145,6 +186,14 @@ class ConfigService {
     void request_log_erase();
     bool log_erase_requested() const { return log_erase_requested_; }
     void clear_log_erase_request() { log_erase_requested_ = false; }
+
+    // Latched by a confirmed "gnss_cold". A receiver whose almanac is poisoned
+    // takes twenty minutes to fix and a pilot reads that as a broken device, so
+    // throwing the stored orbit data away has to be reachable without a cable.
+    // It is behind the same confirmation as the rest: a cold start costs the next
+    // fix, and a phone must not be able to spend that on its own.
+    bool gnss_cold_start_requested() const { return gnss_cold_requested_; }
+    void clear_gnss_cold_start_request() { gnss_cold_requested_ = false; }
 
     // Latched by a confirmed "power_off". The shell owns the sequencer, so this
     // is where the request waits for it: core/power::ShutdownSequencer::request
@@ -158,7 +207,7 @@ class ConfigService {
     // that would not fit the negotiated payload, one the controller refused, and
     // one a writer left incomplete. Silence towards a phone is a fault worth a
     // number, and the pilot-facing push is the one path that also retries.
-    uint32_t link_drops() const { return link_drops_; }
+    uint32_t link_drops() const { return diag_.link_drops; }
 
    private:
     Status reply(const char* json);
@@ -176,6 +225,18 @@ class ConfigService {
     // The same door, one more question: what the durable-write policy did with the
     // settings changes it was handed (core/timing/durable_write.h).
     void send_flash();
+    // And the radio's own half of the same bench: the dump's radio subsystem, on
+    // its own, because a companion page that only draws the air picture should not
+    // have to read the receiver's firmware string to get the noise floor. Not four
+    // more keys on "status": that reply is the one this service PUSHES
+    // unsolicited and is already sized against the narrowest phone in the field at
+    // its worst case, with eleven bytes left.
+    void send_radio();
+    // And the whole dump, which is the same table as the console's: one frame per
+    // subsystem where the payload allows it, more where it does not, and never a
+    // frame that mixes two subsystems (core/comms/diagnostics.h).
+    void send_diagnostics();
+    void send_report(DiagnosticsReport& report);
     static const char* flight_name(FlightState fs);
     bool on_ground() const { return flight_ == FlightState::Ground; }
 
@@ -186,19 +247,18 @@ class ConfigService {
     const timing::DurableWriteWindow* writes_{nullptr};
     FlightState flight_{FlightState::Unknown};
     int8_t carrier_sense_dbm_{timing::NoiseFloor::kSeedDbm + timing::NoiseFloor::kClearMarginDb};
-    power::ResetReason reset_reason_{power::ResetReason::Unknown};
-    power::BatteryState battery_{};
-    power::PowerLevel power_level_{power::PowerLevel::Unknown};
+    Diagnostics diag_{};
+    bool supply_warned_{false};
     bool link_up_{false};
     bool status_push_due_{false};
     bool airborne_latched_{false};
     bool power_off_requested_{false};
     bool log_erase_requested_{false};
+    bool gnss_cold_requested_{false};
     Pending pending_{Pending::None};
     bool dirty_{false};
     bool upload_window_open_{false};
     uint16_t session_{0};
-    uint32_t link_drops_{0};
     uint32_t now_ms_{0};
     uint32_t window_opened_ms_{0};
     uint32_t pending_since_ms_{0};
