@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "hardware/io/io.h"
+#include "hardware/parts/ssd1681/panel.h"
 #include "ui/framebuffer.h"
 
 namespace skyblip::models {
@@ -80,6 +81,14 @@ class Ssd1681 : public io::Spi, public io::Gpio {
         std::fclose(f);
         return true;
     }
+
+    // Which lot the virtual glass is from. Not served over the SPI seam, because
+    // on real hardware it is not readable there either: the fingerprint needs the
+    // panel's single data line reversed, so the board port takes it before any
+    // bus driver owns the pins and the platform hands it over. The default is a
+    // fingerprint that was never taken, which is what this board is expected to
+    // report until a bench read exists.
+    parts::PanelSignature signature{};
 
     std::vector<uint8_t> cmds;
     std::vector<uint8_t> ram;

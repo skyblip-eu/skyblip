@@ -62,6 +62,7 @@ void Ssd1681::present(const ui::Framebuffer& fb, hal::Refresh mode, uint32_t now
 
     glass_known_ = true;
     refreshing_ = true;
+    fast_refresh_ = !full;
     ready_at_ms_ = now_ms + (full ? kReadyAfterFullMs : kReadyAfterFastMs);
     timeout_at_ms_ = now_ms + kBusyTimeoutMs;
 }
@@ -129,6 +130,15 @@ void Ssd1681::init_panel() {
 void Ssd1681::finish_refresh() {
     refreshing_ = false;
     // INFO: fc 01aug25 vendor rule: a panel left powered between refreshes degrades
+    //
+    // ...except after a partial update, where it depends on the panel lot: "SYX
+    // 1942 revision of D67 display can use power_off() after partial update, SYX
+    // 1948 revision - can not" (SoftRF src/driver/EPD.cpp:861-865, which resolved
+    // it by never powering off after a partial at all, because 1948 has no
+    // signature to identify it by). So the identified 1942 keeps the vendor rule
+    // and every other panel, unknown included, holds the rails up until the next
+    // refresh - which is the panel this board is expected to report.
+    if (fast_refresh_ && !panel_may_sleep_after_fast_refresh(panel_)) return;
     enter_sleep();
 }
 

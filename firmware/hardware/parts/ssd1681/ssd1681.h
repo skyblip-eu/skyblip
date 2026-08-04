@@ -3,6 +3,7 @@
 
 #include "hal/display.h"
 #include "hardware/io/io.h"
+#include "hardware/parts/ssd1681/panel.h"
 #include "ui/framebuffer.h"
 
 namespace skyblip::parts {
@@ -13,6 +14,16 @@ class Ssd1681 : public hal::Display {
         : spi_(spi), gpio_(gpio), dc_(dc), rst_(rst), busy_(busy), backlight_(backlight) {}
 
     void begin();
+
+    // Which panel the board found glued to it. The fingerprint read is the
+    // board's, not the driver's: on silicon it needs the panel's one data line
+    // reversed, which is only possible before a bus driver owns the pins
+    // (hardware/parts/ssd1681/panel.h). Called before begin(); not calling it at
+    // all leaves the identity Unknown, which is the safe policy.
+    void adopt(const PanelSignature& signature) { panel_ = identify_panel(signature); }
+    Panel panel() const { return panel_; }
+    const char* panel_name() const { return parts::panel_name(panel_); }
+
     void present(const ui::Framebuffer& fb, hal::Refresh mode, uint32_t now_ms) override;
     bool ready(uint32_t now_ms) override;
     void power_off() override;
@@ -44,6 +55,10 @@ class Ssd1681 : public hal::Display {
     bool glass_known_{false};
     bool asleep_{false};
     bool refreshing_{false};
+    // Which kind of refresh is in flight, because the panel lot decides whether
+    // it may be followed by deep sleep.
+    bool fast_refresh_{false};
+    Panel panel_{Panel::Unknown};
     uint32_t ready_at_ms_{0};
     uint32_t timeout_at_ms_{0};
 };
