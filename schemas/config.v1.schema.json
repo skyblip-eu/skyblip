@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://skyblip.eu/schemas/config.v1.schema.json",
   "title": "skyBlip device configuration (v1)",
-  "description": "JSON config exchanged over the dedicated GATT characteristic / USB-CDC. The producer (firmware) owns this schema; consumers pin a version. Every key here is read by the firmware: settings with no reader were removed rather than accepted and ignored (region, rotation, power_save, dropped after v1.0).",
+  "description": "JSON config exchanged over the dedicated GATT characteristic / USB-CDC. The producer (firmware) owns this schema; consumers pin a version. Every key here is read by the firmware: settings with no reader were removed rather than accepted and ignored (region, rotation, power_save, dropped after v1.0). Every key is accepted on 'set'; every key but the two per-unit bench trims (battery_offset_mv, freq_trim_e1_ppm) is also returned by 'get', which is one BLE frame at the 182-byte payload the narrowest phone in the field carries and has nine bytes of headroom left at its worst case.",
   "type": "object",
   "properties": {
     "version": {"type": "integer", "const": 1},
@@ -19,6 +19,10 @@
     "units": {"type": "integer", "enum": [0, 1],
               "description": "0=metric (km/h, m, m/s), 1=imperial (kt, ft, fpm). Graduates the six-pack instrument page, where each value appears once; the status page shows the aeronautical figure and the SI one side by side whatever this says"},
     "page_mask": {"type": "integer", "minimum": 0, "maximum": 255},
+    "battery_offset_mv": {"type": "integer", "minimum": -250, "maximum": 250,
+                          "description": "Per-unit battery gauge trim in millivolts, added to every reading before a state of charge or a cutoff is read into it. Set once on the production line against a bench supply: two 1% divider resistors put the ratio out by up to 2% (84 mV at a full cell) and the SAADC's gain and reference error adds to that, on a curve whose flat middle spends 250 mV crossing 60 percentage points. The bound is three times the divider's own worst case; beyond it the unit is wired wrong, not out of trim. Write-only over the link: the 'get' reply cannot carry another key (see the top-level description), and the trimmed reading is read back as the millivolts the status reply and the panel already show"},
+    "freq_trim_e1_ppm": {"type": "integer", "minimum": -100, "maximum": 100,
+                         "description": "Radio centre-frequency trim in tenths of a ppm, positive upwards, applied to every dwell the SX1262 arms (receive and transmit alike). The board fits a TCXO, so 0 is the design intent and the expected value on every unit; the field exists because nothing on the device can measure the reference, and a batch of TCXOs ten times worse than its datasheet would otherwise be a recall. The bound is that tenfold miss (+-10 ppm, +-8.7 kHz at 868.2 MHz): inside it the carrier cannot leave ERC 70-03 band h1.4 (868.0-868.6 MHz), beyond it the part is broken rather than out of trim. Set only against a spectrum analyser or a frequency counter. Write-only over the link, like battery_offset_mv: the 'get' reply cannot carry another key (see the top-level description), and the device has nothing that could measure the value back for itself"},
     "callsign": {"type": "string", "maxLength": 9,
                  "description": "Printable ASCII. Shown on the status page and reported over the link; ADS-L carries no callsign field, so it is never transmitted on the air"}
   },

@@ -59,6 +59,19 @@ uint8_t percent_on(const Point (&curve)[N], uint16_t millivolts) {
 
 }  // namespace
 
+uint16_t calibrated_mv(uint16_t raw_mv, int16_t offset_mv) {
+    const int32_t trimmed = static_cast<int32_t>(raw_mv) + offset_mv;
+    if (trimmed < 0) return 0;
+    if (trimmed > 0xFFFF) return 0xFFFF;
+    return static_cast<uint16_t>(trimmed);
+}
+
+messages::BatterySample calibrated(const messages::BatterySample& raw, int16_t offset_mv) {
+    messages::BatterySample out = raw;
+    out.millivolts = calibrated_mv(raw.millivolts, offset_mv);
+    return out;
+}
+
 uint8_t percent_from_mv(uint16_t millivolts, bool charging) {
     return charging ? percent_on(kChargeCurve, millivolts)
                     : percent_on(kDischargeCurve, millivolts);
