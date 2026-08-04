@@ -715,7 +715,7 @@ TEST_CASE("alarm: a contact is announced and forgotten across the 49.7-day wrap"
     // level still stands - an announced_level that read 0 here would be a buzzer
     // that stopped mid-alarm at the wrap.
     const uint32_t after = before + 3000u;
-    target.rx_utc = 2;  // a new observation of the same aircraft
+    target.rx_utc = 2;                                 // a new observation of the same aircraft
     CHECK(tracker.update(own, target, after).notify);  // the urgent reminder
     CHECK(tracker.announced_level(after) == 3);
 

@@ -4,6 +4,7 @@
 #include <zephyr/dt-bindings/adc/nrf-saadc.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
 
 
 / {
@@ -517,6 +518,33 @@ zephyr_udc0: &usbd {
  * retention_write() puts exactly 0x57 in the register, which is what the
  * bootloader compares against.
  */
+/*
+ * The SoC's own REG1 DC-DC converter instead of the LDO the SoC resets into
+ * (nrf52840.dtsi gives reg1 regulator-initial-mode = NRF5X_REG_MODE_LDO). It is
+ * a statement about THIS BOARD and not about the product: DC-DC needs the
+ * inductor on DCC/DEC4 to be fitted, and an nRF52840 switched to it without one
+ * does not regulate.
+ *
+ * The evidence that it is fitted is meshcore's shipped firmware for this exact
+ * board - variants/lilygo_techo/TechoBoard.h:16 derives TechoBoard from
+ * NRF52BoardDCDC, whose begin() writes NRF_POWER->DCDCEN = 1
+ * (src/helpers/NRF52Board.cpp:227-238). The T-Echo schematic is NOT in
+ * project/reference/, so this is a second-source claim and the bench measurement
+ * is what closes it.
+ *
+ * Devicetree and not Kconfig, and no driver is involved: soc/nordic/nrf52/soc.c
+ * :35-38 reads THIS PROPERTY at compile time and calls nrf_power_dcdcen_set()
+ * during SoC init. CONFIG_SOC_DCDC_NRF52X still reaches the same line but is
+ * deprecated, and its help text names this node property as the replacement
+ * (soc/nordic/nrf52/Kconfig:37-49). CONFIG_BOARD_ENABLE_DCDC, which most
+ * out-of-tree nRF52 boards still carry, does not exist unless the board itself
+ * defines it, and assigning an undefined symbol is the Kconfig warning that
+ * failed this build the first time.
+ */
+&reg1 {
+	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
+};
+
 &gpregret1 {
 	uf2_boot_retention: retention@0 {
 		compatible = "zephyr,retention";

@@ -53,7 +53,7 @@ TEST_CASE("fix validity: a receiver that stops talking stops having a fix") {
     b.feed(kRmc, 1000);
     b.feed(kGga, 1000);
 
-    CHECK(b.validity.valid(1000 + kSentenceMaxAgeMs));       // the last instant it holds
+    CHECK(b.validity.valid(1000 + kSentenceMaxAgeMs));        // the last instant it holds
     CHECK_FALSE(b.validity.valid(1001 + kSentenceMaxAgeMs));  // and the first it does not
     CHECK(b.validity.evaluate(5000) == FixReject::Stale);
 

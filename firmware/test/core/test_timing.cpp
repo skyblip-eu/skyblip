@@ -518,8 +518,8 @@ TEST_CASE("transmit: the forced-transmission bound survives the 49.7-day wrap") 
 TEST_CASE("transmit: the ground rate holds across the 49.7-day wrap") {
     Transmitter g = airborne_transmitter();
     g.sent(10, kBeforeWrap, false);
-    CHECK_FALSE(g.attempt(slot_plan(900), 11, 8000u, false, 0).go);   // 9024 ms elapsed
-    CHECK(g.attempt(slot_plan(900), 12, 9000u, false, 0).go);         // 10024 ms elapsed
+    CHECK_FALSE(g.attempt(slot_plan(900), 11, 8000u, false, 0).go);  // 9024 ms elapsed
+    CHECK(g.attempt(slot_plan(900), 12, 9000u, false, 0).go);        // 10024 ms elapsed
 }
 
 // The regulatory one. EN 300 220-2 V3.3.1 Table 4 band M is 1% of any hour, and

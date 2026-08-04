@@ -151,8 +151,7 @@ bool NmeaParser::apply_txt(const char* line, int len) {
     // Only the SW= banner. The part also emits $GPTXT for antenna status and
     // start-up notices, and a version field that is sometimes an antenna warning
     // is worse than no version field.
-    if (len - at < 3 || line[at] != 'S' || line[at + 1] != 'W' || line[at + 2] != '=')
-        return false;
+    if (len - at < 3 || line[at] != 'S' || line[at + 1] != 'W' || line[at + 2] != '=') return false;
     at += 3;
     int n = 0;
     for (; at < len && line[at] != '*' && n < kVersionCap - 1; at++, n++) version_[n] = line[at];

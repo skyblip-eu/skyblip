@@ -41,9 +41,8 @@ void FixValidity::observe(const GnssFix& fix, Sentence which, uint32_t now_ms) {
         return;
     }
 
-    jumped_ = have_previous_ &&
-              (magnitude(fix.lat_1e7 - prev_lat_1e7_) > kMaxLatitudeJump1e7 ||
-               magnitude(fix.lon_1e7 - prev_lon_1e7_) > kMaxLongitudeJump1e7);
+    jumped_ = have_previous_ && (magnitude(fix.lat_1e7 - prev_lat_1e7_) > kMaxLatitudeJump1e7 ||
+                                 magnitude(fix.lon_1e7 - prev_lon_1e7_) > kMaxLongitudeJump1e7);
     // The new position becomes the reference either way: one implausible step
     // costs one fix, not every fix after it. Two receivers disagreeing about
     // where we are is a stuck state; a single spike is a spike.

@@ -291,8 +291,8 @@ TEST_CASE("durable write: the settle, the bound and the stale view span the 49.7
     DurableWriteWindow view;
     const uint32_t asked = 20u;
     view.request(asked - 800u);
-    const DwellPhase fresh = view_at(20, 0xFFFFFFC0u);   // 84 ms old
-    const DwellPhase stale = view_at(20, 0xFFFFFF00u);   // 276 ms old, past the bound
+    const DwellPhase fresh = view_at(20, 0xFFFFFFC0u);  // 84 ms old
+    const DwellPhase stale = view_at(20, 0xFFFFFF00u);  // 276 ms old, past the bound
     CHECK(view.decide(anchored_plan(104), fresh, asked) == DurableWriteVerdict::Place);
     CHECK(view.decide(anchored_plan(104), stale, asked) == DurableWriteVerdict::Hold);
 }

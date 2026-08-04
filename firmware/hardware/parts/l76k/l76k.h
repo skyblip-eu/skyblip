@@ -17,7 +17,8 @@ namespace skyblip::parts {
 
 class L76k {
    public:
-    explicit L76k(io::Uart& uart, io::UartRate& rate = io::kFixedUartRate) : uart_(uart), rate_(rate) {}
+    explicit L76k(io::Uart& uart, io::UartRate& rate = io::kFixedUartRate)
+        : uart_(uart), rate_(rate) {}
 
     enum class Config : uint8_t {
         Idle,
@@ -51,12 +52,7 @@ class L76k {
     // Ours is the AT6558's own list, most likely first.
     static constexpr int kBaudCandidateCount = 6;
     static constexpr uint32_t kBaudCandidates[kBaudCandidateCount] = {
-        9600,
-        115200,
-        38400,
-        57600,
-        19200,
-        4800,
+        9600, 115200, 38400, 57600, 19200, 4800,
     };
 
     // ADS-L 4 SRD860 issue 2 G.1.16 refuses a navigation solution older than
