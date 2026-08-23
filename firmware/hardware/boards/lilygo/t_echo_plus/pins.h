@@ -4,6 +4,10 @@
 
 #include <cstdint>
 
+#if defined(CONFIG_BOARD_T_ECHO_PLUS)
+#include <zephyr/devicetree.h>
+#endif
+
 #include "hardware/io/io.h"
 
 namespace skyblip::boards::t_echo_plus {
@@ -113,6 +117,40 @@ constexpr io::PinRole kPinRoles[] = {
 };
 
 constexpr io::PinMap kPinMap{kPinRoles, static_cast<int>(sizeof(kPinRoles) / sizeof(kPinRoles[0]))};
+
+// INFO: fc 24aug26 the devicetree is this file's hand-written twin, checked where a node exists
+#if defined(CONFIG_BOARD_T_ECHO_PLUS)
+#define SKYBLIP_DEVICETREE_PIN(node_id, property) \
+    (DT_PROP(DT_GPIO_CTLR(node_id, property), port) * 32 + DT_GPIO_PIN(node_id, property))
+#define SKYBLIP_DEVICETREE_PIN_BY_IDX(node_id, property, idx)          \
+    (DT_PROP(DT_GPIO_CTLR_BY_IDX(node_id, property, idx), port) * 32 + \
+     DT_GPIO_PIN_BY_IDX(node_id, property, idx))
+
+static_assert(kGnssPps == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(gnss_pps), gpios));
+static_assert(kGnssEnable == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(gnss_enable), gpios));
+static_assert(kGnssReset == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(gnss_reset), gpios));
+static_assert(kRadioRst == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(radio_reset), gpios));
+static_assert(kRadioSs == SKYBLIP_DEVICETREE_PIN_BY_IDX(DT_ALIAS(radio_spi), cs_gpios, 0));
+static_assert(kEpdSs == SKYBLIP_DEVICETREE_PIN_BY_IDX(DT_ALIAS(epd_spi), cs_gpios, 0));
+static_assert(kEpdDc == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_dc_gpio), gpios));
+static_assert(kEpdRst == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_reset_gpio), gpios));
+static_assert(kEpdBusy == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_busy_gpio), gpios));
+static_assert(kEpdMosi == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_mosi_gpio), gpios));
+static_assert(kEpdSck == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_sck_gpio), gpios));
+static_assert(kBuzzer == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(buzzer_sense_gpio), gpios));
+static_assert(kVibro == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(vibro), gpios));
+static_assert(kButton == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(button), gpios));
+static_assert(kLedGreen == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(led_green), gpios));
+static_assert(kLedRed == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(led_red), gpios));
+static_assert(kLedBlue == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(led_blue), gpios));
+static_assert(kIoPwr == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(peripheral_rail), gpios));
+static_assert(k3v3Pwr == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(aux_rail), gpios));
+static_assert(kFlashWp == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(flash_wp), gpios));
+static_assert(kFlashHold == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(flash_hold), gpios));
+
+#undef SKYBLIP_DEVICETREE_PIN
+#undef SKYBLIP_DEVICETREE_PIN_BY_IDX
+#endif
 
 }  // namespace skyblip::boards::t_echo_plus
 
