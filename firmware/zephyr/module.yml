@@ -1,0 +1,12 @@
+# firmware/ is the west manifest repository, and west hands every project it
+# knows about - the manifest one included - to Zephyr's module scanner. So this
+# file is the one place the tree gets to say where its boards live.
+name: skyblip
+
+build:
+  # Zephyr and twister both append boards/ to this, which is why the same line
+  # serves `west build`, sysbuild's MCUboot image and `twister -p t_echo_plus`.
+  # Without it each of the three needs its own -DBOARD_ROOT / --board-root, and
+  # the board's location stops being a fact of the tree.
+  settings:
+    board_root: hardware
