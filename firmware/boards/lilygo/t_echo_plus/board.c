@@ -35,6 +35,7 @@
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/dt-bindings/pinctrl/nrf-pinctrl.h>
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <string.h>
@@ -46,6 +47,19 @@ enum {
 	FLASH_STARTUP_US = 5000,
 	RAIL_RAMP_US = 5000,
 };
+
+// INFO: fc 24aug26 these three pins are named as a gpio and as a psel, and both copies are driven
+#define BOARD_GPIO_PIN(node_id) \
+	(DT_PROP(DT_GPIO_CTLR(node_id, gpios), port) * 32 + DT_GPIO_PIN(node_id, gpios))
+#define BOARD_PSEL_PIN(node_id, idx) \
+	((DT_PROP_BY_IDX(node_id, psels, idx) >> NRF_PIN_POS) & NRF_PIN_MSK)
+
+BUILD_ASSERT(BOARD_GPIO_PIN(DT_NODELABEL(epd_sck_gpio)) ==
+	     BOARD_PSEL_PIN(DT_CHILD(DT_NODELABEL(spi2_default), group1), 0));
+BUILD_ASSERT(BOARD_GPIO_PIN(DT_NODELABEL(epd_mosi_gpio)) ==
+	     BOARD_PSEL_PIN(DT_CHILD(DT_NODELABEL(spi2_default), group1), 1));
+BUILD_ASSERT(BOARD_GPIO_PIN(DT_NODELABEL(buzzer_sense_gpio)) ==
+	     BOARD_PSEL_PIN(DT_CHILD(DT_NODELABEL(pwm0_default), group1), 0));
 
 // Every pin below is declared once, in the board devicetree's
 // board_power_gpios node, so this file and the shutdown path cannot disagree
