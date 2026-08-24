@@ -24,7 +24,7 @@ struct State {
     // to know whether the core may be stalled reads it here rather than deriving
     // the phase a second time (core/timing/durable_write.h).
     timing::DwellPhase dwell{};
-    // The bench accumulator G6 reads out: hardware/boards is the one writer of
+    // The bench accumulator G6 reads out: boards/ is the one writer of
     // the PPS half, products/skyblip_go/services/radio.cpp of the dwell half.
     timing::SlotTimingStats timing_stats{};
     traffic::TrafficTable traffic{};

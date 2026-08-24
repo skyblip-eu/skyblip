@@ -1,6 +1,6 @@
-# skyBlip firmware clang-tidy config.
-# Enforces the C++ subset rules (3-ARCHITECTURE §4): no heap after init, no
-# owning raw new/delete, readable names. Run in CI over core/ and ui/.
+# skyBlip firmware clang-tidy config: the C++ subset rules (1-ARCHITECTURE §4),
+# no heap after init, no owning raw new/delete, readable names.
+# TODO: fc 24aug26 no job runs this, so the rules it names are not enforced anywhere
 Checks: >
   clang-analyzer-*,
   bugprone-*,
@@ -14,5 +14,5 @@ Checks: >
   -readability-function-cognitive-complexity
 
 WarningsAsErrors: 'cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory'
-HeaderFilterRegex: '(core|ui|hal|devices)/.*'
+HeaderFilterRegex: '(core|ui|hal|hardware|boards)/.*'
 FormatStyle: file

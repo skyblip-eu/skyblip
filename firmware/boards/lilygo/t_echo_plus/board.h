@@ -1,12 +1,12 @@
-#ifndef SKYBLIP_HARDWARE_BOARDS_T_ECHO_PLUS_BOARD_H
-#define SKYBLIP_HARDWARE_BOARDS_T_ECHO_PLUS_BOARD_H
+#ifndef SKYBLIP_BOARDS_T_ECHO_PLUS_BOARD_H
+#define SKYBLIP_BOARDS_T_ECHO_PLUS_BOARD_H
 
+#include "boards/lilygo/t_echo_plus/i2c_scan.h"
+#include "boards/lilygo/t_echo_plus/pins.h"
 #include "core/bus/bus.h"
 #include "core/bus/state.h"
 #include "hal/inventory.h"
 #include "hal/roles.h"
-#include "hardware/boards/lilygo/t_echo_plus/i2c_scan.h"
-#include "hardware/boards/lilygo/t_echo_plus/pins.h"
 #include "hardware/parts/drv2605/drv2605.h"
 #include "hardware/parts/l76k/l76k.h"
 #include "hardware/parts/ssd1681/ssd1681.h"

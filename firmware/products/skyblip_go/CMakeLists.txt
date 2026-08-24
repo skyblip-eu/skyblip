@@ -9,7 +9,6 @@ cmake_minimum_required(VERSION 3.20.0)
 set(SKYBLIP_PRODUCT_NAME skyblip_go)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/skyblip.cmake)
 
-list(APPEND BOARD_ROOT ${SKYBLIP_FIRMWARE}/hardware)
 skyblip_product_board(t_echo_plus)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})

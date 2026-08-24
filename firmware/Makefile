@@ -106,7 +106,7 @@ $(BUILD)/%.o: %.cpp
 #   make watch WATCH=simulator  rebuild the terminal simulator on every save
 #
 WATCH ?= test
-WATCH_SRC := core ui hal hardware runtime products simulator test
+WATCH_SRC := core ui hal hardware boards runtime products simulator test
 
 watch:
 	@echo "watching (target: $(WATCH)), Ctrl-C to stop"

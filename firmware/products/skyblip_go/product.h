@@ -1,11 +1,11 @@
 #ifndef SKYBLIP_PRODUCTS_SKYBLIP_GO_PRODUCT_H
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_PRODUCT_H
 
+#include "boards/lilygo/t_echo_plus/board.h"
 #include "core/power/reset_reason.h"
 #include "core/power/shutdown.h"
 #include "core/power/wake.h"
 #include "core/util/format.h"
-#include "hardware/boards/lilygo/t_echo_plus/board.h"
 #include "products/skyblip_go/features.h"
 #include "products/skyblip_go/services/alarm.h"
 #include "products/skyblip_go/services/config.h"

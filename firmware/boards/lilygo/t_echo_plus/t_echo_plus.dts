@@ -181,6 +181,48 @@
 		};
 	};
 
+	/*
+	 * The part control lines the drivers drive themselves, through io::Gpio and a
+	 * flat pin number rather than a gpio_dt_spec. They are named here so that the
+	 * board says the whole of its wiring, and so the static_assert block at the
+	 * foot of pins.h can hold the two copies of these three numbers together.
+	 *
+	 * `status = "disabled"` for the same load-bearing reason as the two nodes
+	 * above: a pin map, never a device.
+	 *
+	 * Two pins are deliberately not here, because nothing drives them and a node
+	 * is a claim that something might: P0.18, the second button, which LilyGO
+	 * labels reset and wires as an ordinary GPIO, and P0.11, the capacitive touch
+	 * pad (SoftRF iomap/LilyGO_TEcho.h). The SX1262's own DIO2 and DIO3 are not
+	 * SoC pins at all - the part switches its antenna and powers its TCXO itself,
+	 * on this board's wiring, which is stated where it is acted on
+	 * (hardware/parts/sx1262/sx1262.cpp:89-96).
+	 */
+	board_part_gpios {
+		compatible = "gpio-keys";
+		status = "disabled";
+
+		/* SX1262 BUSY (P0.17). High while the part is working, which is what
+		 * wait_busy_low() spins on before every command. */
+		radio_busy_gpio: radio_busy {
+			gpios = <&gpio0 17 GPIO_ACTIVE_HIGH>;
+			label = "radio-busy";
+		};
+
+		/* SX1262 DIO1 (P0.20), the radio's one interrupt line. Read as a level:
+		 * a dwell is driven by a deadline, not by an edge. */
+		radio_dio1_gpio: radio_dio1 {
+			gpios = <&gpio0 20 GPIO_ACTIVE_HIGH>;
+			label = "radio-dio1";
+		};
+
+		/* P1.11 is the e-paper's backlight AND the panel's enable. */
+		epd_backlight_gpio: epd_backlight {
+			gpios = <&gpio1 11 GPIO_ACTIVE_HIGH>;
+			label = "epd-backlight";
+		};
+	};
+
 	pwmleds {
 		compatible = "pwm-leds";
 		buzzer_pwm: buzzer_pwm {
@@ -195,13 +237,34 @@
 	 * rails down, which is why the wordmark is painted before power off. What
 	 * each state looks like is one table, core/indication/lamp.h.
 	 *
-	 * REV_2 / Plus map, active-low. Sources and the disagreement with the older
-	 * T-Echo map are written out in pins.h next to the same three numbers; they
-	 * are here as well because this node is what the silicon reads and pins.h is
-	 * what the host reads, and neither is derived from the other.
+	 * REV_2 / Plus map, active-low, and NOT the map on the older T-Echo, which is
+	 * the trap here. SoftRF platform/iomap/LilyGO_TEcho.h:22-24 gives REV_2 GREEN
+	 * P1.01, RED P1.03, BLUE P0.14, and platform/nRF52.cpp:1595-1601 applies
+	 * exactly those three under the one case label that covers
+	 * NRF52_LILYGO_TECHO_REV_2 and NRF52_LILYGO_TECHO_PLUS. nrf52-ogn-tracker
+	 * variants/t_echo/variant.h:20-24 independently gives 35u = P1.03, commented
+	 * "red LED on common T-Echo rev2 boards", with LED_STATE_ON 0.
 	 *
-	 * `gpio-leds`, NOT the disabled `gpio-keys` trick that board_power_gpios and
-	 * board_probe_gpios below use, and the difference is worth stating because the
+	 * meshcore variants/lilygo_techo/variant.h:77-79 disagrees: 13 / 14 / 15. That
+	 * is SoftRF's REV_1 map (iomap:19-21), so that variant targets the older board
+	 * - and P0.13 is this board's aux 3V3 rail (aux_rail above, iomap:82-83), so
+	 * the two cannot both be true of a Plus. Every other pin on this board is
+	 * already the REV_2 map, which is the tie-break.
+	 *
+	 * UNVERIFIED ON HARDWARE, and unevenly sourced: red P1.03 has two independent
+	 * sources, green P1.01 and blue P0.14 rest on SoftRF alone. project/2-DEVICES.md
+	 * has no LED row at all. If a bench says otherwise, these three numbers are the
+	 * only place to change - nothing above the board knows a pin.
+	 *
+	 * LED_STATE_ON is LOW on every nRF52 T-Echo in both references (SoftRF
+	 * platform/nRF52.h:53, nrf52-ogn-tracker variants/t_echo/variant.h:23), which
+	 * is the GPIO_ACTIVE_LOW below, and why the way down releases these lines
+	 * instead of leaving them driven into a rail that has gone (hal/indicator.h
+	 * park()).
+	 *
+	 * `gpio-leds`, NOT the disabled `gpio-keys` trick that board_power_gpios,
+	 * board_probe_gpios and board_part_gpios above use, and the difference is
+	 * worth stating because the
 	 * two look interchangeable. That trick exists because there is no upstream
 	 * binding for "a list of pins that is not a device", so gpio-keys is borrowed
 	 * and then disabled to keep CONFIG_INPUT_GPIO_KEYS from binding a rail enable
@@ -211,7 +274,7 @@
 	 * product does enable the LED subsystem, led_gpio_init configures each pin
 	 * GPIO_OUTPUT_INACTIVE, which on an active-low LED is off. Either way the
 	 * board does not switch anything on behind our back, which is the property the
-	 * disabled nodes below had to buy the hard way.
+	 * disabled nodes above had to buy the hard way.
 	 *
 	 * These sit on the P0.12 peripheral rail - SoftRF's comment on that pin reads
 	 * "Power: EINK, RGB, CN1" - so they go dark on their own when the rail drops.

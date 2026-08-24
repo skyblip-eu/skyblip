@@ -20,7 +20,8 @@ REQUIRED_MODULES = [
     "ui/screens", "ui/widgets", "ui/input", "runtime", "simulator",
 ]
 
-TEST_DIRS = ("test", "test/core", "test/ui", "test/products", "test/hardware")
+TEST_DIRS = ("test", "test/core", "test/ui", "test/products", "test/hardware",
+             "test/boards")
 
 PART_TEST_DIR = "test/hardware"
 
@@ -51,7 +52,8 @@ def has_driver(part):
 def strays():
     """Test files that crept back in beside the code they test."""
     found = []
-    for layer in ("core", "ui", "hal", "hardware", "runtime", "products", "simulator"):
+    for layer in ("core", "ui", "hal", "hardware", "boards", "runtime", "products",
+                  "simulator"):
         for dirpath, _, files in os.walk(os.path.join(FW, layer)):
             for f in files:
                 if f.startswith("test_") and f.endswith(".cpp"):

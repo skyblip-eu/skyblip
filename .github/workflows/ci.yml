@@ -63,8 +63,8 @@ jobs:
         run: pipx install clang-format==21.1.8
       - name: check formatting
         run: |
-          find firmware/core firmware/ui firmware/hal firmware/hardware firmware/runtime \
-               firmware/products firmware/simulator firmware/test \
+          find firmware/core firmware/ui firmware/hal firmware/hardware firmware/boards \
+               firmware/runtime firmware/products firmware/simulator firmware/test \
             -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
   product-image:
@@ -159,8 +159,7 @@ jobs:
           # -D<image>_ is sysbuild's namespace for one image's variables, and the
           # main image is named after the app directory, i.e. the product.
           west build -b "$board" products/$product --sysbuild \
-            -- -DBOARD_ROOT=$(pwd)/hardware \
-               -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf" \
+            -- -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf" \
                -D${product}_EXTRA_CONF_FILE="$RUNNER_TEMP/version.conf"
 
       # Guards against silently regressing to a key anyone can sign with. The
