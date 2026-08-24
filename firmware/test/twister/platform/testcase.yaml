@@ -1,9 +1,7 @@
 tests:
   platform.adapters:
     tags: platform kvstore
-    # native_sim only: these prove the adapter code, not the board. Running them
-    # on a real unit is `-p t_echo_plus` - twister reads the board root out of
-    # firmware/zephyr/module.yml - which needs the board attached and so is not
-    # a CI job.
+    # These prove the adapter code, not the board, and the list below is what
+    # twister obeys: adding t_echo_plus is what running them on a unit takes.
     platform_allow:
       - native_sim
