@@ -130,6 +130,8 @@ static_assert(kGnssPps == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(gnss_pps), gpios));
 static_assert(kGnssEnable == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(gnss_enable), gpios));
 static_assert(kGnssReset == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(gnss_reset), gpios));
 static_assert(kRadioRst == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(radio_reset), gpios));
+static_assert(kRadioBusy == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(radio_busy_gpio), gpios));
+static_assert(kRadioDio1 == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(radio_dio1_gpio), gpios));
 static_assert(kRadioSs == SKYBLIP_DEVICETREE_PIN_BY_IDX(DT_ALIAS(radio_spi), cs_gpios, 0));
 static_assert(kEpdSs == SKYBLIP_DEVICETREE_PIN_BY_IDX(DT_ALIAS(epd_spi), cs_gpios, 0));
 static_assert(kEpdDc == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_dc_gpio), gpios));
@@ -137,6 +139,7 @@ static_assert(kEpdRst == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_reset_gpio), gp
 static_assert(kEpdBusy == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_busy_gpio), gpios));
 static_assert(kEpdMosi == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_mosi_gpio), gpios));
 static_assert(kEpdSck == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_sck_gpio), gpios));
+static_assert(kEpdBacklight == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(epd_backlight_gpio), gpios));
 static_assert(kBuzzer == SKYBLIP_DEVICETREE_PIN(DT_NODELABEL(buzzer_sense_gpio), gpios));
 static_assert(kVibro == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(vibro), gpios));
 static_assert(kButton == SKYBLIP_DEVICETREE_PIN(DT_ALIAS(button), gpios));

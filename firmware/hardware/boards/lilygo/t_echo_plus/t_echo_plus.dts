@@ -181,6 +181,40 @@
 		};
 	};
 
+	/*
+	 * The part control lines the drivers drive themselves, through io::Gpio and a
+	 * flat pin number rather than a gpio_dt_spec. They are named here so that the
+	 * board says the whole of its wiring, and so the static_assert block at the
+	 * foot of pins.h can hold the two copies of these three numbers together.
+	 *
+	 * `status = "disabled"` for the same load-bearing reason as the two nodes
+	 * above: a pin map, never a device.
+	 */
+	board_part_gpios {
+		compatible = "gpio-keys";
+		status = "disabled";
+
+		/* SX1262 BUSY (P0.17). High while the part is working, which is what
+		 * wait_busy_low() spins on before every command. */
+		radio_busy_gpio: radio_busy {
+			gpios = <&gpio0 17 GPIO_ACTIVE_HIGH>;
+			label = "radio-busy";
+		};
+
+		/* SX1262 DIO1 (P0.20), the radio's one interrupt line. Read as a level:
+		 * a dwell is driven by a deadline, not by an edge. */
+		radio_dio1_gpio: radio_dio1 {
+			gpios = <&gpio0 20 GPIO_ACTIVE_HIGH>;
+			label = "radio-dio1";
+		};
+
+		/* P1.11 is the e-paper's backlight AND the panel's enable. */
+		epd_backlight_gpio: epd_backlight {
+			gpios = <&gpio1 11 GPIO_ACTIVE_HIGH>;
+			label = "epd-backlight";
+		};
+	};
+
 	pwmleds {
 		compatible = "pwm-leds";
 		buzzer_pwm: buzzer_pwm {
