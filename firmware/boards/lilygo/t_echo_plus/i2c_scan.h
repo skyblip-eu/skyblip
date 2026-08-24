@@ -12,8 +12,8 @@
 // beginTransmission/endTransmission pair the references use amounts to
 // (SoftRF platform/nRF52.cpp:1128-1163 probes the RTC, the IMU and the DRV2605
 // exactly this way).
-#ifndef SKYBLIP_HARDWARE_BOARDS_T_ECHO_PLUS_I2C_SCAN_H
-#define SKYBLIP_HARDWARE_BOARDS_T_ECHO_PLUS_I2C_SCAN_H
+#ifndef SKYBLIP_BOARDS_T_ECHO_PLUS_I2C_SCAN_H
+#define SKYBLIP_BOARDS_T_ECHO_PLUS_I2C_SCAN_H
 
 #include <cstdint>
 

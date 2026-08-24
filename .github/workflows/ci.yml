@@ -63,8 +63,8 @@ jobs:
         run: pipx install clang-format==21.1.8
       - name: check formatting
         run: |
-          find firmware/core firmware/ui firmware/hal firmware/hardware firmware/runtime \
-               firmware/products firmware/simulator firmware/test \
+          find firmware/core firmware/ui firmware/hal firmware/hardware firmware/boards \
+               firmware/runtime firmware/products firmware/simulator firmware/test \
             -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
   product-image:

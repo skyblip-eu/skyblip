@@ -1,6 +1,6 @@
-// hardware/boards/lilygo/t_echo_plus/pins.h: LilyGO T-Echo Plus (nRF52840) pin map.
-#ifndef SKYBLIP_HARDWARE_BOARDS_T_ECHO_PLUS_PINS_H
-#define SKYBLIP_HARDWARE_BOARDS_T_ECHO_PLUS_PINS_H
+// boards/lilygo/t_echo_plus/pins.h: LilyGO T-Echo Plus (nRF52840) pin map.
+#ifndef SKYBLIP_BOARDS_T_ECHO_PLUS_PINS_H
+#define SKYBLIP_BOARDS_T_ECHO_PLUS_PINS_H
 
 #include <cstdint>
 

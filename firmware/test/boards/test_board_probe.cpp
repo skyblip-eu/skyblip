@@ -7,9 +7,9 @@
 // different unit off the same production line.
 #include <string>
 
+#include "boards/lilygo/t_echo_plus/board.h"
 #include "core/bus/bus.h"
 #include "doctest/doctest.h"
-#include "hardware/boards/lilygo/t_echo_plus/board.h"
 #include "hardware/platform/host/platform.h"
 
 using namespace skyblip;

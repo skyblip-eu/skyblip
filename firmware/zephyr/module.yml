@@ -9,4 +9,4 @@ build:
   # Without it each of the three needs its own -DBOARD_ROOT / --board-root, and
   # the board's location stops being a fact of the tree.
   settings:
-    board_root: hardware
+    board_root: .

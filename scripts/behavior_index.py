@@ -33,6 +33,7 @@ LAYERS = {
     "core": "core - the logic the radio and the screen are built on",
     "ui": "ui - screens, widgets and input",
     "hardware": "hardware - one folder per part, driver against model",
+    "boards": "boards - one assembly, its parts probed on both platforms",
     "products": "products - a SKU end to end, and the committed scenarios",
 }
 

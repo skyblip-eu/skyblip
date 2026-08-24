@@ -19,7 +19,7 @@ namespace skyblip::platform::host {
 class FlashRegion : public hal::FlashRegion {
    public:
     // 0x14A000 of log_partition in 4 KB sectors, from
-    // hardware/boards/lilygo/t_echo_plus/t_echo_plus.dts.
+    // boards/lilygo/t_echo_plus/t_echo_plus.dts.
     static constexpr uint32_t kSectorBytes = 4096;
     static constexpr uint32_t kSectorCount = 330;
 

@@ -216,7 +216,7 @@ TEST_CASE("rf: a completed burst lands in the bench's dwell-phase histogram") {
 }
 
 // The other half of the wiring: whatever already owns the PPS edge
-// (hardware/boards) is what the accumulator's holdover count depends on, and
+// (boards/) is what the accumulator's holdover count depends on, and
 // it has to fire on the transition, not on every pass spent unlocked.
 TEST_CASE("rf: losing and regaining PPS through the simulator counts as holdover") {
     simulator::Simulator h;

@@ -1,6 +1,6 @@
 // core/timing/timing_stats.h: the bench-facing accumulator behind G6, the
 // launch gate's "slot timing proven on silicon". It has exactly two inputs -
-// the PPS edge hardware/boards already latches every pass, and the outcome an
+// the PPS edge boards/ already latches every pass, and the outcome an
 // armed dwell reports back against the deadline core/timing::Transmitter chose
 // - so nothing here forms a second opinion about either. ADS-L 4 SRD-860
 // issue 2 §C.5 is the budget both halves are read against.
@@ -42,7 +42,7 @@ class SlotTimingStats {
     static constexpr int64_t kHoldoverGapUs = 1500000;
     static constexpr int64_t kNominalSecondUs = 1000000;
 
-    // The PPS edge exactly as hardware/boards latched it, and the lock flag
+    // The PPS edge exactly as boards/ latched it, and the lock flag
     // read alongside it. Safe to call every service pass: only a genuinely
     // new edge value, or a transition of the lock flag, moves anything.
     void record_edge(uint64_t edge_us, bool locked);
