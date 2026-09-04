@@ -37,6 +37,24 @@ TEST_CASE("epd: begin() runs the SSD1681 init sequence and resets the panel") {
     CHECK(f.saw_cmd(0x18));  // temperature sensor
 }
 
+// A glitched RES# leaves a deep-sleeping SSD1681 asleep, BUSY high, first image forever.
+TEST_CASE("epd: the reset pulse is held low, not glitched") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    CHECK(f.reads_while_in_reset >= parts::epd::kResetHoldSpins);
+
+    ui::Framebuffer fb;
+    fb.clear(true);
+    d.present(fb, hal::Refresh::Full, 0);
+    settle(d, 0);
+    CHECK_FALSE(f.powered);
+
+    const uint32_t before = f.reads_while_in_reset;
+    d.present(fb, hal::Refresh::Fast, 5000);
+    CHECK(f.reads_while_in_reset - before >= parts::epd::kResetHoldSpins);
+}
+
 TEST_CASE("epd: present() writes a full framebuffer with correct black/white polarity") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);

@@ -26,7 +26,11 @@ class Ssd1681 : public io::Spi, public io::Gpio {
             rst_level_ = level;
         }
     }
-    bool get(int pin) override { return pin == busy ? busy_stuck : false; }
+    bool get(int pin) override {
+        if (pin != busy) return false;
+        if (!rst_level_) reads_while_in_reset++;
+        return busy_stuck;
+    }
     void mode_output(int) override {}
     void mode_input(int, bool) override {}
 
@@ -94,6 +98,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
     std::vector<uint8_t> ram;
     std::vector<uint8_t> ram_previous;
     int reset_pulses{0};
+    uint32_t reads_while_in_reset{0};
     int present_count{0};
     int deep_sleeps{0};
     bool busy_stuck{false};

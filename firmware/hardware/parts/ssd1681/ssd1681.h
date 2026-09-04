@@ -37,6 +37,7 @@ class Ssd1681 : public hal::Display {
 
    private:
     void init_panel();
+    void hold_reset();
     void finish_refresh();
     void enter_sleep();
     void cmd(uint8_t c);
@@ -62,6 +63,13 @@ class Ssd1681 : public hal::Display {
     uint32_t ready_at_ms_{0};
     uint32_t timeout_at_ms_{0};
 };
+
+namespace epd {
+// INFO: fc 04sep26 GxEPD2, Good Display, SoftRF hold RES# 10 ms; only this reset ends deep sleep
+constexpr uint32_t kResetHoldUs = 10000;
+constexpr uint32_t kResetSpinNsFloor = 125;
+constexpr uint32_t kResetHoldSpins = kResetHoldUs * 1000u / kResetSpinNsFloor;
+}  // namespace epd
 
 }
 
