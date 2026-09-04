@@ -18,13 +18,11 @@ namespace {
 
 // A receiver-only world: PPS unlocked keeps own-ship off air (ADS-L D.3 fails
 // closed without an anchored clock), so the only bursts are the neighbour's.
-simulator::Simulator listening_at(int phase_ms, int slot) {
-    simulator::Simulator h;
+void listen_at(simulator::Simulator& h, int phase_ms, int slot) {
     REQUIRE(h.setup() == Status::Ok);
     h.world().set_fix(true);
     h.world().set_pps_locked(false);
     h.world().add_aircraft(800, 0, 0, 30, 180, phase_ms, slot);
-    return h;
 }
 
 // F5: own-ship holds every burst until the receiver's first solutions have
@@ -83,7 +81,8 @@ TEST_CASE("rf: a burst is heard only inside the dwell that owns its channel") {
         {600, 1, false},
     };
     for (const Case& c : cases) {
-        simulator::Simulator h = listening_at(c.phase_ms, c.slot);
+        simulator::Simulator h;
+        listen_at(h, c.phase_ms, c.slot);
         h.run(4000);
         const int heard = count_of(h.world().air(), simulator::AirEvent::Rx);
         const int deaf = count_of(h.world().air(), simulator::AirEvent::Deaf);
@@ -98,7 +97,8 @@ TEST_CASE("rf: a burst is heard only inside the dwell that owns its channel") {
 // A burst near the end of the second finishes after the second has rolled over.
 // Its phase is its own instant's, not the instant we noticed it ended.
 TEST_CASE("rf: a burst that straddles the second is dated by when it started") {
-    simulator::Simulator h = listening_at(995, 1);
+    simulator::Simulator h;
+    listen_at(h, 995, 1);
     h.run(4000);
     const simulator::Air& air = h.world().air();
     REQUIRE(air.record_count() > 0);
@@ -106,7 +106,8 @@ TEST_CASE("rf: a burst that straddles the second is dated by when it started") {
 }
 
 TEST_CASE("rf: a heard burst is the frame that was on air, decoded by the real path") {
-    simulator::Simulator h = listening_at(600, 0);
+    simulator::Simulator h;
+    listen_at(h, 600, 0);
     h.run(3000);
     REQUIRE(h.product().state().rx_ok > 0);
     REQUIRE(h.product().state().traffic.count() == 1);

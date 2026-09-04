@@ -1,6 +1,7 @@
 #ifndef SKYBLIP_CORE_BUS_BUS_H
 #define SKYBLIP_CORE_BUS_BUS_H
 
+#include <atomic>
 #include <cstdint>
 
 #include "core/gnss/nmea.h"
@@ -8,37 +9,42 @@
 
 namespace skyblip::bus {
 
+// INFO: fc 04sep26 one producer, one consumer, two threads on silicon: release/acquire is the lock
 template <class T, int N>
 class Queue {
    public:
     static constexpr int kCapacity = N;
 
     bool push(const T& item) {
-        const int next = (head_ + 1) % (N + 1);
-        if (next == tail_) {
-            dropped_++;
+        const int head = head_.load(std::memory_order_relaxed);
+        const int next = (head + 1) % (N + 1);
+        if (next == tail_.load(std::memory_order_acquire)) {
+            dropped_.fetch_add(1, std::memory_order_relaxed);
             return false;
         }
-        slot_[head_] = item;
-        head_ = next;
+        slot_[head] = item;
+        head_.store(next, std::memory_order_release);
         return true;
     }
 
     bool pop(T& out) {
-        if (tail_ == head_) return false;
-        out = slot_[tail_];
-        tail_ = (tail_ + 1) % (N + 1);
+        const int tail = tail_.load(std::memory_order_relaxed);
+        if (tail == head_.load(std::memory_order_acquire)) return false;
+        out = slot_[tail];
+        tail_.store((tail + 1) % (N + 1), std::memory_order_release);
         return true;
     }
 
-    bool empty() const { return tail_ == head_; }
-    uint32_t dropped() const { return dropped_; }
+    bool empty() const {
+        return tail_.load(std::memory_order_acquire) == head_.load(std::memory_order_acquire);
+    }
+    uint32_t dropped() const { return dropped_.load(std::memory_order_relaxed); }
 
    private:
     T slot_[N + 1]{};
-    int head_{0};
-    int tail_{0};
-    uint32_t dropped_{0};
+    std::atomic<int> head_{0};
+    std::atomic<int> tail_{0};
+    std::atomic<uint32_t> dropped_{0};
 };
 
 struct Bus {
