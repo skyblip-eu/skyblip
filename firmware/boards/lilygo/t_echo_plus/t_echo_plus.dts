@@ -193,10 +193,10 @@
 	 * Two pins are deliberately not here, because nothing drives them and a node
 	 * is a claim that something might: P0.18, the second button, which LilyGO
 	 * labels reset and wires as an ordinary GPIO, and P0.11, the capacitive touch
-	 * pad (SoftRF iomap/LilyGO_TEcho.h). The SX1262's own DIO2 and DIO3 are not
-	 * SoC pins at all - the part switches its antenna and powers its TCXO itself,
-	 * on this board's wiring, which is stated where it is acted on
-	 * (hardware/parts/sx1262/sx1262.cpp:89-96).
+	 * pad (SoftRF iomap/LilyGO_TEcho.h). A third is P0.21, which LilyGO's README
+	 * pin table wires to the SX1262's DIO3: the part drives that line itself to
+	 * power its TCXO (hardware/parts/sx1262/sx1262.cpp:89-96), so the SoC end
+	 * stays an input. meshcore's variant.cpp:30-31 drives it high; do not copy that.
 	 */
 	board_part_gpios {
 		compatible = "gpio-keys";
@@ -251,9 +251,9 @@
 	 * the two cannot both be true of a Plus. Every other pin on this board is
 	 * already the REV_2 map, which is the tie-break.
 	 *
-	 * UNVERIFIED ON HARDWARE, and unevenly sourced: red P1.03 has two independent
-	 * sources, green P1.01 and blue P0.14 rest on SoftRF alone. project/2-DEVICES.md
-	 * has no LED row at all. If a bench says otherwise, these three numbers are the
+	 * Unread on our own unit, but LilyGO's README pin table gives exactly these
+	 * three (Red P1.3, Blue P0.14, Green P1.1), so the map is vendor-documented
+	 * and not SoftRF's alone. If a bench says otherwise, these three numbers are the
 	 * only place to change - nothing above the board knows a pin.
 	 *
 	 * LED_STATE_ON is LOW on every nRF52 T-Echo in both references (SoftRF

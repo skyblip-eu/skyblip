@@ -22,14 +22,7 @@ namespace skyblip::platform::zephyr {
 // JESD216 / MX25R1635F 8.9 and ZD25WQ16B 8.20, the one opcode both parts spell
 // the same: Deep Power-Down.
 //
-// INFO: fc 03aug26 `has-dpd` is deliberately NOT set on the ext_flash node. It
-// would only change behaviour under CONFIG_SPI_NOR_IDLE_IN_DPD or PM_DEVICE, and
-// then the driver would have to WAKE the part again - which the two candidate
-// parts do differently (the MX25R needs the timed CSn toggles of
-// dpd-wakeup-sequence, not RDPD), so a single image would have to be right about
-// a chip it cannot identify at build time. We only ever enter DPD, on the way to
-// SYSTEM OFF, and the next boot power-cycles the rail, which leaves DPD by
-// definition. Nothing has to know how to wake it.
+// INFO: fc 04sep26 entered only on the way to SYSTEM OFF; ext_flash `has-dpd` sends RDPD at init
 constexpr uint8_t kFlashDeepPowerDown = 0xB9;
 
 // INFO: fc 03aug26 tDP for neither candidate part is in project/reference/, and
