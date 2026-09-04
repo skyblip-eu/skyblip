@@ -78,7 +78,7 @@ class SystemPower : public hal::SystemPower, private power::PowerDownSink {
         // retention area says so by returning false, and there is nothing to do
         // about it here - it is the same board on which hal::Dfu::enter_recovery
         // cannot work either, and that is the path that reports it.
-        (void)write_boot_magic(kSkipBootloaderMagic);
+        (void)write_boot_magic(Dfu::boot_magic_for_system_off());
         power::power_down(*this);
         // AFTER the walk above, not before: every step of it reconfigures pins,
         // and the last one arms a level-sensed wake. A DETECT that was latched

@@ -455,7 +455,8 @@ void ConfigService::confirm() {
         pending_ = Pending::None;
         upload_window_open_ = false;
         ack(true, "recovery");
-        if (dfu_) dfu_->enter_recovery();
+        if (dfu_ && dfu_->enter_recovery() == hal::RecoveryPath::PowerOffToFinish)
+            power_off_requested_ = true;
     } else if (pending_ == Pending::PowerOff) {
         pending_ = Pending::None;
         upload_window_open_ = false;

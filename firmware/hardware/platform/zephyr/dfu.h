@@ -8,6 +8,10 @@
 #include <zephyr/retention/retention.h>
 #include <zephyr/sys/reboot.h>
 
+#if defined(CONFIG_SOC_FAMILY_NORDIC_NRF)
+#include <hal/nrf_wdt.h>
+#endif
+
 #include "hal/dfu.h"
 
 namespace skyblip::platform::zephyr {
@@ -80,13 +84,31 @@ class Dfu : public hal::Dfu {
 
     void confirm() override { boot_write_img_confirmed(); }
 
-    void enter_recovery() override {
+    // INFO: fc 04sep26 the WDT survives a soft reset, not SYSTEM OFF; it would cut the UF2 session
+    hal::RecoveryPath enter_recovery() override {
+        if (watchdog_running()) {
+            recovery_armed_ = true;
+            return hal::RecoveryPath::PowerOffToFinish;
+        }
         write_boot_magic(kUf2MassStorageMagic);
-        // Reboot regardless: on a board with no UF2 bootloader this is still the
-        // most useful thing "recovery" can mean, and staying up pretending to
-        // have acted would be worse.
         sys_reboot(SYS_REBOOT_WARM);
+        return hal::RecoveryPath::Rebooted;
     }
+
+    static uint8_t boot_magic_for_system_off() {
+        return recovery_armed_ ? kUf2MassStorageMagic : kSkipBootloaderMagic;
+    }
+
+   private:
+    static bool watchdog_running() {
+#if defined(CONFIG_SOC_FAMILY_NORDIC_NRF) && defined(NRF_WDT)
+        return nrf_wdt_started_check(NRF_WDT);
+#else
+        return false;
+#endif
+    }
+
+    inline static bool recovery_armed_ = false;
 };
 
 }  // namespace skyblip::platform::zephyr

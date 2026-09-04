@@ -29,9 +29,13 @@ struct SpyDfu : hal::Dfu {
     int triggered = 0;
     int confirmed = 0;
     int recovery = 0;
+    hal::RecoveryPath recovery_path = hal::RecoveryPath::Rebooted;
     void trigger() override { triggered++; }
     void confirm() override { confirmed++; }
-    void enter_recovery() override { recovery++; }
+    hal::RecoveryPath enter_recovery() override {
+        recovery++;
+        return recovery_path;
+    }
 };
 }  // namespace
 
@@ -149,6 +153,20 @@ TEST_CASE("comms: recovery reboots into the drag-and-drop bootloader after confi
     CHECK(dfu.recovery == 0);
     cs.confirm();
     CHECK(dfu.recovery == 1);
+    CHECK_FALSE(cs.power_off_requested());
+}
+
+TEST_CASE("comms: a recovery a reboot cannot carry finishes through power off") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    SpyDfu dfu;
+    dfu.recovery_path = hal::RecoveryPath::PowerOffToFinish;
+    ConfigService cs(link, s, &dfu);
+    cs.set_flight_state(FlightState::Ground);
+    cs.on_rx(frame("{\"cmd\":\"recovery\"}"));
+    cs.confirm();
+    CHECK(dfu.recovery == 1);
+    CHECK(cs.power_off_requested());
 }
 
 TEST_CASE("comms: recovery refused in flight") {

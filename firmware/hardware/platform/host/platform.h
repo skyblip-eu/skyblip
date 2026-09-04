@@ -23,7 +23,11 @@ class Dfu : public hal::Dfu {
    public:
     void trigger() override { triggered++; }
     void confirm() override { confirmed++; }
-    void enter_recovery() override { recoveries++; }
+    hal::RecoveryPath enter_recovery() override {
+        recoveries++;
+        return recovery_path;
+    }
+    hal::RecoveryPath recovery_path{hal::RecoveryPath::Rebooted};
 
     int triggered{0};
     int confirmed{0};

@@ -9,6 +9,8 @@
 
 namespace skyblip::hal {
 
+enum class RecoveryPath { Rebooted, PowerOffToFinish };
+
 class Dfu {
    public:
     virtual ~Dfu() = default;
@@ -24,10 +26,7 @@ class Dfu {
     // which is the whole point of an A/B layout.
     virtual void confirm() {}
 
-    // Reboot into the factory USB mass-storage bootloader, so a host can
-    // drag-and-drop a .uf2. This is the recovery path that survives a bad
-    // MCUboot, and the only reason the device never needs a programmer.
-    virtual void enter_recovery() {}
+    virtual RecoveryPath enter_recovery() { return RecoveryPath::Rebooted; }
 };
 
 }  // namespace skyblip::hal
