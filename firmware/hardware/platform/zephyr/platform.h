@@ -56,6 +56,7 @@ class Platform {
         system_power_.begin();
         if (!device_is_ready(gpio0_) || !device_is_ready(gpio1_)) return Status::Down;
         if (!device_is_ready(radio_spi_dev_)) return Status::Down;
+        if (gnss_uart_.begin() != Status::Ok) return Status::Down;
         // The gated rails are raised at board level so MCUboot sees them too;
         // what is still owed here is the SX1262 TCXO settling time.
         k_msleep(50);

@@ -7,7 +7,9 @@
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/sys/ring_buffer.h>
 
+#include "core/util/result.h"
 #include "hardware/io/io.h"
 
 namespace skyblip::platform::zephyr {
@@ -89,9 +91,23 @@ class I2c : public io::I2c {
     const struct device* bus_;
 };
 
+// INFO: fc 04sep26 polled UARTE receive holds 1 byte + a 4-byte FIFO, a 10 ms loop drops NMEA
 class Uart : public io::Uart, public io::UartRate {
    public:
-    explicit Uart(const struct device* uart) : uart_(uart) {}
+    static constexpr size_t kRxBufferBytes = 512;
+
+    explicit Uart(const struct device* uart) : uart_(uart) {
+        ring_buf_init(&rx_, sizeof(rx_storage_), rx_storage_);
+    }
+
+    Status begin() {
+        if (!device_is_ready(uart_)) return Status::Ok;
+        if (uart_irq_callback_user_data_set(uart_, on_rx_ready, this) != 0) return Status::Down;
+        uart_irq_rx_enable(uart_);
+        return Status::Ok;
+    }
+
+    uint32_t overruns() const { return overruns_; }
 
     // Retuning the port, which is what makes the L76K's autobaud recovery more
     // than a table: a receiver that comes up at a rate the devicetree did not
@@ -111,14 +127,26 @@ class Uart : public io::Uart, public io::UartRate {
         return len;
     }
     size_t read(uint8_t* data, size_t cap) override {
-        size_t n = 0;
-        while (n < cap && uart_poll_in(uart_, &data[n]) == 0) n++;
-        return n;
+        return ring_buf_get(&rx_, data, static_cast<uint32_t>(cap));
     }
-    size_t available() override { return 0; }
+    size_t available() override { return ring_buf_size_get(&rx_); }
 
    private:
+    static void on_rx_ready(const struct device* dev, void* user_data) {
+        Uart* self = static_cast<Uart*>(user_data);
+        while (uart_irq_update(dev) == 1 && uart_irq_rx_ready(dev) == 1) {
+            uint8_t chunk[16];
+            const int n = uart_fifo_read(dev, chunk, sizeof(chunk));
+            if (n <= 0) break;
+            const uint32_t placed = ring_buf_put(&self->rx_, chunk, static_cast<uint32_t>(n));
+            if (placed < static_cast<uint32_t>(n)) self->overruns_++;
+        }
+    }
+
     const struct device* uart_;
+    struct ring_buf rx_{};
+    uint8_t rx_storage_[kRxBufferBytes]{};
+    uint32_t overruns_{0};
 };
 
 }  // namespace skyblip::platform::zephyr
