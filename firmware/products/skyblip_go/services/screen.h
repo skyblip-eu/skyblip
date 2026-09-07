@@ -28,6 +28,13 @@ class ScreenService : public runtime::Service {
     static constexpr int kFastHardCeiling = 24;
     static constexpr uint32_t kSkyEmptyBeforeFullMs = 60000;
     static constexpr uint32_t kFullEveryMs = 0;  // 0 disables
+    // INFO: fc 06sep26 the floor under the rules above it: it fires only where they never do
+    static constexpr uint32_t kParkAfterIdleMs = 120000;
+
+    // INFO: fc 06sep26 Good Display rates the glass 0..50 C operating, -20..70 C storage
+    static constexpr int16_t kFullOnlyBelowDeciCelsius = 0;
+    // INFO: fc 06sep26 the rated limit read on a die above ambient, so it holds early
+    static constexpr int16_t kHoldAboveDeciCelsius = 500;
 
     // INFO: cf 02aug26 The level at which the radar carries a bearing worth
     // turning the head for. At or above it the settings page gives the glass
@@ -52,6 +59,9 @@ class ScreenService : public runtime::Service {
         dirty_ = true;
     }
 
+    enum class Thermal : uint8_t { Refresh, FullOnly, Hold };
+    Thermal thermal() const;
+
     Page page() const { return page_; }
     comms::Pending prompt() const { return prompt_; }
     const ui::SettingsEditor& editor() const { return editor_; }
@@ -72,6 +82,8 @@ class ScreenService : public runtime::Service {
     void resolve(ui::Gesture gesture);
     Page traffic_page() const;
     bool decide_full(uint32_t now_ms, bool quiet) const;
+    void park_idle_panel(uint32_t now_ms);
+    bool may_present_park_frame() const;
     void note_presented(hal::Refresh mode, uint32_t now_ms);
 
     // 1 m/s = 196.85 ft/min, from eighth-m/s.

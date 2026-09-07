@@ -17,6 +17,8 @@ class Display {
     // INFO: fc 01aug25 present() is non-blocking, so call it only when ready() is true
     virtual void present(const ui::Framebuffer& fb, Refresh mode, uint32_t now_ms) = 0;
     virtual bool ready(uint32_t /*now_ms*/) { return true; }
+    // INFO: fc 06sep26 Good Display: a panel neither refreshed nor asleep damages the IC
+    virtual bool requires_idle_park() const { return false; }
     virtual void power_off() = 0;
     virtual void power_on() {}
     virtual void set_backlight(bool /*on*/) {}

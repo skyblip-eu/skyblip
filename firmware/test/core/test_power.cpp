@@ -680,6 +680,32 @@ TEST_CASE("write gate: the monitor answers it from the samples it already has") 
     CHECK(monitor.may_write(DurableWrite::Settings));
 }
 
+TEST_CASE("refresh gate: a low cell still gets its traffic picture, a cut-off one does not") {
+    CHECK(may_refresh(PowerLevel::Normal, false, PanelRefresh::Routine));
+    CHECK(may_refresh(PowerLevel::Low, false, PanelRefresh::Routine));
+    CHECK_FALSE(may_refresh(PowerLevel::Cutoff, false, PanelRefresh::Routine));
+
+    CHECK(may_refresh(PowerLevel::Unknown, false, PanelRefresh::Routine));
+}
+
+TEST_CASE("refresh gate: the white field the glass wears while off is drawn at the cutoff") {
+    for (const PowerLevel level :
+         {PowerLevel::Unknown, PowerLevel::Normal, PowerLevel::Low, PowerLevel::Cutoff})
+        CHECK(may_refresh(level, /*supply_warned=*/false, PanelRefresh::Park));
+}
+
+TEST_CASE("refresh gate: a fired power-failure comparator stops the park frame too") {
+    CHECK_FALSE(may_refresh(PowerLevel::Normal, /*supply_warned=*/true, PanelRefresh::Routine));
+    CHECK_FALSE(may_refresh(PowerLevel::Normal, /*supply_warned=*/true, PanelRefresh::Park));
+
+    CutoffMonitor monitor;
+    for (int i = 0; i < 4; i++) monitor.apply(sample(4000));
+    REQUIRE(monitor.may_refresh(PanelRefresh::Park));
+    monitor.on_supply_warning();
+    CHECK_FALSE(monitor.may_refresh(PanelRefresh::Park));
+    CHECK_FALSE(monitor.may_refresh(PanelRefresh::Routine));
+}
+
 // POFCON. The comparator watches the SoC's own rail, which is at or below the
 // cell, so by the time it fires the divider's opinion is no longer the question.
 TEST_CASE("write gate: a fired power-failure comparator outranks a healthy reading") {

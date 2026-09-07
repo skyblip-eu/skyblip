@@ -199,6 +199,116 @@ TEST_CASE("epd: a hung BUSY line times out, re-initialises, and forces the next 
     CHECK(f.last_full);
 }
 
+// A re-initialised panel has no partial update to protect, so the vendor sleep rule applies.
+TEST_CASE("epd: the panel a hung BUSY left awake is slept, not left on the rails") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    f.busy_stuck = true;
+    const int sleeps_before = f.deep_sleeps;
+    REQUIRE(d.ready(parts::Ssd1681::kBusyTimeoutMs));
+    CHECK(f.deep_sleeps == sleeps_before + 1);
+    CHECK_FALSE(f.powered);
+    CHECK_FALSE(d.requires_idle_park());
+}
+
+// The one thing the screen service cannot work out for itself: which lot is fitted.
+TEST_CASE("epd: the panel says when it is awake between refreshes and when it is not") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    CHECK_FALSE(d.requires_idle_park());  // a refresh is in flight, not idle rails
+    settle(d, 0);
+    CHECK_FALSE(d.requires_idle_park());  // the full refresh slept it
+
+    fb.set_pixel(3, 3, true);
+    d.present(fb, hal::Refresh::Fast, 10000);
+    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFastMs));
+    CHECK(d.requires_idle_park());
+
+    fb.clear(true);
+    d.present(fb, hal::Refresh::Full, 20000);
+    CHECK(d.ready(20000 + parts::Ssd1681::kReadyAfterFullMs));
+    CHECK_FALSE(d.requires_idle_park());
+}
+
+TEST_CASE("epd: the lot that tolerates it sleeps itself, and says its rails are down") {
+    models::Ssd1681 f;
+    f.signature = parts::panels::kGdeh0154D67Syx1942;
+    parts::Ssd1681 d = make(f);
+    d.adopt(f.signature);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    settle(d, 0);
+    fb.set_pixel(7, 7, true);
+    d.present(fb, hal::Refresh::Fast, 10000);
+    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFastMs));
+    CHECK_FALSE(d.requires_idle_park());
+}
+
+TEST_CASE("epd: a panel that never released BUSY loses its shadow, so the next refresh is full") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    f.busy_stuck = true;
+    const int resets_before = f.reset_pulses;
+    d.power_off();
+
+    f.busy_stuck = false;
+    d.present(fb, hal::Refresh::Fast, 60000);
+    CHECK(f.reset_pulses > resets_before);
+    CHECK(f.last_full);
+}
+
+// The forbidden transition stays forbidden at shutdown: the rail cut is the fallback.
+TEST_CASE("epd: power_off() applies the lot's own sleep rule, it does not override it") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    settle(d, 0);
+    fb.set_pixel(9, 9, true);
+    d.present(fb, hal::Refresh::Fast, 1000);
+    d.power_off();
+    CHECK(f.powered);
+    CHECK(d.requires_idle_park());
+}
+
+// The path the shutdown actually takes: a full park frame, and then it may sleep.
+TEST_CASE("epd: power_off() after the full park frame leaves nothing powered") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    settle(d, 0);
+    fb.clear(true);
+    d.present(fb, hal::Refresh::Full, 1000);
+    d.power_off();
+    CHECK_FALSE(f.powered);
+    CHECK_FALSE(d.requires_idle_park());
+}
+
 TEST_CASE("epd: power_off() parks a sleeping panel without touching it twice") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);

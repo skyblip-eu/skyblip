@@ -76,6 +76,8 @@ bool Ssd1681::ready(uint32_t now_ms) {
         glass_known_ = false;
         refreshing_ = false;
         asleep_ = false;
+        // INFO: fc 06sep26 a re-initialised panel has no partial update to protect
+        enter_sleep();
         return true;
     }
     finish_refresh();
@@ -83,12 +85,12 @@ bool Ssd1681::ready(uint32_t now_ms) {
 }
 
 void Ssd1681::power_off() {
+    if (!wait_busy()) glass_known_ = false;
     if (refreshing_) {
-        wait_busy();
         finish_refresh();
         return;
     }
-    if (!asleep_) enter_sleep();
+    if (!asleep_ && !fast_refresh_) enter_sleep();
 }
 
 void Ssd1681::set_backlight(bool on) {
@@ -136,14 +138,6 @@ void Ssd1681::init_panel() {
 void Ssd1681::finish_refresh() {
     refreshing_ = false;
     // INFO: fc 01aug25 vendor rule: a panel left powered between refreshes degrades
-    //
-    // ...except after a partial update, where it depends on the panel lot: "SYX
-    // 1942 revision of D67 display can use power_off() after partial update, SYX
-    // 1948 revision - can not" (SoftRF src/driver/EPD.cpp:861-865, which resolved
-    // it by never powering off after a partial at all, because 1948 has no
-    // signature to identify it by). So the identified 1942 keeps the vendor rule
-    // and every other panel, unknown included, holds the rails up until the next
-    // refresh - which is the panel this board is expected to report.
     if (fast_refresh_ && !panel_may_sleep_after_fast_refresh(panel_)) return;
     enter_sleep();
 }
@@ -196,10 +190,11 @@ void Ssd1681::set_cursor(int x, int y) {
     data(static_cast<uint8_t>(y >> 8));
 }
 
-void Ssd1681::wait_busy(uint32_t max_spins) {
+bool Ssd1681::wait_busy(uint32_t max_spins) {
     for (uint32_t i = 0; i < max_spins; i++) {
-        if (!gpio_.get(busy_)) return;
+        if (!gpio_.get(busy_)) return true;
     }
+    return false;
 }
 
 }  // namespace skyblip::parts

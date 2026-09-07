@@ -23,6 +23,12 @@ bool may_write(PowerLevel level, bool supply_warned, DurableWrite kind) {
     return level != PowerLevel::Low && level != PowerLevel::Cutoff;
 }
 
+bool may_refresh(PowerLevel level, bool supply_warned, PanelRefresh kind) {
+    if (supply_warned) return false;
+    if (kind == PanelRefresh::Park) return true;
+    return level != PowerLevel::Cutoff;
+}
+
 void CutoffMonitor::on_supply_warning() {
     supply_warnings_++;
     supply_warned_ = true;
