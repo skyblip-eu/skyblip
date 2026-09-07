@@ -67,7 +67,8 @@ struct State {
     // layer that owns the deadline (RadioService) can measure against it
     // without a second reader of the bus.
     uint64_t last_tx_done_at_us{0};
-    uint32_t gnss_fixes{0};
+    uint32_t gnss_solutions{0};
+    bool panel_presented{false};
     uint32_t pressure_pa{0};
     // The altimeter subscale, as the pilot sets it: standard until told otherwise.
     uint32_t qnh_pa{flight::kIsaSeaLevelPa};

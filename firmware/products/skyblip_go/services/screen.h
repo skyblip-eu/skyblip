@@ -54,6 +54,7 @@ class ScreenService : public runtime::Service {
     void next_page();
     void set_backlight(bool on);
     void set_power(bool on);
+    void park_for_install();
     void set_range_m(int32_t m) {
         range_m_ = m;
         dirty_ = true;

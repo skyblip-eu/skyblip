@@ -137,6 +137,10 @@ class Product {
                 config_.config().clear_power_off_request();
                 shutdown_.request(power::ShutdownReason::LinkRequest, now_ms);
             }
+            if (config_.config().install_requested()) {
+                config_.config().clear_install_request();
+                shutdown_.request(power::ShutdownReason::Install, now_ms);
+            }
             // The receiver is the board's, not a service's, so the confirmed
             // request is spent here. A cold start costs the next fix and the
             // driver puts our configuration back behind it.
@@ -167,7 +171,8 @@ class Product {
 
     power::ShutdownSequencer& shutdown() { return shutdown_; }
     const power::ShutdownSequencer& shutdown() const { return shutdown_; }
-    bool ready_to_power_off() const { return shutdown_.ready_to_power_off(); }
+    bool ready_to_power_off() const { return shutdown_.ready_to_power_off() && !installing(); }
+    bool installing() const { return shutdown_.reason() == power::ShutdownReason::Install; }
 
     // Feeding through a deliberate shutdown is correct: the device is doing what
     // it was told, and a held button must not turn a power-off into a reboot.
@@ -259,6 +264,11 @@ class Product {
         const power::ShutdownPhase phase = shutdown_.phase();
         if (phase == acted_phase_) return;
         acted_phase_ = phase;
+        if (phase == power::ShutdownPhase::Off && installing()) {
+            config_.record_update();
+            roles_.dfu.trigger();
+            return;
+        }
         if (phase != power::ShutdownPhase::Parking) return;
         // The radio goes first. An armed dwell keeps the receiver and the PA
         // alive right through the seconds the panel takes to park.
@@ -278,7 +288,10 @@ class Product {
         // enable pin has to be released before that rail goes
         // (core/power/shutdown.h kPowerDownOrder).
         board_.park();
-        screen_.set_power(false);
+        if (installing())
+            screen_.park_for_install();
+        else
+            screen_.set_power(false);
     }
 
     bus::Bus bus_{};

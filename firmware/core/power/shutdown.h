@@ -11,7 +11,7 @@
 
 namespace skyblip::power {
 
-enum class ShutdownReason : uint8_t { None, LongPress, LowBattery, LinkRequest };
+enum class ShutdownReason : uint8_t { None, LongPress, LowBattery, LinkRequest, Install };
 enum class ShutdownPhase : uint8_t { Running, Parking, AwaitRelease, Off };
 
 const char* to_string(ShutdownReason reason);

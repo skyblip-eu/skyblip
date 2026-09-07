@@ -6,6 +6,7 @@
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/kernel.h>
 #include <zephyr/retention/retention.h>
+#include <zephyr/storage/flash_map.h>
 #include <zephyr/sys/reboot.h>
 
 #if defined(CONFIG_SOC_FAMILY_NORDIC_NRF)
@@ -69,9 +70,7 @@ inline bool write_boot_magic(uint8_t magic) {
 #endif
 }
 
-// Predicate the MCUmgr hooks consult before accepting an image chunk or a
-// reboot. products/ registers one that defers to core/'s ConfigService, keeping
-// the policy in host-tested code and this file as plumbing.
+// INFO: fc 07sep26 the one predicate every SMP write is gated on; products/ wires it to core/
 using DfuGate = bool (*)();
 void set_dfu_gate(DfuGate gate);
 
@@ -82,7 +81,15 @@ class Dfu : public hal::Dfu {
         sys_reboot(SYS_REBOOT_WARM);
     }
 
-    void confirm() override { boot_write_img_confirmed(); }
+    bool confirm() override { return boot_write_img_confirmed() == 0; }
+    bool confirmed() override { return boot_is_img_confirmed(); }
+
+    bool running_version(hal::ImageVersion& out) override {
+        return read_version(FIXED_PARTITION_ID(slot0_partition), out);
+    }
+    bool staged_version(hal::ImageVersion& out) override {
+        return read_version(FIXED_PARTITION_ID(slot1_partition), out);
+    }
 
     // INFO: fc 04sep26 the WDT survives a soft reset, not SYSTEM OFF; it would cut the UF2 session
     hal::RecoveryPath enter_recovery() override {
@@ -100,6 +107,17 @@ class Dfu : public hal::Dfu {
     }
 
    private:
+    static bool read_version(uint8_t area_id, hal::ImageVersion& out) {
+        mcuboot_img_header header{};
+        if (boot_read_bank_header(area_id, &header, sizeof(header)) != 0) return false;
+        if (header.mcuboot_version != 1) return false;
+        out.major = header.h.v1.sem_ver.major;
+        out.minor = header.h.v1.sem_ver.minor;
+        out.revision = header.h.v1.sem_ver.revision;
+        out.build = header.h.v1.sem_ver.build_num;
+        return true;
+    }
+
     static bool watchdog_running() {
 #if defined(CONFIG_SOC_FAMILY_NORDIC_NRF) && defined(NRF_WDT)
         return nrf_wdt_started_check(NRF_WDT);

@@ -307,6 +307,21 @@ TEST_CASE("shutdown: a low-battery shutdown does not wait for a button it will n
     CHECK(pressed.phase() == ShutdownPhase::AwaitRelease);
 }
 
+// The swap takes the same road out as a power-off: the panel gets its full refresh
+// before the bootloader is handed the device, and the reason is spelled for the log.
+TEST_CASE("shutdown: an install parks the panel like a power-off and is named as one") {
+    ShutdownSequencer seq;
+    seq.request(ShutdownReason::Install, 0);
+    CHECK(std::string(to_string(ShutdownReason::Install)) == "INSTALL");
+    CHECK(seq.going_down());
+    uint32_t t = 0;
+    for (; t < kParkMs; t += 10) seq.tick(t, /*button_down=*/false);
+    CHECK(seq.phase() == ShutdownPhase::Parking);
+    for (; t < kParkMs + kReleaseSettleMs + 50; t += 10) seq.tick(t, false);
+    CHECK(seq.phase() == ShutdownPhase::Off);
+    CHECK(seq.ready_to_power_off());
+}
+
 TEST_CASE("shutdown: a device woken by the button does not switch itself off again") {
     // SYSTEM OFF is left by a press, so the first thing the sequencer ever sees
     // is a button that is already down. Counting that as a hold powers the

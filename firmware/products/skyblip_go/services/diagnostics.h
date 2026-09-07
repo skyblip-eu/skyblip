@@ -63,7 +63,7 @@ class DiagnosticsDump {
         d.tracked = static_cast<uint32_t>(state.traffic.count());
         d.alarm = state.alarm_level;
 
-        d.gnss_fixes = state.gnss_fixes;
+        d.gnss_fixes = state.gnss_solutions;
         d.fix_valid = state.own.fix_valid;
         d.resid_m = state.own.pred_resid_m;
         d.resid_valid = state.own.pred_resid_valid;

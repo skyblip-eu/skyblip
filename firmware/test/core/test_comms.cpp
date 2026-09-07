@@ -29,9 +29,17 @@ struct SpyDfu : hal::Dfu {
     int triggered = 0;
     int confirmed = 0;
     int recovery = 0;
+    bool staged = true;
     hal::RecoveryPath recovery_path = hal::RecoveryPath::Rebooted;
     void trigger() override { triggered++; }
-    void confirm() override { confirmed++; }
+    bool confirm() override {
+        confirmed++;
+        return true;
+    }
+    bool staged_version(hal::ImageVersion& out) override {
+        out = hal::ImageVersion{0, 2, 0, 1};
+        return staged;
+    }
     hal::RecoveryPath enter_recovery() override {
         recovery++;
         return recovery_path;
@@ -129,7 +137,10 @@ TEST_CASE("comms: dfu opens an upload window only after on-screen confirmation")
     CHECK(dfu.triggered == 0);
 }
 
-TEST_CASE("comms: apply routed through confirmation, triggers hal::Dfu once") {
+// The swap is not started from here: the product parks the radio and paints the
+// panel first, so a confirmed apply is a latch the sequencer spends.
+TEST_CASE(
+    "comms: apply routed through confirmation, latches the install and never reboots itself") {
     platform::host::Link link;
     settings::Settings s = settings::defaults(1);
     SpyDfu dfu;
@@ -137,9 +148,117 @@ TEST_CASE("comms: apply routed through confirmation, triggers hal::Dfu once") {
     cs.set_flight_state(FlightState::Ground);
     cs.on_rx(frame("{\"cmd\":\"apply\"}"));
     CHECK(cs.pending() == Pending::Apply);
-    CHECK(dfu.triggered == 0);
+    CHECK_FALSE(cs.install_requested());
     cs.confirm();
-    CHECK(dfu.triggered == 1);
+    CHECK(cs.install_requested());
+    CHECK(dfu.triggered == 0);
+    CHECK(link.last().bytes.find("\"apply\"") != std::string::npos);
+
+    cs.clear_install_request();
+    CHECK_FALSE(cs.install_requested());
+}
+
+TEST_CASE("comms: apply with nothing in the secondary slot is refused, not rebooted into") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    SpyDfu dfu;
+    dfu.staged = false;
+    ConfigService cs(link, s, &dfu);
+    cs.set_flight_state(FlightState::Ground);
+    cs.on_rx(frame("{\"cmd\":\"apply\"}"));
+    CHECK(cs.pending() == Pending::None);
+    CHECK(link.last().bytes.find("nothing_staged") != std::string::npos);
+
+    ConfigService without_dfu(link, s);
+    without_dfu.set_flight_state(FlightState::Ground);
+    without_dfu.on_rx(frame("{\"cmd\":\"apply\"}"));
+    CHECK(without_dfu.pending() == Pending::None);
+    CHECK(link.last().bytes.find("nothing_staged") != std::string::npos);
+}
+
+TEST_CASE("comms: dfu and apply are refused at the door below the low-battery warning") {
+    for (const char* cmd : {"dfu", "apply"}) {
+        platform::host::Link link;
+        settings::Settings s = settings::defaults(1);
+        SpyDfu dfu;
+        ConfigService cs(link, s, &dfu);
+        cs.set_flight_state(FlightState::Ground);
+        power::BatteryState low{};
+        low.valid = true;
+        low.millivolts = 3400;
+        cs.set_battery_state(low, power::PowerLevel::Low);
+        REQUIRE_FALSE(cs.swap_powered());
+
+        const std::string json = std::string("{\"cmd\":\"") + cmd + "\"}";
+        cs.on_rx(frame(json.c_str()));
+        CHECK(cs.pending() == Pending::None);
+        CHECK(link.last().bytes.find("low_power") != std::string::npos);
+        CHECK_FALSE(cs.upload_allowed());
+        CHECK_FALSE(cs.install_requested());
+    }
+}
+
+TEST_CASE("comms: a cell that falls through the warning inside the prompt refuses the swap") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    SpyDfu dfu;
+    ConfigService cs(link, s, &dfu);
+    cs.set_flight_state(FlightState::Ground);
+    power::BatteryState healthy{};
+    healthy.valid = true;
+    healthy.millivolts = 4000;
+    cs.set_battery_state(healthy, power::PowerLevel::Normal);
+    cs.on_rx(frame("{\"cmd\":\"apply\"}"));
+    REQUIRE(cs.pending() == Pending::Apply);
+
+    cs.set_supply_warned(true);
+    cs.confirm();
+    CHECK(cs.pending() == Pending::None);
+    CHECK_FALSE(cs.install_requested());
+    CHECK(link.last().bytes.find("low_power") != std::string::npos);
+
+    // A power-off is not a swap: the same cell is allowed to switch the device off.
+    cs.on_rx(frame("{\"cmd\":\"power_off\"}"));
+    REQUIRE(cs.pending() == Pending::PowerOff);
+    cs.confirm();
+    CHECK(cs.power_off_requested());
+}
+
+TEST_CASE("comms: the update question names the image state and the versions of the attempt") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.on_rx(frame("{\"cmd\":\"update\"}"));
+    CHECK(link.last().bytes.find("\"image\":\"confirmed\"") != std::string::npos);
+    CHECK(link.last().bytes.find("\"from\"") == std::string::npos);
+
+    dfu::UpdateRecord record;
+    record.from = hal::ImageVersion{0, 1, 0, 12};
+    record.to = hal::ImageVersion{0, 2, 0, 15};
+    cs.set_image_state(dfu::ImageState::Reverted, record);
+    cs.on_rx(frame("{\"cmd\":\"update\"}"));
+    CHECK(link.last().bytes.find("\"image\":\"reverted\"") != std::string::npos);
+    CHECK(link.last().bytes.find("\"from\":\"0.1.0+12\"") != std::string::npos);
+    CHECK(link.last().bytes.find("\"to\":\"0.2.0+15\"") != std::string::npos);
+    CHECK(link.last().bytes.find("\"swap_powered\":true") != std::string::npos);
+}
+
+// A phone that connects to a device whose last update did not take is told so
+// before it asks, because it is the one fact the pilot would otherwise discover
+// from a version number that did not change.
+TEST_CASE(
+    "comms: a link that comes up on an unconfirmed or reverted image is told without asking") {
+    platform::host::Link link;
+    settings::Settings s = settings::defaults(1);
+    ConfigService cs(link, s);
+    cs.on_link_up(messages::LinkUp{1, 244});
+    CHECK(link.sent.empty());
+
+    cs.set_image_state(dfu::ImageState::Probation, dfu::UpdateRecord{});
+    cs.on_link_up(messages::LinkUp{2, 244});
+    REQUIRE(link.sent.size() == 1);
+    CHECK(link.last().bytes.find("\"cmd\":\"update\"") != std::string::npos);
+    CHECK(link.last().bytes.find("\"image\":\"probation\"") != std::string::npos);
 }
 
 TEST_CASE("comms: recovery reboots into the drag-and-drop bootloader after confirm") {

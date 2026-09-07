@@ -61,14 +61,22 @@ class ConfigLinkService : public runtime::Service {
     // all.
     void flush_settings(uint32_t now_ms);
 
+    // INFO: fc 07sep26 written in the same pass as trigger(), so no reboot can fall between them
+    void record_update();
+
    private:
     static constexpr size_t kBlobCap = 64;
+    static constexpr const char* kUpdateKey = "update";
 
     void drain_link_events();
     void take_request(uint32_t now_ms);
     void drain_settings(uint32_t now_ms);
     void persist();
+    void load_image_state();
+    void forget_update();
     void confirm_image_once_healthy();
+    bool hardware_proven() const;
+    void publish_image_state();
 
     // Whether the blob may go to flash at all, asked of the one service that
     // knows what the cell is doing. A reference, not a pointer: the product wires
@@ -90,7 +98,13 @@ class ConfigLinkService : public runtime::Service {
     // for no reason.
     uint8_t stored_[kBlobCap]{};
     size_t stored_len_{0};
+    static constexpr int kConfirmAttempts = 3;
     bool image_confirmed_{false};
+    bool image_state_loaded_{false};
+    int confirm_attempts_{0};
+    dfu::ImageState image_state_{dfu::ImageState::Confirmed};
+    dfu::UpdateRecord update_record_{};
+    bool update_recorded_{false};
 };
 
 }  // namespace skyblip::go
