@@ -32,7 +32,7 @@ void OwnshipService::tick(uint32_t now_ms) {
 void OwnshipService::apply_fix(const gnss::GnssFix& f, uint32_t now_ms) {
     messages::OwnState& own = context_.state.own;
     const messages::OwnState previous = own;
-    context_.state.gnss_fixes++;
+    context_.state.gnss_solutions++;
     settle_.update(f.valid, now_ms);
 
     own.fix_valid = f.valid;

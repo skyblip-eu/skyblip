@@ -3,6 +3,7 @@
 
 #include "core/comms/diagnostics.h"
 #include "core/comms/timing_report.h"
+#include "core/dfu/update.h"
 #include "core/flight/state.h"
 #include "core/messages/messages.h"
 #include "core/power/battery.h"
@@ -151,6 +152,15 @@ class ConfigService {
         return power::may_write(diag_.level, supply_warned_, power::DurableWrite::Settings);
     }
 
+    // INFO: fc 07sep26 a swap is 15-25 s of erases on the cell, and probation ends next boot
+    bool swap_powered() const { return settings_writable(); }
+
+    void set_image_state(dfu::ImageState state, const dfu::UpdateRecord& record) {
+        image_state_ = state;
+        update_record_ = record;
+    }
+    dfu::ImageState image_state() const { return image_state_; }
+
     // INFO: cf 02aug26 BLE pairing is off on this product (encrypted GATT
     // characteristics break Web Bluetooth on Windows), so physical presence is
     // what stands in for it: nothing sensitive happens without a gesture made
@@ -201,6 +211,9 @@ class ConfigService {
     bool power_off_requested() const { return power_off_requested_; }
     void clear_power_off_request() { power_off_requested_ = false; }
 
+    bool install_requested() const { return install_requested_; }
+    void clear_install_request() { install_requested_ = false; }
+
     const char* pending_json() const { return pending_buf_; }
 
     // INFO: fc 04aug26 Every frame this service could not put on the link: one
@@ -232,12 +245,15 @@ class ConfigService {
     // unsolicited and is already sized against the narrowest phone in the field at
     // its worst case, with eleven bytes left.
     void send_radio();
+    void send_update();
     // And the whole dump, which is the same table as the console's: one frame per
     // subsystem where the payload allows it, more where it does not, and never a
     // frame that mixes two subsystems (core/comms/diagnostics.h).
     void send_diagnostics();
     void send_report(DiagnosticsReport& report);
     static const char* flight_name(FlightState fs);
+    static bool needs_swap_power(Pending pending);
+    bool image_staged() const;
     bool on_ground() const { return flight_ == FlightState::Ground; }
 
     hal::Link& link_;
@@ -253,6 +269,7 @@ class ConfigService {
     bool status_push_due_{false};
     bool airborne_latched_{false};
     bool power_off_requested_{false};
+    bool install_requested_{false};
     bool log_erase_requested_{false};
     bool gnss_cold_requested_{false};
     Pending pending_{Pending::None};
@@ -264,6 +281,8 @@ class ConfigService {
     uint32_t pending_since_ms_{0};
     char pending_buf_[256]{0};
     int pending_len_{0};
+    dfu::ImageState image_state_{dfu::ImageState::Confirmed};
+    dfu::UpdateRecord update_record_{};
 
     // Long enough to upload ~730 KB over BLE on a slow phone, short enough that
     // a device left on a bench does not stay writable all afternoon.

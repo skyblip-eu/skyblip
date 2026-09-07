@@ -1,30 +1,37 @@
-// hal/dfu.h: capability port: the firmware-update actions. core/ decides WHEN
-// (core/comms/config.cpp gates every one of these on positive-ground plus an
-// on-screen confirmation). The adapter decides HOW.
-//
-// confirm() and enter_recovery() are virtual-with-default rather than pure so a
-// board or a test double that only cares about triggering a swap stays valid.
 #ifndef SKYBLIP_HAL_DFU_H
 #define SKYBLIP_HAL_DFU_H
+
+#include <cstdint>
 
 namespace skyblip::hal {
 
 enum class RecoveryPath { Rebooted, PowerOffToFinish };
 
+struct ImageVersion {
+    uint8_t major{0};
+    uint8_t minor{0};
+    uint16_t revision{0};
+    uint32_t build{0};
+};
+
+constexpr bool operator==(const ImageVersion& a, const ImageVersion& b) {
+    return a.major == b.major && a.minor == b.minor && a.revision == b.revision &&
+           a.build == b.build;
+}
+constexpr bool operator!=(const ImageVersion& a, const ImageVersion& b) { return !(a == b); }
+
 class Dfu {
    public:
     virtual ~Dfu() = default;
 
-    // Mark the image already staged in the secondary slot for a one-shot swap
-    // and reboot. One-shot: if the new image never calls confirm(), the
-    // bootloader puts the previous one back on the following boot.
+    // INFO: fc 07sep26 one-shot swap: an image that never calls confirm() is reverted next boot
     virtual void trigger() = 0;
 
-    // Declare the running image good, cancelling the pending auto-revert. Must
-    // be called by the application only once it is demonstrably working:
-    // calling it unconditionally at startup throws away the rollback guarantee,
-    // which is the whole point of an A/B layout.
-    virtual void confirm() {}
+    virtual bool confirm() { return true; }
+    virtual bool confirmed() { return true; }
+
+    virtual bool running_version(ImageVersion&) { return false; }
+    virtual bool staged_version(ImageVersion&) { return false; }
 
     virtual RecoveryPath enter_recovery() { return RecoveryPath::Rebooted; }
 };

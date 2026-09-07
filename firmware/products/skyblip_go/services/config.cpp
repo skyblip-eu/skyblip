@@ -118,6 +118,7 @@ void ConfigLinkService::flush_settings(uint32_t now_ms) {
 
 void ConfigLinkService::load() {
     if (loaded_) return;
+    load_image_state();
     context_.state.settings = settings::defaults(context_.roles.device_addr);
     if (!hal::has(context_.roles.capabilities, hal::Capability::Storage)) {
         loaded_ = true;
@@ -148,15 +149,81 @@ void ConfigLinkService::persist() {
     stored_len_ = len;
 }
 
-// A fresh image swapped in by MCUboot is on probation: unless it declares itself
-// good, the bootloader restores the previous one on the next boot. So "good" must
-// mean more than "main() ran": wait until the radio is up AND a GNSS fix has
-// arrived, which between them exercises SPI, the SX1262, the UART and core/gnss.
+void ConfigLinkService::load_image_state() {
+    if (image_state_loaded_) return;
+    image_state_loaded_ = true;
+    const hal::Capabilities fitted = context_.roles.capabilities;
+    const bool has_dfu = hal::has(fitted, hal::Capability::Dfu);
+    update_recorded_ = false;
+    if (hal::has(fitted, hal::Capability::Storage)) {
+        uint8_t blob[dfu::kUpdateRecordBytes];
+        size_t n = 0;
+        update_recorded_ = is_ok(context_.roles.kv.read(kUpdateKey, blob, sizeof(blob), n)) &&
+                           dfu::from_blob(blob, n, update_record_);
+    }
+    image_confirmed_ = !has_dfu || context_.roles.dfu.confirmed();
+    image_state_ = image_confirmed_ ? dfu::ImageState::Confirmed : dfu::ImageState::Probation;
+
+    hal::ImageVersion running;
+    if (update_recorded_) {
+        if (!has_dfu || !context_.roles.dfu.running_version(running)) {
+            forget_update();
+        } else {
+            switch (dfu::outcome(update_record_, running)) {
+                case dfu::Outcome::Reverted:
+                    if (image_confirmed_) image_state_ = dfu::ImageState::Reverted;
+                    break;
+                case dfu::Outcome::Landed:
+                    if (image_confirmed_) forget_update();
+                    break;
+                case dfu::Outcome::Unrelated: forget_update(); break;
+            }
+        }
+    }
+    publish_image_state();
+}
+
+void ConfigLinkService::record_update() {
+    const hal::Capabilities fitted = context_.roles.capabilities;
+    if (!hal::has(fitted, hal::Capability::Storage) || !hal::has(fitted, hal::Capability::Dfu))
+        return;
+    dfu::UpdateRecord record;
+    if (!context_.roles.dfu.running_version(record.from)) return;
+    if (!context_.roles.dfu.staged_version(record.to)) return;
+    uint8_t blob[dfu::kUpdateRecordBytes];
+    const size_t n = dfu::to_blob(record, blob, sizeof(blob));
+    if (!is_ok(context_.roles.kv.write(kUpdateKey, blob, n))) return;
+    update_record_ = record;
+    update_recorded_ = true;
+}
+
+void ConfigLinkService::forget_update() {
+    if (update_recorded_) context_.roles.kv.erase(kUpdateKey);
+    update_recorded_ = false;
+    update_record_ = dfu::UpdateRecord{};
+}
+
+void ConfigLinkService::publish_image_state() {
+    config_.set_image_state(image_state_, update_record_);
+}
+
+// INFO: fc 07sep26 a solution need not be a fix: an RMC with status V still proves the UART
+bool ConfigLinkService::hardware_proven() const {
+    const bus::State& state = context_.state;
+    if (!state.started || state.gnss_solutions == 0) return false;
+    if (!hal::has(context_.roles.capabilities, hal::Capability::Display)) return true;
+    return state.panel_presented;
+}
+
 void ConfigLinkService::confirm_image_once_healthy() {
-    if (image_confirmed_ || !hal::has(context_.roles.capabilities, hal::Capability::Dfu)) return;
-    if (!context_.state.started || context_.state.gnss_fixes == 0) return;
-    context_.roles.dfu.confirm();
+    if (image_confirmed_ || !hardware_proven()) return;
+    if (confirm_attempts_ >= kConfirmAttempts) return;
+    confirm_attempts_++;
+    if (!context_.roles.dfu.confirm()) return;
     image_confirmed_ = true;
+    image_state_ = dfu::ImageState::Confirmed;
+    forget_update();
+    publish_image_state();
 }
 
 }  // namespace skyblip::go

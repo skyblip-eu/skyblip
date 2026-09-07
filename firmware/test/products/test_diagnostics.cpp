@@ -227,7 +227,7 @@ TEST_CASE("diagnostics: the console and the link cannot disagree") {
     CHECK(has(frames, ("\"percent\":" + key).c_str()));
     CHECK(has(console, ("percent=" + key).c_str()));
 
-    const std::string fixes = std::to_string(rig.state().gnss_fixes);
+    const std::string fixes = std::to_string(rig.state().gnss_solutions);
     CHECK(has(frames, ("\"fixes\":" + fixes).c_str()));
     CHECK(has(console, ("fixes=" + fixes).c_str()));
 }

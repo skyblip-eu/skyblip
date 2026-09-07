@@ -6,6 +6,7 @@
 #include "core/power/cutoff.h"
 #include "core/protocol/nmea_out.h"
 #include "core/util/units.h"
+#include "ui/screens/installing.h"
 #include "ui/widgets/wordmark.h"
 
 namespace skyblip::go {
@@ -212,6 +213,7 @@ bool ScreenService::decide_full(uint32_t now_ms, bool quiet) const {
 void ScreenService::note_presented(hal::Refresh mode, uint32_t now_ms) {
     std::memcpy(presented_.data(), fb_.data(), ui::Framebuffer::kBytes);
     presented_once_ = true;
+    context_.state.panel_presented = true;
     prompt_on_glass_ = prompt_ != comms::Pending::None;
     last_present_ms_ = now_ms;
     if (mode == hal::Refresh::Full) {
@@ -266,6 +268,17 @@ bool ScreenService::may_present_park_frame() const {
     if (thermal() == Thermal::Hold) return false;
     return power::may_refresh(context_.state.power_level, context_.state.supply_warned,
                               power::PanelRefresh::Park);
+}
+
+// INFO: fc 07sep26 the glass wears this through the swap; a frozen prompt invites a reset
+void ScreenService::park_for_install() {
+    powered_ = false;
+    set_backlight(false);
+    if (may_present_park_frame()) {
+        ui::draw_installing(fb_);
+        context_.roles.display.present(fb_, hal::Refresh::Full, last_render_ms_);
+    }
+    context_.roles.display.power_off();
 }
 
 void ScreenService::draw_prompt() {

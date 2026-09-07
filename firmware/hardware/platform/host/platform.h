@@ -22,7 +22,23 @@ namespace skyblip::platform::host {
 class Dfu : public hal::Dfu {
    public:
     void trigger() override { triggered++; }
-    void confirm() override { confirmed++; }
+    bool confirm() override {
+        confirms++;
+        if (confirm_fails) return false;
+        image_confirmed = true;
+        return true;
+    }
+    bool confirmed() override { return image_confirmed; }
+    bool running_version(hal::ImageVersion& out) override {
+        if (!has_running) return false;
+        out = running;
+        return true;
+    }
+    bool staged_version(hal::ImageVersion& out) override {
+        if (!has_staged) return false;
+        out = staged;
+        return true;
+    }
     hal::RecoveryPath enter_recovery() override {
         recoveries++;
         return recovery_path;
@@ -30,8 +46,14 @@ class Dfu : public hal::Dfu {
     hal::RecoveryPath recovery_path{hal::RecoveryPath::Rebooted};
 
     int triggered{0};
-    int confirmed{0};
+    int confirms{0};
     int recoveries{0};
+    bool image_confirmed{true};
+    bool confirm_fails{false};
+    bool has_running{false};
+    bool has_staged{false};
+    hal::ImageVersion running{};
+    hal::ImageVersion staged{};
 };
 
 class Baro {
