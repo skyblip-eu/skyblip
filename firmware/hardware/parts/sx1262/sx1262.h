@@ -75,9 +75,11 @@ class Sx1262 {
     uint32_t reinit_count() const { return reinit_count_; }
     // A transmission the chip's own SetTx timeout had to end. Never silent.
     uint32_t tx_recovery_count() const { return tx_recovery_count_; }
+    uint16_t device_errors() const { return device_errors_; }
 
    private:
     Status wait_busy_low(uint32_t max_spins = 100000);
+    void select_when_ready();
     void cmd(uint8_t opcode, const uint8_t* params, size_t n);
     void cmd_read(uint8_t opcode, uint8_t* out, size_t n);
     void write_register(uint16_t addr, const uint8_t* data, size_t n);
@@ -88,8 +90,13 @@ class Sx1262 {
     Status enter_standby();
     void configure_modulation(const RadioConfig& cfg);
     void configure_rx_gain();
+    void configure_tx_clamp();
+    void configure_tx_modulation();
     void configure_power();
     void configure_irq();
+    Status check_device_errors();
+    void clear_device_errors();
+    void hold_sleep_settle();
     void configure_frame(const RadioConfig& cfg);
     uint32_t tx_timeout_ticks(uint8_t len) const;
     void recover_tx();
@@ -104,6 +111,7 @@ class Sx1262 {
     uint32_t ms_since_rx_{0};
     uint32_t reinit_count_{0};
     uint32_t tx_recovery_count_{0};
+    uint16_t device_errors_{0};
 };
 
 namespace sx {
@@ -186,6 +194,18 @@ constexpr uint8_t kReadBuffer = 0x1E;
 constexpr uint8_t kGetIrqStatus = 0x12;
 constexpr uint8_t kClearIrqStatus = 0x02;
 constexpr uint8_t kGetStatus = 0xC0;
+constexpr uint8_t kGetDeviceErrors = 0x17;
+constexpr uint8_t kClearDeviceErrors = 0x07;
+// INFO: fc 05sep26 DS 13.5.5 OpError: the only report a failed calibration ever makes
+constexpr uint16_t kErrRc64kCalib = 0x0001;
+constexpr uint16_t kErrRc13mCalib = 0x0002;
+constexpr uint16_t kErrPllCalib = 0x0004;
+constexpr uint16_t kErrAdcCalib = 0x0008;
+constexpr uint16_t kErrImageCalib = 0x0010;
+constexpr uint16_t kErrXoscStart = 0x0020;
+constexpr uint16_t kErrPllLock = 0x0040;
+constexpr uint16_t kErrPaRamp = 0x0100;
+constexpr uint16_t kDeviceErrorMask = 0x01FF;
 constexpr uint8_t kGetRssiInst = 0x15;
 constexpr uint8_t kGetRxBufferStatus = 0x13;
 constexpr uint8_t kGetPacketStatus = 0x14;
@@ -207,6 +227,10 @@ constexpr uint8_t kGaussianBt0p7 = 0x0A;
 constexpr uint8_t kGaussianBt1p0 = 0x0B;
 constexpr uint8_t kRxBandwidth234kHz = 0x0A;
 
+// INFO: fc 05sep26 DS 15.1.2: bit 2 must be 1 for any (G)FSK, and reset leaves it 0
+constexpr uint16_t kTxModulationRegister = 0x0889;
+constexpr uint8_t kTxModulationGfskBit = 0x04;
+
 // DS 13.4.6, the double-sideband RX bandwidth table. The driver picks the
 // narrowest entry that still passes the channel it was asked for: too narrow
 // clips the signal, too wide buys noise. Transcribed from the datasheet in the
@@ -226,6 +250,18 @@ constexpr int kRxBandwidthCount =
 // that raises the over-current protection to 140 mA.
 constexpr uint8_t kPaConfigHighPower[4] = {0x04, 0x07, 0x00, 0x01};
 constexpr uint8_t kRampTime200Us = 0x04;
+// TODO: fc 05sep26 DS 13-21 halves the 90 mA of +14 dBm, once this PA match is measured
+
+// INFO: fc 05sep26 DS table 5-2: SetPaConfig rewrites OCP to 140 mA on an SX1262, every call
+constexpr uint16_t kOcpRegister = 0x08E7;
+// INFO: fc 05sep26 DS table 3-5: +14 dBm through this PA configuration draws 90 mA at 868 MHz
+constexpr uint16_t kOcpLimitMa = 120;
+// INFO: fc 05sep26 DS 5.1: the OCP register counts 2.5 mA a step
+constexpr uint8_t kOcpLimit = static_cast<uint8_t>(kOcpLimitMa * 2 / 5);
+
+// INFO: fc 05sep26 DS 15.2.2: the reset clamp costs 5-6 dB into a mismatched antenna
+constexpr uint16_t kTxClampRegister = 0x08D8;
+constexpr uint8_t kTxClampWidenBits = 0x1E;
 // INFO: wr 02aug26 ERC 70-03 annex 1 band h1.4 / EN 300 220: 868.0-868.6 MHz is
 // 25 mW e.r.p., which is 14 dBm. The ceiling, not a chip default.
 constexpr int8_t kSrd868ErpLimitDbm = 14;
@@ -290,6 +326,9 @@ constexpr uint32_t kTxGuardUs = 25000;
 constexpr uint32_t kResetLowUs = 100;
 constexpr uint32_t kResetSpinNsFloor = 125;
 constexpr uint32_t kResetLowSpins = kResetLowUs * 1000u / kResetSpinNsFloor;
+// INFO: fc 05sep26 DS 13.1.2: no SPI for 500 us after SetSleep, while the configuration saves
+constexpr uint32_t kSleepSettleUs = 500;
+constexpr uint32_t kSleepSettleSpins = kSleepSettleUs * 1000u / kResetSpinNsFloor;
 // §C.2 puts 16 chips of preamble before the sync word. Eight of them are enough
 // for the detector to declare a preamble.
 constexpr uint16_t kPreambleChips = 16;

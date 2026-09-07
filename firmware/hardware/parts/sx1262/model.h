@@ -30,6 +30,12 @@ class Sx1262 : public io::Spi, public io::Gpio {
         // inductor on DCC_SW would have to relax this, and would then owe the
         // reason here.
         RegulatorLeftOnLdo,
+        // INFO: fc 05sep26 DS 13.1.2: the configuration save takes 500 us and no SPI
+        SpiBeforeSleepSettled,
+        // INFO: fc 05sep26 DS 13.1.1: SetSleep is a STDBY-only command like the rest
+        SleepOutsideStandby,
+        // INFO: fc 05sep26 DS 8: a command issued while BUSY is high is a command lost
+        CommandWhileBusy,
     };
 
     void set(int pin, bool level) override {
@@ -48,6 +54,7 @@ class Sx1262 : public io::Spi, public io::Gpio {
     bool get(int pin) override {
         if (pin == busy_pin) {
             if (reset_low) reset_low_spins++;
+            if (sleeping) sleep_settle_spins++;
             return busy_stuck;
         }
         if (pin == dio1_pin) return (irq_flags & dio1_mask) != 0;
@@ -58,9 +65,12 @@ class Sx1262 : public io::Spi, public io::Gpio {
 
     void select(bool on) override {
         if (on) {
+            if (busy_stuck && !sleeping) note_fault(Fault::CommandWhileBusy);
             // DS 9.3: the falling edge on NSS is the wake-up. Whatever the host
             // meant to send, the first thing it does is bring the part back.
             if (sleeping) {
+                if (sleep_settle_spins < parts::sx::kSleepSettleSpins)
+                    note_fault(Fault::SpiBeforeSleepSettled);
                 sleeping = false;
                 standby = true;
                 wakes++;
@@ -198,6 +208,17 @@ class Sx1262 : public io::Spi, public io::Gpio {
     // whether it survives a warm start. Reset default is the power-saving gain.
     uint8_t rx_gain{parts::sx::kRxGainPowerSaving};
     uint8_t retention_list[3]{};
+    // INFO: fc 05sep26 DS table 13-45: the reset values these three come up on
+    static constexpr uint8_t kOcpReset = 0x18;
+    static constexpr uint8_t kOcpAfterPaConfigSx1262 = 0x38;
+    static constexpr uint8_t kTxClampReset = 0xC8;
+    static constexpr uint8_t kTxModulationReset = 0x01;
+    uint8_t ocp{kOcpReset};
+    uint8_t tx_clamp{kTxClampReset};
+    uint8_t tx_modulation{kTxModulationReset};
+    uint16_t device_errors{0};
+    uint16_t fail_calibration{0};
+    uint32_t sleep_settle_spins{0};
     bool tcxo_powered{false};
     bool calibrated{false};
     bool image_calibrated{false};
@@ -262,6 +283,9 @@ class Sx1262 : public io::Spi, public io::Gpio {
         regulator_mode = parts::sx::kRegulatorLdo;
         rx_gain = parts::sx::kRxGainPowerSaving;
         retention_list[0] = retention_list[1] = retention_list[2] = 0;
+        ocp = kOcpReset;
+        tx_clamp = kTxClampReset;
+        tx_modulation = kTxModulationReset;
         tcxo_powered = calibrated = image_calibrated = false;
         modulation_set = pa_set = tx_power_set = false;
         irq_mask = dio1_mask = 0;
@@ -287,19 +311,30 @@ class Sx1262 : public io::Spi, public io::Gpio {
             if (standby_only(in) && !standby) note_fault(Fault::ConfigOutsideStandby);
             if (opcode_ == parts::sx::kClearIrqStatus) irq_flags = 0;
             if (opcode_ == parts::sx::kSetStandby) standby = true;
+            if (opcode_ == parts::sx::kClearDeviceErrors) device_errors = 0;
             if (opcode_ == parts::sx::kSetSleep) {
+                if (!standby) note_fault(Fault::SleepOutsideStandby);
                 sleeping = true;
+                sleep_settle_spins = 0;
                 standby = false;
                 receiving = false;
                 if (!rx_gain_retained()) rx_gain = parts::sx::kRxGainPowerSaving;
             }
-            if (opcode_ == parts::sx::kSetDio3AsTcxoCtrl) tcxo_powered = true;
+            // INFO: fc 05sep26 DS 13.3.6: a TCXO part always flags this, and must be cleared
+            if (opcode_ == parts::sx::kSetDio3AsTcxoCtrl) {
+                tcxo_powered = true;
+                device_errors = static_cast<uint16_t>(device_errors | parts::sx::kErrXoscStart);
+            }
             if (opcode_ == parts::sx::kCalibrate && !regulator_dcdc)
                 note_fault(Fault::RegulatorLeftOnLdo);
-            if (opcode_ == parts::sx::kCalibrate) calibrated = true;
+            if (opcode_ == parts::sx::kCalibrate) {
+                calibrated = true;
+                device_errors = static_cast<uint16_t>(device_errors | fail_calibration);
+            }
             if (opcode_ == parts::sx::kCalibrateImage) {
                 if (!tcxo_powered || !calibrated) note_fault(Fault::ImageCalibrationTooEarly);
                 image_calibrated = true;
+                device_errors = static_cast<uint16_t>(device_errors | fail_calibration);
             }
             if (opcode_ == parts::sx::kSetRx) {
                 if (!modulation_set) note_fault(Fault::FrameWithoutModulation);
@@ -351,6 +386,9 @@ class Sx1262 : public io::Spi, public io::Gpio {
                 addr < parts::sx::kSyncWordRegister + sizeof(sync))
                 return sync[addr - parts::sx::kSyncWordRegister];
             if (addr == parts::sx::kRxGainRegister) return rx_gain;
+            if (addr == parts::sx::kOcpRegister) return ocp;
+            if (addr == parts::sx::kTxClampRegister) return tx_clamp;
+            if (addr == parts::sx::kTxModulationRegister) return tx_modulation;
             if (addr >= parts::sx::kRetentionListRegister &&
                 addr < parts::sx::kRetentionListRegister + sizeof(retention_list))
                 return retention_list[addr - parts::sx::kRetentionListRegister];
@@ -367,6 +405,9 @@ class Sx1262 : public io::Spi, public io::Gpio {
                 addr < parts::sx::kSyncWordRegister + sizeof(sync))
                 sync[addr - parts::sx::kSyncWordRegister] = in;
             if (addr == parts::sx::kRxGainRegister) rx_gain = in;
+            if (addr == parts::sx::kOcpRegister) ocp = in;
+            if (addr == parts::sx::kTxClampRegister) tx_clamp = in;
+            if (addr == parts::sx::kTxModulationRegister) tx_modulation = in;
             if (addr >= parts::sx::kRetentionListRegister &&
                 addr < parts::sx::kRetentionListRegister + sizeof(retention_list))
                 retention_list[addr - parts::sx::kRetentionListRegister] = in;
@@ -387,9 +428,13 @@ class Sx1262 : public io::Spi, public io::Gpio {
             }
             return 0;
         }
+        // INFO: fc 05sep26 DS table 5-2: SetPaConfig rewrites OCP, so a driver owes it back
         if (opcode_ == parts::sx::kSetPaConfig) {
             if (seq_ >= 1 && seq_ <= 4) pa_config[seq_ - 1] = in;
-            if (seq_ == 4) pa_set = true;
+            if (seq_ == 4) {
+                pa_set = true;
+                ocp = kOcpAfterPaConfigSx1262;
+            }
             return 0;
         }
         if (opcode_ == parts::sx::kSetTxParams) {
@@ -431,6 +476,10 @@ class Sx1262 : public io::Spi, public io::Gpio {
             case parts::sx::kGetIrqStatus:
                 if (seq_ == 2) return static_cast<uint8_t>((irq_flags & irq_mask) >> 8);
                 if (seq_ == 3) return static_cast<uint8_t>(irq_flags & irq_mask);
+                return 0;
+            case parts::sx::kGetDeviceErrors:
+                if (seq_ == 2) return static_cast<uint8_t>(device_errors >> 8);
+                if (seq_ == 3) return static_cast<uint8_t>(device_errors);
                 return 0;
             case parts::sx::kGetRxBufferStatus:
                 if (seq_ == 2) return rx_len_;
