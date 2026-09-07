@@ -40,6 +40,7 @@ class ConfigLinkService : public runtime::Service {
     }
 
     Status setup() override;
+    void load();
     void tick(uint32_t now_ms) override;
 
     comms::ConfigService& config() { return config_; }
@@ -63,7 +64,6 @@ class ConfigLinkService : public runtime::Service {
    private:
     static constexpr size_t kBlobCap = 64;
 
-    void load();
     void drain_link_events();
     void take_request(uint32_t now_ms);
     void drain_settings(uint32_t now_ms);
@@ -82,6 +82,7 @@ class ConfigLinkService : public runtime::Service {
     timing::DurableWriteWindow writes_{};
     uint32_t refused_{0};
     bool held_{false};
+    bool loaded_{false};
     // The blob as flash already holds it. A pilot who steps a value up and back
     // down again has changed nothing, and NVS charges for a write either way:
     // this is what makes that free, and what keeps the sector - and so the

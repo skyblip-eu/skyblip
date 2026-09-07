@@ -104,6 +104,15 @@ class TEchoPlus {
         };
     }
 
+    void poll_battery(uint32_t now_ms) {
+        if (!hal::has(capabilities_, hal::Capability::Battery)) return;
+        if (now_ms - last_battery_ms_ < runtime::kBatteryPeriodMs) return;
+        last_battery_ms_ = now_ms;
+        uint16_t millivolts = 0;
+        if (platform_.read_battery_mv(millivolts))
+            bus_.battery.push(messages::BatterySample{millivolts, platform_.external_power()});
+    }
+
     // The producer side: everything hardware says arrives on the bus, and the
     // clock's PPS phase is refreshed. Identical on both platforms.
     void poll(bus::State& state, uint32_t now_ms) {
@@ -139,13 +148,7 @@ class TEchoPlus {
             if (platform_.read_pressure_pa(pa)) bus_.baro.push(messages::BaroSample{pa, now_ms});
         }
 
-        if (hal::has(capabilities_, hal::Capability::Battery) &&
-            now_ms - last_battery_ms_ >= runtime::kBatteryPeriodMs) {
-            last_battery_ms_ = now_ms;
-            uint16_t millivolts = 0;
-            if (platform_.read_battery_mv(millivolts))
-                bus_.battery.push(messages::BatterySample{millivolts, platform_.external_power()});
-        }
+        poll_battery(now_ms);
 
         if (button_.update(platform_.button_down(), now_ms))
             bus_.input.push(messages::ButtonEvent{0});

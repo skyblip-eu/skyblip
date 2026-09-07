@@ -10,6 +10,20 @@
 
 using namespace skyblip;
 
+namespace {
+
+class HeldDie : public hal::DieTemperature {
+   public:
+    bool read(int16_t& decicelsius) override {
+        decicelsius = value;
+        return true;
+    }
+
+    int16_t value{0};
+};
+
+}  // namespace
+
 TEST_CASE("product: a button press switches page and the layout swap lands full") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
@@ -228,6 +242,37 @@ TEST_CASE("product: the status page marks a low cell when the monitor says so, n
     // The same voltage and the same state of charge, so the only thing that can
     // have changed on the glass is the marker.
     CHECK(rig.product.screen().framebuffer().count_black() > undecided);
+}
+
+// The charger cannot be gated here, so the row is the only warning there is.
+TEST_CASE("product: the status page marks a cell charging too hot to be charged") {
+    constexpr hal::Capabilities kWithDie = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) |
+        static_cast<uint32_t>(hal::Capability::DieTemperature));
+
+    auto charging_at = [](int16_t decicelsius) {
+        Rig rig{kWithDie};
+        REQUIRE(rig.setup() == Status::Ok);
+        HeldDie die;
+        die.value = decicelsius;
+        rig.product.power().attach_die_temperature(die);
+        rig.platform.battery().millivolts = 4000;
+        rig.platform.battery().external_power = true;
+        uint32_t t = 100;
+        rig.press(t);
+        rig.press(t);
+        rig.run(t, t + 8000);
+        REQUIRE(rig.product.screen().page() == go::Page::Status);
+        REQUIRE(rig.state().battery.charging);
+        return rig.product.screen().framebuffer().count_black();
+    };
+
+    const int warm = charging_at(250);
+    const int hot = charging_at(power::kChargeHotDeciCelsius + 100);
+    const int cold = charging_at(power::kChargeColdDeciCelsius - 100);
+    CHECK(hot != warm);
+    CHECK(cold != warm);
+    CHECK(hot != cold);
 }
 
 // K: the page has to name which part answered, not only that one did. LilyGO

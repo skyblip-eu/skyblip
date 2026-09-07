@@ -85,6 +85,8 @@ class DiagnosticsDump {
         // supply problem from a divider problem and they had no reader at all.
         d.supply_warnings = product.power().supply_warnings();
         d.battery_implausible = product.power().implausible_samples();
+        d.charge = product.power().charge_condition();
+        d.charge_warnings = product.power().charge_warnings();
 
         d.refreshes++;
     }

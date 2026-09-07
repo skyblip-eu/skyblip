@@ -4,6 +4,7 @@
 #include "core/flight/atmosphere.h"
 #include "core/messages/messages.h"
 #include "core/power/battery.h"
+#include "core/power/charging.h"
 #include "core/power/cutoff.h"
 #include "core/settings/settings.h"
 #include "core/timing/channel.h"
@@ -33,6 +34,7 @@ struct State {
     // draws a low cell reads this rather than comparing millivolts again: the
     // debounce, the charger and the sanity floor are decided once.
     power::PowerLevel power_level{power::PowerLevel::Unknown};
+    power::ChargeCondition charge{power::ChargeCondition::Unknown};
 
     uint8_t alarm_level{0};
     // INFO: fc 03aug26 The carrier-sense threshold the next dwell will carry,

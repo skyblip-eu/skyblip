@@ -6,6 +6,7 @@
 
 #include <cstdint>
 
+#include "core/power/charging.h"
 #include "ui/framebuffer.h"
 
 namespace skyblip::ui {
@@ -35,6 +36,7 @@ struct StatusSnapshot {
     bool battery_valid{false};
     bool charging{false};
     bool battery_low{false};
+    power::ChargeCondition charge{power::ChargeCondition::Unknown};
     uint16_t battery_mv{0};
     uint8_t battery_percent{0};
 };

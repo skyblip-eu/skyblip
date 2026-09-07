@@ -341,7 +341,8 @@ TEST_CASE("product: a charger plugged into a sleeping device is not a boot") {
 
     // What the shell does with that: the rails go down the same way a long press
     // takes them down, in the order core/power owns.
-    rig.platform.system_power().system_off();
+    rig.platform.system_power().system_off(
+        power::button_wake_after_refusal(rig.product.boot_cell()));
     CHECK(rig.platform.system_power().offs == 1);
     CHECK(rig.platform.system_power().order_of(power::PowerDownStep::WakePinArmed) ==
           power::kPowerDownStepCount - 1);
@@ -408,6 +409,27 @@ TEST_CASE("product: the battery trim reaches the gauge and the cutoff rule toget
     raw.run(0, 12000);
     CHECK(raw.state().battery.millivolts == 3540);
     CHECK(raw.state().power_level == power::PowerLevel::Normal);
+}
+
+// Taken before any service runs, so it is the reader that could have been raw.
+TEST_CASE("product: the boot lockout reads the trimmed cell, not the raw divider") {
+    settings::Settings s = settings::defaults(0x223344);
+    s.battery_offset_mv = -60;
+    uint8_t blob[64];
+    settings::to_blob(s, blob, sizeof(blob));
+
+    // 3440 raw is above the lockout, 3380 trimmed is below it.
+    Rig trimmed;
+    REQUIRE(trimmed.platform.kv().write("settings", blob, settings::blob_size()) == Status::Ok);
+    trimmed.platform.battery().millivolts = 3440;
+    REQUIRE(trimmed.setup() == Status::Ok);
+    CHECK(trimmed.product.boot_cell().millivolts == 3380);
+    CHECK(trimmed.product.boot_path() == power::BootPath::SleepAgain);
+
+    Rig untrimmed;
+    untrimmed.platform.battery().millivolts = 3440;
+    REQUIRE(untrimmed.setup() == Status::Ok);
+    CHECK(untrimmed.product.boot_path() == power::BootPath::Run);
 }
 
 namespace {
@@ -489,6 +511,43 @@ TEST_CASE("product: the die sensor is read on a slow cadence and reaches the tab
     t += 30050;
     CHECK(die.reads > before);
     CHECK(status_of(rig, t).find("\"die_temp_c\":41") != std::string::npos);
+}
+
+// The research prohibits charging in the 72.4 C soak; nothing here could see it.
+TEST_CASE("product: a cable in the heat is named, counted and left counted") {
+    constexpr hal::Capabilities kWithDie = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) |
+        static_cast<uint32_t>(hal::Capability::DieTemperature));
+    Rig rig{kWithDie};
+    REQUIRE(rig.setup() == Status::Ok);
+    CountingDie die;
+    die.value = 250;
+    rig.product.power().attach_die_temperature(die);
+
+    uint32_t t = 0;
+    rig.run(t, t + 2000);
+    t += 2050;
+    CHECK(rig.state().charge == power::ChargeCondition::Unknown);
+    CHECK(rig.product.power().charge_warnings() == 0);
+
+    rig.platform.battery().external_power = true;
+    rig.run(t, t + 2000);
+    t += 2050;
+    CHECK(rig.state().charge == power::ChargeCondition::Ok);
+    CHECK(rig.product.power().charge_warnings() == 0);
+
+    die.value = 724;
+    rig.run(t, t + 15000);
+    t += 15050;
+    CHECK(rig.state().charge == power::ChargeCondition::TooHot);
+    // One event, however many passes read the same sensor.
+    CHECK(rig.product.power().charge_warnings() == 1);
+
+    rig.platform.battery().external_power = false;
+    rig.run(t, t + 2000);
+    t += 2050;
+    CHECK(rig.state().charge == power::ChargeCondition::Unknown);
+    CHECK(rig.product.power().charge_warnings() == 1);
 }
 
 // The absent case, and it is the host board itself: no sensor, no capability, no

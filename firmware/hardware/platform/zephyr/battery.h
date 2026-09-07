@@ -8,6 +8,8 @@
 
 #include <cstdint>
 
+#include "core/power/cutoff.h"
+
 namespace skyblip::platform::zephyr {
 
 // The cell, read through the board's divider. Zephyr's voltage-divider driver
@@ -39,10 +41,8 @@ class Battery {
     static bool external_power() { return nrf_power_usbregstatus_vbusdet_get(NRF_POWER); }
 
    private:
-    // Outside this window the divider, the reference or the ADC is faulty, not
-    // the cell: a pack below the SoC's own brown-out cannot have produced the
-    // reading, and nothing on this board charges above the 4.2 V float.
-    static constexpr int32_t kPlausibleMinMv = 2500;
+    // INFO: fc 07sep26 nothing here charges past the 4.2 V float, the low end is core/power's
+    static constexpr int32_t kPlausibleMinMv = power::kImplausibleFloorMv;
     static constexpr int32_t kPlausibleMaxMv = 4700;
 
     const struct device* dev_;

@@ -117,12 +117,17 @@ void ConfigLinkService::flush_settings(uint32_t now_ms) {
 }
 
 void ConfigLinkService::load() {
+    if (loaded_) return;
     context_.state.settings = settings::defaults(context_.roles.device_addr);
-    if (!hal::has(context_.roles.capabilities, hal::Capability::Storage)) return;
+    if (!hal::has(context_.roles.capabilities, hal::Capability::Storage)) {
+        loaded_ = true;
+        return;
+    }
 
     uint8_t blob[kBlobCap];
     size_t n = 0;
     if (!is_ok(context_.roles.kv.read("settings", blob, sizeof(blob), n))) return;
+    loaded_ = true;
     settings::Settings loaded;
     if (is_ok(settings::from_blob(blob, n, loaded)) && is_ok(settings::validate(loaded)))
         context_.state.settings = loaded;

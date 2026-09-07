@@ -5,6 +5,7 @@
 #define SKYBLIP_HAL_SYSTEM_POWER_H
 
 #include "core/power/reset_reason.h"
+#include "core/power/shutdown.h"
 
 namespace skyblip::hal {
 
@@ -16,11 +17,7 @@ class SystemPower {
     // the same reason after every following reset until it is cleared.
     virtual power::ResetCause reset_causes() const { return power::ResetCause::None; }
 
-    // Walk core/power's power-down order, arm the wake source and drop the
-    // rails. Does not return on silicon. core/power::ShutdownSequencer owns the
-    // precondition: the button must be up before this is called, and
-    // core/power::kPowerDownOrder owns what happens in which order once it is.
-    virtual void system_off() {}
+    virtual void system_off(power::ButtonWake button_wake) { (void)button_wake; }
 
     virtual void reboot() {}
 

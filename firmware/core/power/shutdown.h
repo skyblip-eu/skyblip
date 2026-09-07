@@ -128,9 +128,14 @@ class PowerDownSink {
     virtual void perform(PowerDownStep step) = 0;
 };
 
+enum class ButtonWake : uint8_t { Armed, Withheld };
+
+// INFO: fc 07sep26 meshcore arms voltage recovery, not the button, on a low-voltage shutdown
+ButtonWake button_wake_after(ShutdownReason reason, bool external_power);
+
 // Walks kPowerDownOrder once, in order. The caller enters SYSTEM OFF after it
 // returns.
-void power_down(PowerDownSink& sink);
+void power_down(PowerDownSink& sink, ButtonWake button_wake);
 
 // Long enough that it cannot be the page press, short enough to do with gloves
 // on. A short press pages; this is the only other thing the one button does.
@@ -165,6 +170,10 @@ class ShutdownSequencer {
     // How long the button has been down, for a screen that wants to show the
     // hold filling up. Zero when it is not down or the hold is not armed yet.
     uint32_t held_ms(uint32_t now_ms) const;
+
+    bool waits_for_release() const {
+        return button_wake_after(reason_, /*external_power=*/false) == ButtonWake::Armed;
+    }
 
    private:
     void enter(ShutdownPhase phase, uint32_t now_ms);

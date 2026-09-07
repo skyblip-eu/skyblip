@@ -2,6 +2,7 @@
 #define SKYBLIP_PRODUCTS_SKYBLIP_GO_SERVICES_POWER_H
 
 #include "core/power/battery.h"
+#include "core/power/charging.h"
 #include "core/power/cutoff.h"
 #include "hal/capabilities.h"
 #include "hal/die_temperature.h"
@@ -48,6 +49,9 @@ class PowerService : public runtime::Service {
     bool die_temperature_valid() const { return die_valid_; }
     int16_t die_temperature_dc() const { return die_dc_; }
 
+    power::ChargeCondition charge_condition() const { return charge_; }
+    uint32_t charge_warnings() const { return charge_warnings_; }
+
    private:
     // INFO: fc 05aug26 Die temperature moves in minutes: it is the temperature of
     // a lump of plastic in the sun, low-passed by its own mass. Ten seconds is
@@ -60,6 +64,7 @@ class PowerService : public runtime::Service {
     static constexpr uint32_t kDiePeriodMs = 10000;
 
     void sample_die_temperature(uint32_t now_ms);
+    void watch_charge();
 
     power::Gauge gauge_{};
     power::CutoffMonitor cutoff_{};
@@ -67,6 +72,8 @@ class PowerService : public runtime::Service {
     // wired nothing reads "no sensor" rather than dereferencing nothing.
     hal::DieTemperature absent_die_{};
     hal::DieTemperature* die_{&absent_die_};
+    power::ChargeCondition charge_{power::ChargeCondition::Unknown};
+    uint32_t charge_warnings_{0};
     uint32_t die_read_ms_{0};
     int16_t die_dc_{0};
     bool die_valid_{false};
