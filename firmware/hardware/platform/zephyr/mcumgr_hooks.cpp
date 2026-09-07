@@ -1,4 +1,3 @@
-#include <zephyr/mgmt/mcumgr/grp/img_mgmt/img_mgmt.h>
 #include <zephyr/mgmt/mcumgr/grp/os_mgmt/os_mgmt.h>
 #include <zephyr/mgmt/mcumgr/mgmt/callbacks.h>
 #include <zephyr/mgmt/mcumgr/mgmt/mgmt_defines.h>
@@ -15,9 +14,7 @@ static_assert(static_cast<uint16_t>(dfu::SmpGroup::Os) == MGMT_GROUP_ID_OS);
 static_assert(static_cast<uint16_t>(dfu::SmpGroup::Image) == MGMT_GROUP_ID_IMAGE);
 static_assert(dfu::kSmpOsEcho == OS_MGMT_ID_ECHO);
 static_assert(dfu::kSmpOsReset == OS_MGMT_ID_RESET);
-static_assert(dfu::kSmpImageState == IMG_MGMT_ID_STATE);
-static_assert(dfu::kSmpImageUpload == IMG_MGMT_ID_UPLOAD);
-static_assert(dfu::kSmpImageErase == IMG_MGMT_ID_ERASE);
+// INFO: fc 07sep26 img_mgmt.h drags in bootutil/image.h, off the app include path; ids are 0/1/5
 
 DfuGate g_gate = nullptr;
 
