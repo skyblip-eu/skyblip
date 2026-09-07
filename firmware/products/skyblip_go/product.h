@@ -95,17 +95,16 @@ class Product {
         // link is told at boot: a watchdog bite in the field is diagnosable
         // from a phone, without the panel in hand.
         config_.config().set_reset_reason(reset_reason_);
+        if (board == Status::Ok) config_.load();
 
         // The wake cause decides whether this boot becomes a device at all
         // (core/power/wake.h). Answered here, before the panel is painted and
         // before the loop is set up: a charger plugged into a device in a flight
         // bag must leave no trace on the glass and start nothing. The shell drops
         // the rails; every part is already in a known state, which is why this
-        // sits after board_.begin() rather than in front of it. A button pressed
-        // in the milliseconds between here and the rails dropping wakes the device
-        // again the moment they do, because the wake pin is level-sensed - which
-        // is the right answer to a pilot who has just pressed it.
-        boot_path_ = power::boot_path(causes, platform_.button_down());
+        // sits after board_.begin() rather than in front of it.
+        boot_cell_ = read_boot_cell();
+        boot_path_ = power::boot_path(causes, platform_.button_down(), boot_cell_);
         if (boot_path_ == power::BootPath::SleepAgain) return Status::Ok;
 
         flyable_ = board == Status::Ok &&
@@ -124,6 +123,7 @@ class Product {
     }
 
     void step(uint32_t now_ms) {
+        if (!flyable_ && !shutdown_.going_down()) guard_cell(now_ms);
         if (flyable_ && !shutdown_.going_down()) {
             board_.poll(state_, now_ms);
             // Polled before the services run, so the pass that may write flash is
@@ -159,6 +159,7 @@ class Product {
     // Run, or straight back to SYSTEM OFF. The shell reads this immediately after
     // setup() and performs the second one.
     power::BootPath boot_path() const { return boot_path_; }
+    const power::BootCell& boot_cell() const { return boot_cell_; }
     const ui::Framebuffer& boot_page() const { return boot_fb_; }
     // The rows behind that page, so a test can read what a part answered instead
     // of reading pixels back off the glass to find out.
@@ -213,6 +214,22 @@ class Product {
         }
     }
 
+    power::BootCell read_boot_cell() {
+        power::BootCell cell{};
+        if (!hal::has(board_.capabilities(), hal::Capability::Battery)) return cell;
+        uint16_t raw_mv = 0;
+        cell.valid = platform_.read_battery_mv(raw_mv);
+        cell.millivolts = power::calibrated_mv(raw_mv, state_.settings.battery_offset_mv);
+        cell.external_power = platform_.external_power();
+        return cell;
+    }
+
+    void guard_cell(uint32_t now_ms) {
+        board_.poll_battery(now_ms);
+        power_.tick(now_ms);
+        if (power_.cutoff()) shutdown_.request(power::ShutdownReason::LowBattery, now_ms);
+    }
+
     void show_boot_page() {
         const hal::Capabilities fitted = board_.capabilities();
         for (int i = 0; i < kBootPartCount; i++) {
@@ -230,8 +247,8 @@ class Product {
         snapshot.parts = boot_parts_;
         snapshot.n_parts = kBootPartCount;
         snapshot.flyable = flyable_;
-        snapshot.battery_valid = state_.battery.valid;
-        snapshot.battery_mv = state_.battery.millivolts;
+        snapshot.battery_valid = boot_cell_.valid;
+        snapshot.battery_mv = boot_cell_.millivolts;
         snapshot.i2c_addresses = board_.inventory().i2c_addresses;
         snapshot.n_i2c_addresses = board_.inventory().i2c_count;
         ui::draw_boot(boot_fb_, snapshot);
@@ -306,6 +323,7 @@ class Product {
     power::ShutdownPhase acted_phase_{power::ShutdownPhase::Running};
     power::ResetReason reset_reason_{power::ResetReason::Unknown};
     power::BootPath boot_path_{power::BootPath::Run};
+    power::BootCell boot_cell_{};
     bool flyable_{false};
 };
 

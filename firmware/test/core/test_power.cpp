@@ -288,6 +288,25 @@ TEST_CASE("shutdown: the wake pin waits for the button to come up") {
     CHECK(seq.ready_to_power_off());
 }
 
+// A bag on the button must not hold the rails up on the cell that asked to go.
+TEST_CASE("shutdown: a low-battery shutdown does not wait for a button it will not arm") {
+    ShutdownSequencer seq;
+    seq.request(ShutdownReason::LowBattery, 0);
+    uint32_t t = 0;
+    for (; t < kParkMs; t += 10) seq.tick(t, /*button_down=*/true);
+    CHECK(seq.phase() == ShutdownPhase::Parking);
+
+    seq.tick(kParkMs, /*button_down=*/true);
+    CHECK(seq.phase() == ShutdownPhase::Off);
+    CHECK(seq.ready_to_power_off());
+
+    // A long press still waits: that one does come back on a press.
+    ShutdownSequencer pressed;
+    pressed.request(ShutdownReason::LongPress, 0);
+    for (t = 0; t <= kParkMs; t += 10) pressed.tick(t, true);
+    CHECK(pressed.phase() == ShutdownPhase::AwaitRelease);
+}
+
 TEST_CASE("shutdown: a device woken by the button does not switch itself off again") {
     // SYSTEM OFF is left by a press, so the first thing the sequencer ever sees
     // is a button that is already down. Counting that as a hold powers the
@@ -407,7 +426,7 @@ class RecordingSink : public power::PowerDownSink {
 
 TEST_CASE("power down: every step runs once, in the order the table declares") {
     RecordingSink sink;
-    power_down(sink);
+    power_down(sink, ButtonWake::Armed);
     REQUIRE(sink.count == kPowerDownStepCount);
     for (int i = 0; i < kPowerDownStepCount; i++) {
         CHECK(sink.steps[i] == kPowerDownOrder[i]);
@@ -422,7 +441,7 @@ TEST_CASE("power down: every step runs once, in the order the table declares") {
 // looking switched off.
 TEST_CASE("power down: the external flash is told to sleep while it still has a rail") {
     RecordingSink sink;
-    power_down(sink);
+    power_down(sink, ButtonWake::Armed);
     CHECK(sink.at(PowerDownStep::ExternalFlashDeepPowerDown) <
           sink.at(PowerDownStep::PeripheralRailOff));
     // And over the lines the command travels on, which is why they are released
@@ -433,14 +452,14 @@ TEST_CASE("power down: the external flash is told to sleep while it still has a 
 
 TEST_CASE("power down: the radio is asleep before anything touches its reset line") {
     RecordingSink sink;
-    power_down(sink);
+    power_down(sink, ButtonWake::Armed);
     CHECK(sink.at(PowerDownStep::RadioSleep) < sink.at(PowerDownStep::RadioResetAsserted));
     CHECK(sink.at(PowerDownStep::RadioSleep) < sink.at(PowerDownStep::DrivenPinsReleased));
 }
 
 TEST_CASE("power down: the GNSS is switched off, and before its supply goes") {
     RecordingSink sink;
-    power_down(sink);
+    power_down(sink, ButtonWake::Armed);
     // The receiver with a fix is tens of milliamps: the one part that decides
     // whether an 850 mAh pack survives a night.
     REQUIRE(sink.at(PowerDownStep::GnssBackupOff) >= 0);
@@ -450,7 +469,7 @@ TEST_CASE("power down: the GNSS is switched off, and before its supply goes") {
 
 TEST_CASE("power down: the rails go last, and the pins are released after them") {
     RecordingSink sink;
-    power_down(sink);
+    power_down(sink, ButtonWake::Armed);
     const int rail = sink.at(PowerDownStep::PeripheralRailOff);
     const int aux = sink.at(PowerDownStep::AuxRailOff);
     for (const PowerDownStep step :
@@ -467,6 +486,24 @@ TEST_CASE("power down: the rails go last, and the pins are released after them")
     // And the wake pin is level-sensed: armed before the rails, it wakes the
     // device the instant they drop.
     CHECK(sink.at(PowerDownStep::WakePinArmed) == kPowerDownStepCount - 1);
+}
+
+// A press on a cell this flat is the ratchet, so only a cable brings it back.
+TEST_CASE("power down: a low-battery shutdown drops the rails without arming the button") {
+    CHECK(button_wake_after(ShutdownReason::LowBattery, false) == ButtonWake::Withheld);
+    CHECK(button_wake_after(ShutdownReason::LongPress, false) == ButtonWake::Armed);
+    CHECK(button_wake_after(ShutdownReason::LinkRequest, false) == ButtonWake::Armed);
+    CHECK(button_wake_after(ShutdownReason::None, false) == ButtonWake::Armed);
+    // A cable that arrived during the park: VBUS is already high, so there is no
+    // rising edge left to wake on and the button is the only way back.
+    CHECK(button_wake_after(ShutdownReason::LowBattery, /*external_power=*/true) ==
+          ButtonWake::Armed);
+
+    RecordingSink sink;
+    power_down(sink, ButtonWake::Withheld);
+    CHECK(sink.count == kPowerDownStepCount - 1);
+    CHECK(sink.at(PowerDownStep::WakePinArmed) == -1);
+    for (int i = 0; i < kPowerDownStepCount - 1; i++) CHECK(sink.steps[i] == kPowerDownOrder[i]);
 }
 
 // Which reset the device came out of. Seven causes, one register, and the nRF52
@@ -500,16 +537,19 @@ TEST_CASE("reset: every cause the silicon can raise has one name") {
     }
 }
 
-// D. The wake cause decides the boot path. On this board a VBUS event is a wake
-// source, so plugging a charger into a device that was switched off brings the
-// SoC up - and a device that boots in a flight bag because someone plugged it in
-// arrives flat. These are the four bits that have to agree before a boot is
-// refused, and the many ways they can fail to.
+// D. The wake cause and the cell decide the boot path. On this board a VBUS event
+// is a wake source, so plugging a charger into a device that was switched off
+// brings the SoC up - and a device that boots in a flight bag because someone
+// plugged it in arrives flat.
+
+static BootCell healthy(uint16_t millivolts = 3900) {
+    return BootCell{millivolts, /*valid=*/true, /*external_power=*/false};
+}
 
 // The one the item exists for.
 TEST_CASE("wake: a charger plugged into a sleeping device does not switch it on") {
     const ResetCause charger = ResetCause::LowPowerWake | ResetCause::UsbVbus;
-    CHECK(boot_path(charger, /*button_down=*/false) == BootPath::SleepAgain);
+    CHECK(boot_path(charger, /*button_down=*/false, healthy()) == BootPath::SleepAgain);
     // And the page a bench eye reads names it, rather than calling it a wake.
     CHECK(classify(charger) == ResetReason::ChargerWake);
     CHECK(std::string(to_string(ResetReason::ChargerWake)) == "CHARGER");
@@ -517,31 +557,73 @@ TEST_CASE("wake: a charger plugged into a sleeping device does not switch it on"
 
 TEST_CASE("wake: a pilot holding the button while plugging in gets the device") {
     const ResetCause charger = ResetCause::LowPowerWake | ResetCause::UsbVbus;
-    CHECK(boot_path(charger, /*button_down=*/true) == BootPath::Run);
+    CHECK(boot_path(charger, /*button_down=*/true, healthy()) == BootPath::Run);
 }
 
 // The failure that would be catastrophic and silent: a unit that refuses to boot
 // the first time a cell is connected. On the nRF52840 RESETREAS is all-zero after
 // a power-on or brown-out reset, so the wake bit is what separates the two, and
 // the rule needs BOTH bits rather than either.
-TEST_CASE("wake: nothing that could be a first power-on ever refuses a boot") {
-    CHECK(boot_path(ResetCause::PowerOn, false) == BootPath::Run);
-    CHECK(boot_path(ResetCause::None, false) == BootPath::Run);
-    CHECK(boot_path(ResetCause::Brownout, false) == BootPath::Run);
+TEST_CASE("wake: no cause that could be a first power-on refuses a boot by itself") {
+    CHECK(boot_path(ResetCause::PowerOn, false, healthy()) == BootPath::Run);
+    CHECK(boot_path(ResetCause::None, false, healthy()) == BootPath::Run);
+    CHECK(boot_path(ResetCause::Brownout, false, healthy()) == BootPath::Run);
     // VBUS with no wake bit: not a wake at all, whatever raised it.
-    CHECK(boot_path(ResetCause::UsbVbus, false) == BootPath::Run);
-    CHECK(boot_path(ResetCause::PowerOn | ResetCause::UsbVbus, false) == BootPath::Run);
+    CHECK(boot_path(ResetCause::UsbVbus, false, healthy()) == BootPath::Run);
+    CHECK(boot_path(ResetCause::PowerOn | ResetCause::UsbVbus, false, healthy()) == BootPath::Run);
 }
 
-TEST_CASE("wake: the button and the reset pin are both a request for a device") {
+TEST_CASE("wake: on a cell that can run, the button and the reset pin ask for a device") {
     // The ordinary way out of SYSTEM OFF: a press on the wake pin.
-    CHECK(boot_path(ResetCause::LowPowerWake, false) == BootPath::Run);
+    CHECK(boot_path(ResetCause::LowPowerWake, false, healthy()) == BootPath::Run);
     // A deliberate reset while the cable happens to be in.
-    CHECK(boot_path(ResetCause::LowPowerWake | ResetCause::UsbVbus | ResetCause::Pin, false) ==
-          BootPath::Run);
-    CHECK(boot_path(ResetCause::Pin, false) == BootPath::Run);
+    CHECK(boot_path(ResetCause::LowPowerWake | ResetCause::UsbVbus | ResetCause::Pin, false,
+                    healthy()) == BootPath::Run);
+    CHECK(boot_path(ResetCause::Pin, false, healthy()) == BootPath::Run);
     // And a fault is never answered by going back to sleep, whatever else is set.
-    CHECK(boot_path(ResetCause::Watchdog | ResetCause::UsbVbus, false) == BootPath::Run);
+    CHECK(boot_path(ResetCause::Watchdog | ResetCause::UsbVbus, false, healthy()) == BootPath::Run);
+}
+
+// Left to boot, each press costs the panel and kParkMs to reach the same cutoff.
+TEST_CASE("wake: a flat cell refuses the boot, whoever asks and however they ask") {
+    const BootCell flat = healthy(power::kCutoffMv);
+    CHECK(boot_path(ResetCause::LowPowerWake, /*button_down=*/true, flat) == BootPath::SleepAgain);
+    CHECK(boot_path(ResetCause::Pin, false, flat) == BootPath::SleepAgain);
+    CHECK(boot_path(ResetCause::PowerOn, false, flat) == BootPath::SleepAgain);
+    CHECK(boot_path(ResetCause::Watchdog, false, flat) == BootPath::SleepAgain);
+    CHECK(boot_path(ResetCause::Brownout, false, flat) == BootPath::SleepAgain);
+
+    CHECK(boot_path(ResetCause::PowerOn, false, healthy(kBootLockoutMv - 1)) ==
+          BootPath::SleepAgain);
+    CHECK(boot_path(ResetCause::PowerOn, false, healthy(kBootLockoutMv)) == BootPath::Run);
+}
+
+// SENSE is a level detect: a button held in a bag re-wakes what it just refused.
+TEST_CASE("wake: a boot refused for a flat cell leaves the button unarmed") {
+    CHECK(button_wake_after_refusal(healthy(power::kCutoffMv)) == ButtonWake::Withheld);
+    BootCell on_charge = healthy(3000);
+    on_charge.external_power = true;
+    CHECK(button_wake_after_refusal(on_charge) == ButtonWake::Armed);
+    CHECK(button_wake_after_refusal(healthy()) == ButtonWake::Armed);
+    CHECK(button_wake_after_refusal(BootCell{}) == ButtonWake::Armed);
+}
+
+// A refusal with no way out is a brick, and this way out also fills the cell.
+TEST_CASE("wake: a flat cell on the cable gets a device when a person asks for one") {
+    BootCell on_charge = healthy(3000);
+    on_charge.external_power = true;
+    CHECK(boot_path(ResetCause::Pin, /*button_down=*/true, on_charge) == BootPath::Run);
+    CHECK(boot_path(ResetCause::LowPowerWake | ResetCause::UsbVbus, false, on_charge) ==
+          BootPath::SleepAgain);
+}
+
+// The lockout's own catastrophic failure: a unit bricked by a divider nobody read.
+TEST_CASE("wake: a cell nobody read never refuses a boot") {
+    CHECK(boot_path(ResetCause::PowerOn, false, BootCell{}) == BootPath::Run);
+    CHECK(boot_path(ResetCause::PowerOn, false, BootCell{3000, /*valid=*/false, false}) ==
+          BootPath::Run);
+    CHECK(boot_path(ResetCause::PowerOn, false, healthy(200)) == BootPath::Run);
+    CHECK(boot_path(ResetCause::PowerOn, false, healthy(kImplausibleFloorMv)) == BootPath::Run);
 }
 
 TEST_CASE("wake: a charger wake is named without hiding a fault that came with it") {

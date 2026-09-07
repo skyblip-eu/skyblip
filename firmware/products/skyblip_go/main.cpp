@@ -39,8 +39,10 @@ int main(void) {
     // on. core/power/wake.h decided that; this performs it, and it does not
     // return. Nothing has been painted and no service has run.
     if (g_product.boot_path() == power::BootPath::SleepAgain) {
-        LOG_INF("woken by VBUS with the button up: back to sleep, the cell charges either way");
-        g_platform.system_power().system_off();
+        const power::BootCell& cell = g_product.boot_cell();
+        LOG_INF("back to sleep at %u mV (lockout %u mV, external power %d)", cell.millivolts,
+                power::kBootLockoutMv, static_cast<int>(cell.external_power));
+        g_platform.system_power().system_off(power::button_wake_after_refusal(cell));
     }
 
     // Not fatal and not silent: without the comparator the write rule still
@@ -83,8 +85,10 @@ int main(void) {
         }
 
         if (g_product.ready_to_power_off()) {
-            LOG_INF("power off: %s", power::to_string(g_product.shutdown().reason()));
-            g_platform.system_power().system_off();
+            const power::ShutdownReason reason = g_product.shutdown().reason();
+            LOG_INF("power off: %s", power::to_string(reason));
+            g_platform.system_power().system_off(
+                power::button_wake_after(reason, g_platform.external_power()));
         }
 
         k_sleep(K_MSEC(runtime::kServiceStepMs));

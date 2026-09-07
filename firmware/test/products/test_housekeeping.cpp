@@ -23,6 +23,9 @@ struct Rig {
     platform::host::Platform platform;
     Go product{platform};
 
+    explicit Rig(hal::Capabilities fitted = platform::host::Platform::kFullyFitted)
+        : platform(fitted) {}
+
     Status setup() { return product.setup(); }
 
     void run(uint32_t from, uint32_t to, uint32_t step = 50) {
@@ -221,6 +224,46 @@ TEST_CASE("product: a cell at its cutoff takes the device down on its own") {
     CHECK(rig.product.shutdown().going_down());
     CHECK(rig.product.shutdown().reason() == power::ShutdownReason::LowBattery);
     CHECK(rig.product.board().rf().sleeps() == 1);
+
+    rig.run(8000, 20000);
+    CHECK(rig.product.ready_to_power_off());
+}
+
+// The ratchet: switched off at the cutoff, pressed back on, flattened a bit more.
+TEST_CASE("product: a cell too flat to run refuses the boot instead of spending it") {
+    Rig rig;
+    rig.platform.battery().millivolts = power::kBootLockoutMv - 1;
+    CHECK(rig.setup() == Status::Ok);
+    CHECK(rig.product.boot_path() == power::BootPath::SleepAgain);
+    CHECK(rig.platform.chips().epd.present_count == 0);
+    CHECK_FALSE(rig.state().started);
+
+    Rig on_charge;
+    on_charge.platform.battery().millivolts = power::kBootLockoutMv - 1;
+    on_charge.platform.battery().external_power = true;
+    CHECK(on_charge.setup() == Status::Ok);
+    CHECK(on_charge.product.boot_path() == power::BootPath::Run);
+
+    Rig healthy;
+    healthy.platform.battery().millivolts = power::kBootLockoutMv;
+    CHECK(healthy.setup() == Status::Ok);
+    CHECK(healthy.product.boot_path() == power::BootPath::Run);
+}
+
+// A unit that failed its self test runs no services, so nothing else watches it.
+TEST_CASE("product: a device that cannot fly still switches itself off on a flat cell") {
+    constexpr hal::Capabilities kNoGnss = static_cast<hal::Capabilities>(
+        static_cast<uint32_t>(platform::host::Platform::kFullyFitted) &
+        ~static_cast<uint32_t>(hal::Capability::Gnss));
+    Rig rig(kNoGnss);
+    REQUIRE(rig.setup() == Status::Down);
+    REQUIRE_FALSE(rig.product.flyable());
+
+    rig.platform.battery().millivolts = 3100;
+    rig.run(0, 8000);
+    CHECK(rig.product.power().cutoff());
+    CHECK(rig.state().battery.valid);
+    CHECK(rig.product.shutdown().reason() == power::ShutdownReason::LowBattery);
 
     rig.run(8000, 20000);
     CHECK(rig.product.ready_to_power_off());

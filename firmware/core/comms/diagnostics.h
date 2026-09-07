@@ -20,6 +20,7 @@
 
 #include "core/gnss/validity.h"
 #include "core/power/battery.h"
+#include "core/power/charging.h"
 #include "core/power/cutoff.h"
 #include "core/power/reset_reason.h"
 #include "core/timing/channel.h"
@@ -68,6 +69,8 @@ struct Diagnostics {
 
     uint32_t supply_warnings{0};
     uint32_t battery_implausible{0};
+    power::ChargeCondition charge{power::ChargeCondition::Unknown};
+    uint32_t charge_warnings{0};
 
     // Held by comms::ConfigService, which is told each of these by the product.
     power::ResetReason reset{power::ResetReason::Unknown};

@@ -28,8 +28,18 @@ const char* to_string(PowerDownStep step) {
     return "NONE";
 }
 
-void power_down(PowerDownSink& sink) {
-    for (int i = 0; i < kPowerDownStepCount; i++) sink.perform(kPowerDownOrder[i]);
+ButtonWake button_wake_after(ShutdownReason reason, bool external_power) {
+    if (external_power) return ButtonWake::Armed;
+    return reason == ShutdownReason::LowBattery ? ButtonWake::Withheld : ButtonWake::Armed;
+}
+
+void power_down(PowerDownSink& sink, ButtonWake button_wake) {
+    for (int i = 0; i < kPowerDownStepCount; i++) {
+        if (kPowerDownOrder[i] == PowerDownStep::WakePinArmed &&
+            button_wake == ButtonWake::Withheld)
+            continue;
+        sink.perform(kPowerDownOrder[i]);
+    }
 }
 
 void ShutdownSequencer::enter(ShutdownPhase phase, uint32_t now_ms) {
@@ -67,7 +77,8 @@ void ShutdownSequencer::tick(uint32_t now_ms, bool button_down) {
             return;
 
         case ShutdownPhase::Parking:
-            if (now_ms - since_ms_ >= kParkMs) enter(ShutdownPhase::AwaitRelease, now_ms);
+            if (now_ms - since_ms_ < kParkMs) return;
+            enter(waits_for_release() ? ShutdownPhase::AwaitRelease : ShutdownPhase::Off, now_ms);
             return;
 
         case ShutdownPhase::AwaitRelease:

@@ -22,6 +22,15 @@ void PowerService::sample_die_temperature(uint32_t now_ms) {
     die_valid_ = true;
 }
 
+void PowerService::watch_charge() {
+    const power::ChargeCondition was = charge_;
+    charge_ = power::charge_condition(context_.state.battery.external_power, die_valid_, die_dc_);
+    const bool out_of_window =
+        charge_ == power::ChargeCondition::TooCold || charge_ == power::ChargeCondition::TooHot;
+    if (out_of_window && charge_ != was) charge_warnings_++;
+    context_.state.charge = charge_;
+}
+
 void PowerService::tick(uint32_t now_ms) {
     messages::BatterySample raw{};
     while (context_.bus.battery.pop(raw)) {
@@ -38,6 +47,7 @@ void PowerService::tick(uint32_t now_ms) {
     context_.state.battery = gauge_.state();
     context_.state.power_level = cutoff_.level();
     sample_die_temperature(now_ms);
+    watch_charge();
 }
 
 }  // namespace skyblip::go

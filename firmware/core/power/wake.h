@@ -10,7 +10,9 @@
 
 #include <cstdint>
 
+#include "core/power/cutoff.h"
 #include "core/power/reset_reason.h"
+#include "core/power/shutdown.h"
 
 namespace skyblip::power {
 
@@ -20,18 +22,23 @@ enum class BootPath : uint8_t { Run, SleepAgain };
 
 const char* to_string(BootPath path);
 
-// The whole rule, and it is deliberately narrow. Four bits have to agree before a
-// boot is refused, and a boot is never refused for a cause that could also be the
-// first time the cell was ever connected:
-//
-//   - the device came out of SYSTEM OFF (LowPowerWake). On the nRF52840 a power-on
-//     or brown-out reset leaves RESETREAS all-zero, so this bit is what separates
-//     "it was switched off and something woke it" from "it has just been powered".
-//   - the thing that woke it was VBUS rising, i.e. a charger or a laptop.
-//   - the reset pin was not also pulled, which is a deliberate reset.
-//   - the button is not held. A pilot who plugs the cable in while holding the
-//     button is asking for the device, and gets it.
-//
+struct BootCell {
+    uint16_t millivolts{0};
+    bool valid{false};
+    bool external_power{false};
+};
+
+// INFO: fc 07sep26 meshcore NRF52Board.cpp:98-126 boot-locks at 3300 mV, against over-discharge
+constexpr uint16_t kBootLockoutMv = 3400;
+
+static_assert(kCutoffMv < kBootLockoutMv,
+              "a cell recovers once the load stops: the shutdown would be undone by the next "
+              "press");
+static_assert(kBootLockoutMv < kLowWarnMv,
+              "a boot refused before the pilot has been warned is a device that reads as dead");
+static_assert(kImplausibleFloorMv < kCutoffMv,
+              "an unpopulated divider must fall through the lockout, not into it");
+
 // Same shape as the two references that fly on this hardware: nrf52-ogn-tracker
 // src/main.cpp:517-532 (T_Echo_StayOffOnChargerWake) and SoftRF-lyusupov
 // src/platform/nRF52.cpp:944-951.
@@ -59,7 +66,9 @@ const char* to_string(BootPath path);
 //      a third value, the rule below is untouched, and the sleep path stays.
 //
 // So: sleep again, and when item F lands its table, add the announcement.
-BootPath boot_path(ResetCause causes, bool button_down);
+BootPath boot_path(ResetCause causes, bool button_down, const BootCell& cell);
+
+ButtonWake button_wake_after_refusal(const BootCell& cell);
 
 }  // namespace skyblip::power
 

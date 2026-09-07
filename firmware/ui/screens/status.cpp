@@ -130,7 +130,11 @@ void battery_row(Framebuffer& fb, int y, const StatusSnapshot& s) {
 
     // A cell on the cable is not low whatever it reads, so the charger wins the
     // marker. Off it, the warning is the whole reason this row is on the page.
-    const char* mark = s.charging ? " % CHG" : (s.battery_low ? " % LOW" : " %");
+    const char* mark = s.charge == power::ChargeCondition::TooHot    ? " % HOT"
+                       : s.charge == power::ChargeCondition::TooCold ? " % CLD"
+                       : s.charging                                  ? " % CHG"
+                       : s.battery_low                               ? " % LOW"
+                                                                     : " %";
     text_row(fb, y, "BAT", volts, " V", percent, mark);
 }
 }  // namespace

@@ -97,6 +97,8 @@ Diagnostics widest_device() {
     d.battery_implausible = 0xFFFFFFFFu;
     d.die_decicelsius = -1250;
     d.die_valid = true;
+    d.charge = power::ChargeCondition::TooCold;
+    d.charge_warnings = 0xFFFFFFFFu;
     return d;
 }
 
@@ -160,7 +162,7 @@ TEST_CASE("diagnostics: one line per subsystem, each carrying the counters that 
               "firmware=\"URANUS5,V5.1.0.0\" reject=\"STALE\" rejected=6 resid_m=13\n"));
     CHECK(has(text,
               "power mv=3812 percent=64 valid=true charging=false level=\"OK\" supply_warnings=1 "
-              "implausible=2 die_temp_c=42\n"));
+              "implausible=2 die_temp_c=42 charge_warnings=0\n"));
 
     DiagnosticsReport report(busy_device(), "diag");
     CHECK(report.line_count() == DiagnosticsReport::kGroupCount);
@@ -177,6 +179,18 @@ TEST_CASE("diagnostics: a text value is quoted on both surfaces, spaces and all"
     d.reset = power::ResetReason::Lockup;
     CHECK(has(console(d), "reset=\"CPU LOCKUP\""));
     CHECK(has(frames(d, 182).joined, "\"reset\":\"CPU LOCKUP\""));
+}
+
+// A cable in the sun is the support case, and this is the only trace it leaves.
+TEST_CASE("diagnostics: the charge window reads out only when there is a cable to judge") {
+    Diagnostics d = busy_device();
+    CHECK_FALSE(has(console(d), "charge="));
+    CHECK(has(console(d), "charge_warnings=0"));
+
+    d.charge = power::ChargeCondition::TooHot;
+    d.charge_warnings = 3;
+    CHECK(has(console(d), "charge=\"HOT\" charge_warnings=3"));
+    CHECK(has(frames(d, 182).joined, "\"charge\":\"HOT\""));
 }
 
 // The buffer the caller lends is a constant in the header, so the widest line

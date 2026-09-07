@@ -334,6 +334,7 @@ void ScreenService::render() {
             snap.battery_mv = context_.state.battery.millivolts;
             snap.battery_percent = context_.state.battery.percent;
             snap.charging = context_.state.battery.charging;
+            snap.charge = context_.state.charge;
             // The decision belongs to core/power's CutoffMonitor, which has
             // already debounced it, ignored a cell on the cable and thrown out a
             // floating sense. The page reports what it decided.

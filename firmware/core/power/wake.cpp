@@ -10,7 +10,22 @@ const char* to_string(BootPath path) {
     return "RUN";
 }
 
-BootPath boot_path(ResetCause causes, bool button_down) {
+namespace {
+
+bool too_flat_to_run(const BootCell& cell) {
+    if (!cell.valid || cell.external_power) return false;
+    if (cell.millivolts <= kImplausibleFloorMv) return false;
+    return cell.millivolts < kBootLockoutMv;
+}
+
+}  // namespace
+
+ButtonWake button_wake_after_refusal(const BootCell& cell) {
+    return too_flat_to_run(cell) ? ButtonWake::Withheld : ButtonWake::Armed;
+}
+
+BootPath boot_path(ResetCause causes, bool button_down, const BootCell& cell) {
+    if (too_flat_to_run(cell)) return BootPath::SleepAgain;
     if (button_down) return BootPath::Run;
     if (has_cause(causes, ResetCause::Pin)) return BootPath::Run;
     // Both, not either. VBUS alone is not enough to refuse a boot: the bit is

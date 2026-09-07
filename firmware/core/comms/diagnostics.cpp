@@ -128,6 +128,9 @@ void DiagnosticsReport::build(const Diagnostics& d, const Group* only) {
         // Same rule as the status reply, and the same key: no reading is no key,
         // never a zero, because 0.0 C is a plausible hangar morning.
         if (d.die_valid) add_int(Group::Power, "die_temp_c", whole_celsius(d.die_decicelsius));
+        if (d.charge != power::ChargeCondition::Unknown)
+            add_text(Group::Power, "charge", power::to_string(d.charge));
+        add_int(Group::Power, "charge_warnings", counter(d.charge_warnings));
     }
 }
 
