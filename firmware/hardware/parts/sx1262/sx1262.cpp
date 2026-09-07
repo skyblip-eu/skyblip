@@ -9,8 +9,14 @@ Status Sx1262::wait_busy_low(uint32_t max_spins) {
     return Status::Timeout;
 }
 
-void Sx1262::cmd(uint8_t opcode, const uint8_t* params, size_t n) {
+// INFO: fc 05sep26 DS 8: a command sent while BUSY is high is a command lost
+void Sx1262::select_when_ready() {
+    (void)wait_busy_low();
     spi_.select(true);
+}
+
+void Sx1262::cmd(uint8_t opcode, const uint8_t* params, size_t n) {
+    select_when_ready();
     uint8_t op = opcode;
     spi_.transfer(&op, nullptr, 1);
     if (n) spi_.transfer(params, nullptr, n);
@@ -18,7 +24,7 @@ void Sx1262::cmd(uint8_t opcode, const uint8_t* params, size_t n) {
 }
 
 void Sx1262::cmd_read(uint8_t opcode, uint8_t* out, size_t n) {
-    spi_.select(true);
+    select_when_ready();
     uint8_t op = opcode;
     spi_.transfer(&op, nullptr, 1);
     uint8_t nop = 0;
@@ -34,6 +40,10 @@ void Sx1262::cmd_read(uint8_t opcode, uint8_t* out, size_t n) {
 // is counted in BUSY reads, each one a virtual call the compiler cannot fold.
 void Sx1262::hold_reset_low() {
     for (uint32_t i = 0; i < sx::kResetLowSpins; i++) (void)gpio_.get(busy_);
+}
+
+void Sx1262::hold_sleep_settle() {
+    for (uint32_t i = 0; i < sx::kSleepSettleSpins; i++) (void)gpio_.get(busy_);
 }
 
 Status Sx1262::enter_standby() {
@@ -95,6 +105,8 @@ Status Sx1262::begin() {
     uint8_t tcxo[4] = {sx::kTcxoVolt1v8, 0x00, 0x01, 0x40};
     cmd(sx::kSetDio3AsTcxoCtrl, tcxo, 4);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
+    // INFO: fc 05sep26 DS 13.3.6: a TCXO part raises XOSC_START_ERR here for free
+    clear_device_errors();
     uint8_t calib = 0x7F;  // calibrate all blocks after switching to the TCXO
     cmd(sx::kCalibrate, &calib, 1);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
@@ -108,14 +120,29 @@ Status Sx1262::begin() {
     // the first sleep can happen.
     write_register(sx::kRetentionListRegister, sx::kRetainRxGain, sizeof(sx::kRetainRxGain));
     configure_rx_gain();
+    configure_tx_clamp();
 
     configured_ = false;
     mode_ = RadioMode::Standby;
-    return Status::Ok;
+    return check_device_errors();
+}
+
+void Sx1262::clear_device_errors() {
+    uint8_t clear[2] = {0, 0};
+    cmd(sx::kClearDeviceErrors, clear, sizeof(clear));
+}
+
+Status Sx1262::check_device_errors() {
+    uint8_t err[2] = {0, 0};
+    cmd_read(sx::kGetDeviceErrors, err, 2);
+    device_errors_ = static_cast<uint16_t>(((err[0] << 8) | err[1]) & sx::kDeviceErrorMask);
+    if (device_errors_ == 0) return Status::Ok;
+    clear_device_errors();
+    return Status::Down;
 }
 
 void Sx1262::write_register(uint16_t addr, const uint8_t* data, size_t n) {
-    spi_.select(true);
+    select_when_ready();
     uint8_t head[3] = {sx::kWriteRegister, static_cast<uint8_t>(addr >> 8),
                        static_cast<uint8_t>(addr)};
     spi_.transfer(head, nullptr, sizeof(head));
@@ -126,7 +153,7 @@ void Sx1262::write_register(uint16_t addr, const uint8_t* data, size_t n) {
 // DS 13.2.2 ReadRegister: opcode, address, one NOP the chip answers nothing to,
 // then the bytes.
 void Sx1262::read_register(uint16_t addr, uint8_t* out, size_t n) {
-    spi_.select(true);
+    select_when_ready();
     uint8_t head[4] = {sx::kReadRegister, static_cast<uint8_t>(addr >> 8),
                        static_cast<uint8_t>(addr), 0};
     spi_.transfer(head, nullptr, sizeof(head));
@@ -184,10 +211,26 @@ void Sx1262::configure_rx_gain() {
     write_register(sx::kRxGainRegister, &gain, 1);
 }
 
+void Sx1262::configure_tx_clamp() {
+    uint8_t clamp = 0;
+    read_register(sx::kTxClampRegister, &clamp, 1);
+    clamp = static_cast<uint8_t>(clamp | sx::kTxClampWidenBits);
+    write_register(sx::kTxClampRegister, &clamp, 1);
+}
+
+void Sx1262::configure_tx_modulation() {
+    uint8_t reg = 0;
+    read_register(sx::kTxModulationRegister, &reg, 1);
+    reg = static_cast<uint8_t>(reg | sx::kTxModulationGfskBit);
+    write_register(sx::kTxModulationRegister, &reg, 1);
+}
+
 void Sx1262::configure_power() {
     cmd(sx::kSetPaConfig, sx::kPaConfigHighPower, sizeof(sx::kPaConfigHighPower));
     uint8_t params[2] = {static_cast<uint8_t>(sx::kConductedDbm), sx::kRampTime200Us};
     cmd(sx::kSetTxParams, params, sizeof(params));
+    const uint8_t ocp = sx::kOcpLimit;
+    write_register(sx::kOcpRegister, &ocp, 1);
 }
 
 // DS 13.3.1 SetDioIrqParams: the global mask, then one mask per DIO. DIO1 is the
@@ -236,6 +279,7 @@ Status Sx1262::configure_radio(const RadioConfig& cfg) {
     configure_power();
     configure_modulation(cfg);
     configure_rx_gain();
+    configure_tx_modulation();
     configure_frame(cfg);
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
     configured_ = true;
@@ -259,7 +303,7 @@ Status Sx1262::transmit(const uint8_t* data, uint8_t len) {
     if (!configured_) return Status::Invalid;
     if (wait_busy_low() != Status::Ok) return Status::Timeout;
     uint8_t offs = 0;
-    spi_.select(true);
+    select_when_ready();
     uint8_t op = sx::kWriteBuffer;
     spi_.transfer(&op, nullptr, 1);
     spi_.transfer(&offs, nullptr, 1);
@@ -287,10 +331,13 @@ Status Sx1262::start_receive() {
 
 // DS 9.3: warm start keeps the configuration in retention across sleep, so what
 // comes back is the radio that went to sleep and not a chip out of reset.
+// INFO: fc 05sep26 DS 13.1.1: SetSleep is accepted in STDBY only, and a dwell ends in RX
 void Sx1262::sleep() {
+    if (mode_ != RadioMode::Standby) enter_standby();
     uint8_t config = sx::kSleepWarmStartNoRtc;
     cmd(sx::kSetSleep, &config, 1);
     mode_ = RadioMode::Sleep;
+    hold_sleep_settle();
 }
 
 // DS 9.3: a falling edge on NSS is what wakes the part; it comes back in
@@ -342,7 +389,7 @@ RadioEvent Sx1262::poll(uint8_t* rx_buf, uint8_t cap) {
         cmd_read(sx::kGetRxBufferStatus, st, 2);
         uint8_t len = st[0];
         if (len > cap) len = cap;
-        spi_.select(true);
+        select_when_ready();
         uint8_t op = sx::kReadBuffer, offs = st[1], nop = 0;
         spi_.transfer(&op, nullptr, 1);
         spi_.transfer(&offs, nullptr, 1);

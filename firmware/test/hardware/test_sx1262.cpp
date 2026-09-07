@@ -360,7 +360,7 @@ TEST_CASE("radio: the IRQ mask is programmed before the transmitter is keyed") {
 
 // A3. Nothing in this tree set output power. The PA config is also the write
 // that raises OCP, and the band's ceiling is a regulation, not a preference.
-TEST_CASE("radio: the PA is the SX1262 high-power configuration, which is also OCP at 140 mA") {
+TEST_CASE("radio: the PA is the SX1262 high-power configuration, ordered before the power") {
     models::Sx1262 chip;
     Sx1262 r = make(chip);
     r.begin();
