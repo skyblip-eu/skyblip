@@ -35,6 +35,9 @@ struct State {
     // debounce, the charger and the sanity floor are decided once.
     power::PowerLevel power_level{power::PowerLevel::Unknown};
     power::ChargeCondition charge{power::ChargeCondition::Unknown};
+    bool supply_warned{false};
+    int16_t die_decicelsius{0};
+    bool die_temperature_valid{false};
 
     uint8_t alarm_level{0};
     // INFO: fc 03aug26 The carrier-sense threshold the next dwell will carry,

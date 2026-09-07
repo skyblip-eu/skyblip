@@ -28,6 +28,7 @@ class Ssd1681 : public hal::Display {
     bool ready(uint32_t now_ms) override;
     void power_off() override;
     void power_on() override { begin(); }
+    bool requires_idle_park() const override { return !asleep_ && !refreshing_; }
     void set_backlight(bool on) override;
 
     // INFO: fc 01aug25 GDEH0154D67 settles in ~460 ms fast / ~2.5 s full (GxEPD2-measured)
@@ -45,7 +46,7 @@ class Ssd1681 : public hal::Display {
     void write_bank(uint8_t command, const uint8_t* fb_bytes);
     void set_window(int x0, int y0, int x1, int y1);
     void set_cursor(int x, int y);
-    void wait_busy(uint32_t max_spins = 200000);
+    bool wait_busy(uint32_t max_spins = 200000);
 
     io::Spi& spi_;
     io::Gpio& gpio_;

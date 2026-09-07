@@ -153,6 +153,13 @@ void ScreenService::tick(uint32_t now_ms) {
     const bool quiet = context_.state.alarm_level == 0 && context_.state.traffic.count() == 0;
     if (!quiet) quiet_since_ms_ = now_ms;
 
+    if (thermal() == Thermal::Hold ||
+        !power::may_refresh(context_.state.power_level, context_.state.supply_warned,
+                            power::PanelRefresh::Routine)) {
+        context_.roles.display.ready(now_ms);
+        return;
+    }
+
     if (!dirty_ && now_ms - last_render_ms_ < kRenderPeriodMs) return;
     if (!context_.roles.display.ready(now_ms)) return;
     if (presented_once_ && now_ms - last_present_ms_ < kPresentFloorMs) return;
@@ -163,11 +170,32 @@ void ScreenService::tick(uint32_t now_ms) {
 
     const bool changed = !presented_once_ ||
                          std::memcmp(fb_.data(), presented_.data(), ui::Framebuffer::kBytes) != 0;
-    const bool full = decide_full(now_ms, quiet);
-    if (!changed && !full) return;
+    const bool owed_full = decide_full(now_ms, quiet);
+    if (!changed && !owed_full) {
+        park_idle_panel(now_ms);
+        return;
+    }
 
+    const bool full = owed_full || thermal() == Thermal::FullOnly;
     context_.roles.display.present(fb_, full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
     note_presented(full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
+}
+
+// INFO: fc 06sep26 the panel sleeps itself after a full refresh, never after a partial
+void ScreenService::park_idle_panel(uint32_t now_ms) {
+    if (!context_.roles.display.requires_idle_park()) return;
+    if (now_ms - last_present_ms_ < kParkAfterIdleMs) return;
+    context_.roles.display.present(fb_, hal::Refresh::Full, now_ms);
+    note_presented(hal::Refresh::Full, now_ms);
+}
+
+// INFO: fc 06sep26 the OTP waveform is picked by temperature; the partial LUT ghosts cold
+ScreenService::Thermal ScreenService::thermal() const {
+    if (!context_.state.die_temperature_valid) return Thermal::Refresh;
+    const int16_t decicelsius = context_.state.die_decicelsius;
+    if (decicelsius > kHoldAboveDeciCelsius) return Thermal::Hold;
+    if (decicelsius < kFullOnlyBelowDeciCelsius) return Thermal::FullOnly;
+    return Thermal::Refresh;
 }
 
 // INFO: fc 01aug25 a full refresh flashes ~2.5 s: pay ghost debt around the
@@ -225,11 +253,19 @@ void ScreenService::set_power(bool on) {
     // A lit backlight is a rail nobody switched off: the panel sleeps, the LED
     // would not have.
     set_backlight(false);
-    // INFO: fc 01aug25 pushed before power-off: the glass wears it while off
-    fb_.clear(/*white=*/true);
-    ui::draw_wordmark(fb_, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
-    context_.roles.display.present(fb_, hal::Refresh::Full, last_render_ms_);
+    if (may_present_park_frame()) {
+        // INFO: fc 01aug25 pushed before power-off: the glass wears it while off
+        fb_.clear(/*white=*/true);
+        ui::draw_wordmark(fb_, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
+        context_.roles.display.present(fb_, hal::Refresh::Full, last_render_ms_);
+    }
     context_.roles.display.power_off();
+}
+
+bool ScreenService::may_present_park_frame() const {
+    if (thermal() == Thermal::Hold) return false;
+    return power::may_refresh(context_.state.power_level, context_.state.supply_warned,
+                              power::PanelRefresh::Park);
 }
 
 void ScreenService::draw_prompt() {

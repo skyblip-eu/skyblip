@@ -52,6 +52,12 @@ class PowerService : public runtime::Service {
     power::ChargeCondition charge_condition() const { return charge_; }
     uint32_t charge_warnings() const { return charge_warnings_; }
 
+    // INFO: fc 06sep26 a sensor that stopped answering must neither hold nor drive the glass
+    static constexpr uint32_t kDieStaleMs = 30000;
+    bool die_reading_fresh(uint32_t now_ms) const {
+        return die_valid_ && now_ms - die_valid_ms_ <= kDieStaleMs;
+    }
+
    private:
     // INFO: fc 05aug26 Die temperature moves in minutes: it is the temperature of
     // a lump of plastic in the sun, low-passed by its own mass. Ten seconds is
@@ -62,6 +68,7 @@ class PowerService : public runtime::Service {
     // may not be made from an interrupt or from the radio thread. It runs on the
     // service pass, where the executor that owns the dwells outranks it.
     static constexpr uint32_t kDiePeriodMs = 10000;
+    static_assert(kDieStaleMs >= 2 * kDiePeriodMs, "one missed sample is not a dead sensor");
 
     void sample_die_temperature(uint32_t now_ms);
     void watch_charge();
@@ -75,6 +82,7 @@ class PowerService : public runtime::Service {
     power::ChargeCondition charge_{power::ChargeCondition::Unknown};
     uint32_t charge_warnings_{0};
     uint32_t die_read_ms_{0};
+    uint32_t die_valid_ms_{0};
     int16_t die_dc_{0};
     bool die_valid_{false};
     bool die_sampled_{false};

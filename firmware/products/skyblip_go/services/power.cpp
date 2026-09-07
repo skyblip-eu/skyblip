@@ -20,6 +20,7 @@ void PowerService::sample_die_temperature(uint32_t now_ms) {
     if (!die_->read(decicelsius)) return;
     die_dc_ = decicelsius;
     die_valid_ = true;
+    die_valid_ms_ = now_ms;
 }
 
 void PowerService::watch_charge() {
@@ -46,7 +47,10 @@ void PowerService::tick(uint32_t now_ms) {
     }
     context_.state.battery = gauge_.state();
     context_.state.power_level = cutoff_.level();
+    context_.state.supply_warned = cutoff_.supply_warned();
     sample_die_temperature(now_ms);
+    context_.state.die_decicelsius = die_dc_;
+    context_.state.die_temperature_valid = die_reading_fresh(now_ms);
     watch_charge();
 }
 

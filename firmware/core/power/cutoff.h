@@ -61,6 +61,11 @@ enum class DurableWrite : uint8_t {
 // no longer the question.
 bool may_write(PowerLevel level, bool supply_warned, DurableWrite kind);
 
+enum class PanelRefresh : uint8_t { Routine, Park };
+
+// INFO: fc 06sep26 the panel makes its own drive rails: a lost supply latches neither frame
+bool may_refresh(PowerLevel level, bool supply_warned, PanelRefresh kind);
+
 // Fed the same sample stream the gauge sees. Latches at Cutoff: once the device
 // has decided to go down, a cell that bounces back up on the relief of the radio
 // going quiet must not cancel it.
@@ -92,6 +97,10 @@ class CutoffMonitor {
     // The rule above, asked of what this monitor currently knows.
     bool may_write(DurableWrite kind) const {
         return power::may_write(level_, supply_warned_, kind);
+    }
+
+    bool may_refresh(PanelRefresh kind) const {
+        return power::may_refresh(level_, supply_warned_, kind);
     }
 
     uint8_t below_cutoff() const { return below_cutoff_; }
