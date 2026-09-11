@@ -1,0 +1,223 @@
+---
+title: Flash it, configure it, fly it
+nav_title: First flight
+description: "UF2 drag-and-drop for the first flash, what a phone can change over Bluetooth, what each of the three alarm levels does &mdash; and, because it matters more than any of that, what a skyBlip Go does not see."
+---
+
+<section>
+  <h2 class="kicker">First flight</h2>
+  <h3>Flash it, configure it, fly it.</h3>
+  <p class="lede">
+    A skyBlip Go leaves nothing to install beyond the firmware itself: drag a
+    file onto the device, then talk to it over Bluetooth. This page is the
+    whole of that&nbsp;&mdash; the first flash, the settings a phone can
+    change, what the three alarm levels actually do &mdash; and it ends with
+    the part a stranger flying this for the first time needs most: what the
+    device does not see.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">The first flash</h2>
+  <h3>Double-click, drag, drop.</h3>
+  <p>
+    The LilyGO T-Echo Plus that skyBlip Go runs on ships with a factory
+    bootloader already installed, the same one LilyGO&rsquo;s own firmware and
+    projects like SoftRF and Meshtastic use. It never gets touched, in either
+    direction: installing skyBlip does not remove your ability to put a
+    different firmware back on hardware you own.
+  </p>
+  <ol>
+    <li>
+      Connect the device by USB-C, then double-click its RESET
+      button within half a second.
+    </li>
+    <li>
+      A drive named <span class="mono">TECHOBOOT</span> appears on your
+      computer. This is the bootloader itself talking, independent of
+      whatever firmware happens to be on the device &mdash; including a
+      broken or half-written one.
+    </li>
+    <li>
+      Drag the <span class="mono">.uf2</span> file onto that drive, and wait
+      for the copy to finish. The device reboots on its own, running the new
+      firmware.
+    </li>
+  </ol>
+  <p>
+    Every <span class="mono">.uf2</span> we publish is built to fit entirely
+    inside the region the bootloader reserves for an application, so a
+    correctly built one cannot land on the bootloader itself. The one file to
+    stay away from is a <em>bootloader replacement</em> for this board,
+    sometimes shared alongside other T-Echo firmware under a name like
+    <span class="mono">nosd.uf2</span>: dropping one removes the drag-and-drop
+    path that this page depends on, with no way back except a hardware
+    programmer. Nothing skyBlip publishes is that file.
+  </p>
+  <p class="note">
+    The same double-click always works, whatever state the installed firmware
+    is in: it is the one recovery route that needs no working Bluetooth link
+    and no charge in the device beyond what USB supplies.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">Settings, over Bluetooth</h2>
+  <h3>What a phone can change, and what it takes to make it stick.</h3>
+  <p>
+    Once flashed, a skyBlip Go offers one Bluetooth Low Energy service with
+    two jobs. One streams live traffic as FLARM-format NMEA sentences, which
+    is what SDVFR Next, SkyDemon, ForeFlight and similar apps already read.
+    The other reads and writes the device&rsquo;s settings as small JSON
+    messages: a phone can read the current configuration, or propose a new
+    one.
+  </p>
+  <p>What a phone can change:</p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>Setting</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><th>Address</th><td>self-minted, or an issued ICAO, FLARM or OGN address</td></tr>
+        <tr><th>Aircraft category</th><td>the ADS-L type this device broadcasts as</td></tr>
+        <tr><th>Alarm</th><td>on or off, and a volume from 0 to 5</td></tr>
+        <tr><th>Stealth</th><td>broadcast anonymously, vertical rate withheld</td></tr>
+        <tr><th>Units</th><td>metric or imperial, on the instrument pages</td></tr>
+        <tr><th>Page mask</th><td>which instrument pages the screen cycles through</td></tr>
+        <tr><th>Callsign</th><td>shown on the device and over the link &mdash; ADS-L itself carries no callsign field, so it is never transmitted on the air</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    None of it takes effect from a phone alone. Every change &mdash; a new
+    alarm volume just as much as a firmware upload &mdash; is refused outright
+    in the air. On the ground, it is staged as a prompt and waits for a
+    gesture on the device itself: double-press the button within 600&nbsp;ms
+    to confirm it, a single press refuses it, and a prompt nobody answers
+    cancels itself after 30&nbsp;seconds. Losing the Bluetooth connection
+    cancels it too. Bluetooth pairing is deliberately off on this device
+    (encrypted settings break Web Bluetooth on some platforms), so this
+    hands-on gesture is what stands in for it: nothing sensitive happens
+    because a phone in range asked for it.
+  </p>
+  <p>
+    A firmware upload goes through the same gesture twice: once to open a
+    ten-minute window for the new image, once more to confirm the reboot that
+    installs it. Taking off closes an open window immediately and cancels
+    whatever prompt was waiting.
+  </p>
+  <p>
+    The same button also changes page, walks the settings the device can edit
+    on its own glass, and switches the device off.
+    <%= link_to_page "buttons", class: "cta cta--next" %>
+  </p>
+  <p class="note">
+    Reaching this today means a Bluetooth tool able to write to a custom
+    GATT characteristic &mdash; the service reuses the same UUID block as
+    Nordic&rsquo;s own UART service, so several already exist. A walk-up
+    page at skyblip.eu that speaks this protocol for you is not built yet.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">The alarm</h2>
+  <h3>Three levels, and what each one actually does.</h3>
+  <p>
+    An alarm needs two things to fire at all: another aircraft transmitting
+    something this device receives, and within 300&nbsp;m of your altitude.
+    Above or below that band, traffic still shows on the radar screen, at
+    whatever range &mdash; it is never alarmed.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>Level</th><th>Fires when</th><th>Buzzer</th><th>Vibration</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>1 &middot; Info</th>
+          <td>within 3&nbsp;km</td>
+          <td>one short blip, once</td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <th>2 &middot; Important</th>
+          <td>not moving away, and within 1.5&nbsp;km or less than 25&nbsp;s from closest approach</td>
+          <td>two beeps of 250&nbsp;ms, a beep-length apart</td>
+          <td>200&nbsp;ms, the moment it gets worse</td>
+        </tr>
+        <tr>
+          <th>3 &middot; Urgent</th>
+          <td>actually closing, and within 500&nbsp;m or less than 15&nbsp;s from closest approach</td>
+          <td>a train of six fast pulses, repeated every 2&nbsp;s while it stays urgent</td>
+          <td>600&nbsp;ms, each time it escalates</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    &ldquo;Actually closing&rdquo; excludes GNSS noise: a target has to be
+    shutting the gap at more than roughly 2&nbsp;m/s (about 4&nbsp;kt) before
+    its closure counts for anything, and a target that stops closing for six
+    seconds straight is held back at Info, however close it already got.
+    &ldquo;Not moving away&rdquo; excludes traffic that is, whatever the
+    range. And two aircraft turning the same way at the same rate, within
+    1&nbsp;km and 100&nbsp;m of each other &mdash; a normal gaggle sharing a
+    thermal &mdash; are held at Info too, by design: that geometry produces a
+    dozen false urgents an hour if it doesn&rsquo;t.
+  </p>
+  <p>
+    Each level is told apart by its rhythm, so a pilot learns three sounds
+    and not three frequencies: the pitch does rise by 400&nbsp;Hz per level
+    around the buzzer&rsquo;s 4&nbsp;kHz resonance, but the cadence is the cue
+    that carries through a headset. Every one of them stops on its own: only
+    Urgent repeats, and it leaves about a second of quiet between trains for a
+    radio call.
+  </p>
+  <p class="note">
+    This is straight-line geometry from each aircraft&rsquo;s current track
+    and speed, re-evaluated every second. It has no model of where a circling
+    aircraft will be in ten seconds, only of where it is now, and that has a
+    consequence worth knowing before you fly it: two gliders working the same
+    thermal on slightly offset circles can pass very close while the range
+    between them never closes for long enough to count, and this device will
+    hold them at Info throughout. In a gaggle, the screen is the instrument.
+    The alarm is for the aircraft that is not turning with you.
+  </p>
+</section>
+
+<section class="pledge">
+  <h2 class="kicker">What this device does not see</h2>
+  <h3>It sees only what already transmits something it can receive.</h3>
+  <p>
+    A skyBlip Go receives ADS-L directly, receives FLARM-generation traffic
+    directly, and &mdash; only within range of a skyPost ground station
+    &mdash; the ADS-B traffic that station relays over ADS-L. That is the
+    whole list. It does not receive OGNTP, FANET or FANET+, PilotAware&rsquo;s
+    P3I, 978&nbsp;UAT, or 1090&nbsp;MHz ADS-B on its own radio: an airliner or
+    a touring aircraft squawking ADS-B is invisible to a Go outside skyPost
+    coverage, exactly as a paraglider on FANET alone is invisible to it
+    everywhere.
+  </p>
+  <p>
+    And under every one of those protocols sits the case that matters most:
+    an aircraft carrying only a transponder, or carrying nothing at all,
+    transmits nothing any of this equipment can receive, and stays invisible
+    to it, full stop. A clear alarm screen is not an empty sky. This device
+    is <%= link_to_page "see-and-avoid", label: "see-and-avoid support", class: "cta" %>,
+    the second pair of eyes described on that page, not a replacement for the
+    lookout the rules already put on the pilot.
+  </p>
+  <p>
+    <%= link_to_page "safety", class: "cta cta--next" %>
+  </p>
+</section>
+
+<section>
+  <p>
+    <%= link_to_page "devices", class: "cta cta--previous" %>
+    &nbsp;&middot;&nbsp;
+    <%= link_to_page "index", label: "skyBlip", class: "cta" %>
+  </p>
+</section>
