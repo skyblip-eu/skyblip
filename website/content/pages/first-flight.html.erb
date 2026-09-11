@@ -107,6 +107,11 @@ description: "UF2 drag-and-drop for the first flash, what a phone can change ove
     installs it. Taking off closes an open window immediately and cancels
     whatever prompt was waiting.
   </p>
+  <p>
+    The same button also changes page, walks the settings the device can edit
+    on its own glass, and switches the device off.
+    <%= link_to_page "buttons", class: "cta cta--next" %>
+  </p>
   <p class="note">
     Reaching this today means a Bluetooth tool able to write to a custom
     GATT characteristic &mdash; the service reuses the same UUID block as
@@ -139,7 +144,7 @@ description: "UF2 drag-and-drop for the first flash, what a phone can change ove
         <tr>
           <th>2 &middot; Important</th>
           <td>not moving away, and within 1.5&nbsp;km or less than 25&nbsp;s from closest approach</td>
-          <td>two beeps, higher pitch</td>
+          <td>two beeps of 250&nbsp;ms, a beep-length apart</td>
           <td>200&nbsp;ms, the moment it gets worse</td>
         </tr>
         <tr>
@@ -163,10 +168,12 @@ description: "UF2 drag-and-drop for the first flash, what a phone can change ove
     dozen false urgents an hour if it doesn&rsquo;t.
   </p>
   <p>
-    Each level is told apart by its rhythm rather than by its pitch, so a
-    pilot learns three sounds and not three frequencies. Every one of them
-    stops on its own: only Urgent repeats, and it leaves about a second of
-    quiet between trains for a radio call.
+    Each level is told apart by its rhythm, so a pilot learns three sounds
+    and not three frequencies: the pitch does rise by 400&nbsp;Hz per level
+    around the buzzer&rsquo;s 4&nbsp;kHz resonance, but the cadence is the cue
+    that carries through a headset. Every one of them stops on its own: only
+    Urgent repeats, and it leaves about a second of quiet between trains for a
+    radio call.
   </p>
   <p class="note">
     This is straight-line geometry from each aircraft&rsquo;s current track

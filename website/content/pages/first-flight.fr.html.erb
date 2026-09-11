@@ -117,6 +117,11 @@ description: "Le premier flashage en UF2, ce qu'un téléphone peut modifier en 
     referme immédiatement une fenêtre ouverte et annule toute invite en
     attente.
   </p>
+  <p>
+    Le même bouton change aussi de page, parcourt les réglages que
+    l&rsquo;appareil sait modifier sur son propre écran, et l&rsquo;éteint.
+    <%= link_to_page "buttons", class: "cta cta--next" %>
+  </p>
   <p class="note">
     Y accéder aujourd&rsquo;hui suppose un outil Bluetooth capable
     d&rsquo;écrire sur une caractéristique GATT personnalisée &mdash; le
@@ -152,7 +157,7 @@ description: "Le premier flashage en UF2, ce qu'un téléphone peut modifier en 
         <tr>
           <th>2 &middot; Important</th>
           <td>ne s&rsquo;éloigne pas, et à moins de 1,5&nbsp;km ou moins de 25&nbsp;s du rapprochement maximal</td>
-          <td>deux bips, plus aigus</td>
+          <td>deux bips de 250&nbsp;ms, séparés par la durée d&rsquo;un bip</td>
           <td>200&nbsp;ms, au moment où ça s&rsquo;aggrave</td>
         </tr>
         <tr>
@@ -179,8 +184,10 @@ description: "Le premier flashage en UF2, ce qu'un téléphone peut modifier en 
     heure si on ne le fait pas.
   </p>
   <p>
-    Chaque niveau se reconnaît à son rythme plutôt qu&rsquo;à sa hauteur de
-    son&nbsp;: un pilote apprend trois sons, pas trois fréquences. Tous
+    Chaque niveau se reconnaît à son rythme&nbsp;: un pilote apprend trois
+    sons, pas trois fréquences. La hauteur monte bien de 400&nbsp;Hz par
+    niveau autour de la résonance du buzzer à 4&nbsp;kHz, mais c&rsquo;est la
+    cadence qui porte sous un casque. Tous
     s&rsquo;arrêtent d&rsquo;eux-mêmes&nbsp;: seul Urgent se répète, et il
     laisse environ une seconde de silence entre deux salves, de quoi passer un
     message radio.
