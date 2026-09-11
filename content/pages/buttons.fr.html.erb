@@ -1,0 +1,195 @@
+---
+title: Se servir du bouton
+nav_title: Boutons
+slug: boutons
+description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pression change de page, deux pressions autorisent, un appui de deux secondes éteint. Ce que fait RST, et pourquoi le pavé tactile ne fait rien.
+---
+
+<section>
+  <h2 class="kicker">Se servir du bouton</h2>
+  <h3>Un bouton, trois choses.</h3>
+  <p class="lede">
+    skyBlip Go n&rsquo;a qu&rsquo;un bouton à apprendre, et il dit trois
+    choses&nbsp;: une pression change de page, deux pressions rapprochées
+    autorisent ce que l&rsquo;appareil demande, un appui de deux secondes
+    l&rsquo;éteint. Rien d&rsquo;autre n&rsquo;est caché derrière, et les trois ne
+    se recouvrent jamais&nbsp;: un appui long n&rsquo;est jamais lu comme une
+    pression, et une pression faite avant qu&rsquo;une question apparaisse ne peut
+    pas y répondre.
+  </p>
+  <p>
+    Le boîtier porte deux autres entrées&nbsp;: un petit bouton
+    <span class="mono">RST</span>, qui est le reset du processeur et la porte
+    d&rsquo;entrée du bootloader USB, et un pavé tactile capacitif, que le
+    firmware ne lit pas du tout. Les deux sont traités en bas de page.
+  </p>
+
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Geste</th>
+          <th>Effet</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>Une pression</th>
+          <td>page suivante &mdash; ou, devant une question à l&rsquo;écran, la refuse</td>
+        </tr>
+        <tr>
+          <th>Deux pressions, à moins de 0,6&nbsp;s</th>
+          <td>autorisent la question à l&rsquo;écran&nbsp;; sur la page réglages, modifient la ligne sélectionnée</td>
+        </tr>
+        <tr>
+          <th>Appui de 2&nbsp;s</th>
+          <td>éteint l&rsquo;appareil</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="kicker">Allumer, éteindre</h2>
+  <h3>Une pression le réveille. Un appui long le range.</h3>
+  <p>
+    Allumer, c&rsquo;est une pression. Éteindre, c&rsquo;est un appui de deux
+    secondes&nbsp;: la radio est arrêtée, l&rsquo;écran reçoit trois secondes pour
+    finir de dessiner le logo, et les alimentations ne tombent qu&rsquo;une fois le
+    pouce relevé. Le papier électronique garde sa dernière image sans aucune
+    alimentation&nbsp;: le logo est donc ce que l&rsquo;appareil porte pendant
+    qu&rsquo;il est éteint, et cette image veut dire éteint, pas en veille.
+  </p>
+  <p>
+    Deux cas ne font délibérément pas ce que ferait un téléphone. Un chargeur
+    branché sur un appareil éteint le laisse éteint et le charge, parce
+    qu&rsquo;un câble trouvé au fond d&rsquo;une sacoche n&rsquo;est pas une
+    demande de se mettre à émettre&nbsp;; maintenez le bouton en branchant si vous
+    voulez aussi l&rsquo;appareil. Et un appareil qui s&rsquo;est éteint sur une
+    batterie vide ne revient pas sur une pression&nbsp;: il attend un chargeur,
+    pour qu&rsquo;un bouton enfoncé par le poids d&rsquo;un sac ne puisse pas
+    achever la batterie.
+  </p>
+
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Appareil éteint</th>
+          <th>Ce qui se passe</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th>Pression sur le bouton</th><td>démarre, sauf batterie sous 3,4&nbsp;V sans chargeur</td></tr>
+        <tr><th>Branchement du chargeur</th><td>charge, reste éteint</td></tr>
+        <tr><th>Bouton maintenu, chargeur branché</th><td>démarre et charge</td></tr>
+        <tr><th>Pression après une coupure batterie vide</th><td>rien, à dessein &mdash; branchez le chargeur</td></tr>
+        <tr><th>Pression sur <span class="mono">RST</span></th><td>démarre</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="kicker">Les pages</h2>
+  <h3>Une pression passe à la suivante, et la liste est la vôtre.</h3>
+  <p>
+    En vol, le bouton est un sélecteur de page&nbsp;: radar, six-pack, état,
+    signal, puis la page réglages, puis on recommence. La ligne PAGES des réglages
+    masque celles avec lesquelles vous ne volez pas &mdash; toutes, radar et état
+    seulement, ou radar seul &mdash; et une page masquée est sautée par le bouton
+    au lieu d&rsquo;être parcourue. La page réglages reste toujours dans le cycle,
+    pour que le chemin du retour ne soit jamais quelque chose que vous puissiez
+    vous cacher à vous-même.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">Les réglages à l&rsquo;écran</h2>
+  <h3>Une pression descend d&rsquo;une ligne, deux pressions la modifient.</h3>
+  <p>
+    Tout ce qui compte se règle sur l&rsquo;appareil, sans téléphone&nbsp;: une
+    pression pour descendre les lignes, deux pressions pour agir sur celle qui est
+    en surbrillance. Continuez de taper dans la fenêtre et la valeur continue
+    d&rsquo;avancer&nbsp;: c&rsquo;est ainsi qu&rsquo;on amène le calage là où on
+    le veut. Rien n&rsquo;est un brouillon&nbsp;: chaque action est une
+    modification terminée, il n&rsquo;y a donc aucun moyen de laisser
+    l&rsquo;appareil à moitié réglé.
+  </p>
+  <p>
+    Les lignes ne font qu&rsquo;avancer, la dernière rend l&rsquo;écran à
+    l&rsquo;image du trafic, et une page réglages sur laquelle personne n&rsquo;a
+    appuyé depuis une minute y retourne d&rsquo;elle-même. On ne peut pas rester
+    coincé dedans.
+  </p>
+
+  <div class="table-scroll">
+    <table class="modules">
+      <thead>
+        <tr><th>Ligne</th><th>Deux pressions</th></tr>
+      </thead>
+      <tbody>
+        <tr><th>ID</th><td>rien &mdash; votre adresse ADS-L, affichée, jamais modifiée au pouce</td></tr>
+        <tr><th>AIRCRAFT</th><td>type suivant&nbsp;: planeur, ULM, hélicoptère, parapente, ballon, et le reste de la liste ADS-L</td></tr>
+        <tr><th>ALARM</th><td>alarmes actives ou non</td></tr>
+        <tr><th>VOLUME</th><td>0 à 5</td></tr>
+        <tr><th>UNITS</th><td>métrique, ou pieds et nœuds</td></tr>
+        <tr><th>QNH UP / QNH DOWN</th><td>un hectopascal par pression, de 940 à 1050</td></tr>
+        <tr><th>PAGES</th><td>toutes, radar et état, radar seul</td></tr>
+        <tr><th>BACK TO TRAFFIC</th><td>quitte les réglages</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="kicker">Répondre à l&rsquo;appareil</h2>
+  <h3>Deux pressions autorisent, une pression refuse.</h3>
+  <p>
+    Quand l&rsquo;application demande quelque chose qui pourrait changer
+    l&rsquo;appareil avec lequel vous volez &mdash; un nouveau firmware, un jeu de
+    réglages, l&rsquo;effacement de vos vols, une extinction &mdash;
+    l&rsquo;appareil n&rsquo;agit pas sur la parole du téléphone. Il affiche la
+    question sur son propre écran, la nomme, et attend trente secondes&nbsp;:
+    <span class="mono">PRESS TWICE TO ALLOW</span>,
+    <span class="mono">ONE PRESS REFUSES</span>. L&rsquo;absence de réponse dans
+    la fenêtre est aussi un refus.
+  </p>
+  <p>
+    Les pressions ne comptent qu&rsquo;une fois la question arrivée à
+    l&rsquo;écran et le pouce arrêté&nbsp;: une série de pressions qui défilait
+    les pages ne peut donc pas être dépensée en autorisation. La présence physique
+    est toute la sécurité ici&nbsp;: l&rsquo;appareil ne demande à personne de
+    s&rsquo;apparier, il vous demande de l&rsquo;avoir en main.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">Les deux autres</h2>
+  <h3><span class="mono">RST</span> redémarre. Le pavé ne fait rien.</h3>
+  <p>
+    <span class="mono">RST</span> est un reset matériel&nbsp;: une pression et
+    l&rsquo;appareil redémarre, quoi que le firmware ait été en train de faire.
+    Deux pressions en moins d&rsquo;une demi-seconde le placent dans le bootloader
+    USB, où il apparaît comme un disque sur lequel déposer un fichier de firmware.
+    Cette route appartient au bootloader et non à notre firmware, et c&rsquo;est ce
+    qui en fait le chemin de retour d&rsquo;un appareil qui ne démarre plus.
+  </p>
+  <p>
+    Le pavé tactile du boîtier n&rsquo;est pas lu. Il est présent sur la carte, il
+    est documenté dans le brochage, et rien n&rsquo;y est relié&nbsp;: un pavé
+    capacitif est inutilisable à travers des gants d&rsquo;hiver, il se déclenche
+    sur une joue et sous la pluie, et un bouton dont on peut répéter les trois
+    gestes au sol vaut mieux que deux entrées dont il faut se rappeler le
+    vocabulaire en vol.
+  </p>
+</section>
+
+<section>
+  <p>
+    <%= link_to_page "devices", class: "cta" %>
+    &nbsp;·&nbsp;
+    <%= link_to_page "index", label: "skyBlip", class: "cta cta--previous" %>
+  </p>
+</section>
