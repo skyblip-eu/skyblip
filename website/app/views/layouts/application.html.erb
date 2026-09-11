@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="<%= I18n.locale %>">
+  <head>
+    <title><%= title %></title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="<%= site_name %>">
+    <meta name="mobile-web-app-capable" content="yes">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+
+    <%= render 'layouts/og_meta_tags', tags: {
+      title: title,
+      description: description,
+      author: author,
+      type: "website",
+      site_name: site_name,
+      url: canonical_url,
+    } %>
+
+    <%= tag :link, rel: "canonical", href: canonical_url %>
+
+    <%= hreflang_link_tags %>
+
+    <%= tag :meta, name: "robots", content: robots_content %>
+
+    <%= yield :head %>
+
+    <%# Enable PWA manifest for installable apps (make sure to enable in config/routes.rb too!) %>
+    <%#= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
+
+    <link rel="icon" href="/icon.png" type="image/png">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon.png">
+
+    <% if Rails.env.production? %>
+      <script defer src="https://cloud.umami.is/script.js" data-website-id="9b50045b-b681-4399-a964-6f4edcffa500"></script>
+    <% end %>
+
+    <%# Includes all stylesheet files in app/assets/stylesheets %>
+    <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
+    <%= javascript_importmap_tags %>
+  </head>
+
+  <body>
+    <%= render "layouts/nav" %>
+
+    <%= yield %>
+  </body>
+</html>

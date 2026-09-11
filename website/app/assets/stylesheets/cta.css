@@ -1,0 +1,10 @@
+@layer components {
+  .cta {
+    color: var(--ink-muted);
+    text-decoration: none;
+  }
+  .cta:hover { color: var(--blip); }
+
+  .cta--next::after { content: "\00a0\2192"; }
+  .cta--previous::before { content: "\2190\00a0"; }
+}

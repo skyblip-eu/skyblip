@@ -1,0 +1,36 @@
+@layer components {
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .wordmark .quiet { color: var(--quiet); }
+  .wordmark .loud { color: var(--ink); }
+  .wordmark-hero { font-size: clamp(2.625rem, 8vw, 3.5rem); }
+  .wordmark-section { font-size: clamp(1.875rem, 5vw, 2.375rem); margin-block-start: 0.5rem; }
+
+  .glyph { position: relative; display: inline-block; }
+  .glyph > .overlay {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    overflow: visible;
+    max-inline-size: none;
+  }
+
+  .overlay-blip { inline-size: 0.72em; block-size: 0.72em; bottom: 0.79em; }
+
+  .overlay-post { inline-size: 0.95em; block-size: 0.95em; bottom: -0.05em; }
+
+  .o-ring {
+    display: inline-block;
+    inline-size: 0.56em;
+    block-size: 0.56em;
+    border: 0.115em solid var(--blip);
+    border-radius: 50%;
+    margin-inline: 0 0.02em;
+    transform: translateY(0.018em);
+  }
+}

@@ -1,0 +1,120 @@
+---
+title: Open-source electronic conspicuity for general aviation
+description: skyBlip makes your aircraft, microlight or glider visible to others and displays surrounding traffic, on your tablet or your panel display. Open source and affordable.
+---
+
+<header class="hero">
+  <div class="wordmark wordmark-hero"><span class="quiet">sky</span><span class="loud">Bl<span class="glyph">&#305;<svg class="overlay overlay-blip" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="34" r="5.5" fill="#FF4F1F"/><path d="M10 25 A14 14 0 0 1 30 25" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".65"/><path d="M4 15 A22 22 0 0 1 36 15" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".3"/></svg></span>p</span></div>
+  <p class="tagline">Open-source electronic conspicuity for general aviation.</p>
+  <p class="lede">
+    Flying VFR, everyone watches for the others through the canopy. skyBlip
+    adds a second pair of eyes: a small device that announces your position
+    by radio and receives everyone else&rsquo;s. Nearby traffic shows up on
+    the skyBlip&rsquo;s own screen, on your tablet or on your panel display,
+    and an alarm warns you when an aircraft converges.
+  </p>
+</header>
+
+<section>
+  <h2 class="kicker">In the aircraft</h2>
+  <div class="wordmark wordmark-section"><span class="quiet">sky</span><span class="loud">Bl<span class="glyph">&#305;<svg class="overlay overlay-blip" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="34" r="5.5" fill="#FF4F1F"/><path d="M10 25 A14 14 0 0 1 30 25" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".65"/><path d="M4 15 A22 22 0 0 1 36 15" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".3"/></svg></span>p</span></div>
+  <p class="product-tagline">See &amp; be seen.</p>
+  <p>A skyBlip makes your aircraft visible to others and displays surrounding traffic.</p>
+
+  <div class="cards">
+    <article class="card card-featured">
+      <div class="card-featured-body">
+      <h3>skyBlip Go <span class="tag">the pocket tracker</span></h3>
+      <p>
+        A standalone, battery-powered device with nothing to install: it
+        slips into a jacket pocket and sits in the cockpit. It transmits your
+        position, receives everyone else&rsquo;s (including FLARM-equipped
+        gliders), shows a radar on its own screen and alerts on converging
+        traffic. Connected over Bluetooth, it
+        puts the aircraft around you into the navigation app you already
+        use: SDVFR Next, SkyDemon, ForeFlight and the others.
+      </p>
+      <p class="note">
+        Works everywhere, with no infrastructure and no subscription. Under
+        skyPost ground coverage, the picture gains the traffic detected from
+        the ground (airliners and touring aircraft on ADS-B) plus weather
+        (QNH, METAR, TAF).
+      </p>
+      </div>
+      <%= pages_image_tag "skyblip-go-techo.jpg", alt: "skyBlip Go: white device with antenna, skyBlip shown on the e-paper screen" %>
+    </article>
+
+    <article class="card card-featured card-featured--reverse">
+      <div class="card-featured-body">
+      <h3>skyBlip Panel <span class="tag">for glass cockpits</span></h3>
+      <p>
+        For aircraft with a glass cockpit: Garmin G3X, Dynon SkyView and
+        others. A discreet unit installed behind the panel and powered by the
+        aircraft — with no screen of its own, it shows traffic on the display
+        you already fly with, like a factory-fitted traffic source. No subscription, no SIM card.
+      </p>
+      </div>
+      <%= pages_image_tag "skyblip-panel-board.jpg", alt: "skyBlip Panel: the avionics gateway installed behind the panel" %>
+    </article>
+  </div>
+
+  <p class="note">
+    Each skyBlip keeps a track of your flights in its memory. Back on the
+    ground, open your browser and connect over Bluetooth: your flights
+    download in seconds, with no app and no account.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">On the ground</h2>
+  <div class="wordmark wordmark-section"><span class="quiet">sky</span><span class="loud">P<span class="glyph"><span class="o-ring"></span><svg class="overlay overlay-post" viewBox="-25 -25 50 50" aria-hidden="true"><path d="M-11.8 -18 A21.5 21.5 0 0 1 11.8 -18" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".65"/><path d="M-15.9 -26 A30.5 30.5 0 0 1 15.9 -26" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".3"/></svg></span>st</span></div>
+  <p class="product-tagline">Received on the ground, relayed in flight.</p>
+  <p>
+    Airliners and a large share of touring aircraft already announce their
+    position over ADS-B. skyPost ground stations receive those announcements,
+    add the traffic from online networks such as the Open Glider Network
+    (OGN), and rebroadcast the whole picture to the skyBlips in flight. One
+    station on a club roof covers the field, the circuit and the
+    surroundings; the solar version mounts on a simple mast.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">The devices</h2>
+  <p>
+    Two devices to choose from for the aircraft (skyBlip Go, skyBlip Panel)
+    and two ground station models (skyPost Helio, skyPost Bridge).
+  </p>
+  <p><%= link_to_page "devices", class: "cta cta--next" %></p>
+</section>
+
+<section>
+  <h2 class="kicker">For the technically minded</h2>
+  <h3>In short</h3>
+  <p>
+    skyBlip and skyPost implement <strong>ADS-L</strong>
+    (<em><a href="https://www.easa.europa.eu/en/document-library/agency-decisions/ed-decision-2022024r">ADS-L 4 SRD-860, Issue&nbsp;2</a></em>),
+    the electronic conspicuity protocol published by EASA for the
+    licence-free <span class="mono">868&nbsp;MHz</span> band.
+  </p>
+  <p>
+    ADS-B is neither re-implemented nor
+    transmitted on <span class="mono">1090&nbsp;MHz</span>: it is received on the ground by the
+    skyPosts, then relayed over ADS-L. The skyPosts
+    exchange traffic with the Open Glider Network in both directions.
+  </p>
+</section>
+
+<section class="pledge">
+  <h2 class="kicker">Our commitment</h2>
+  <h3>Safety is not a premium feature.</h3>
+  <p>
+    Everything safety-related in skyBlip and skyPost is open source.
+    <strong>And it will stay that way.</strong>
+  </p>
+  <p>
+    <%= link_to_page "safety", class: "cta" %>
+    &nbsp;·&nbsp;
+    <%= link_to_page "vision", class: "cta" %>
+  </p>
+</section>

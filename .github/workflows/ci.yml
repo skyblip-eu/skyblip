@@ -23,12 +23,40 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # website/ shares this tree and has its own workflow, so a content commit must
+  # not spend five minutes of Zephyr. Stated as "everything except the site"
+  # rather than a list of firmware paths: a new top-level directory then runs the
+  # full suite by default instead of silently running nothing.
+  #
+  # A filter, not a `paths:` trigger: a required status check that is never
+  # triggered leaves a pull request pending for ever, while a job skipped by `if`
+  # reports and satisfies it.
+  changes:
+    name: what changed
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      firmware: ${{ steps.filter.outputs.firmware }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            firmware:
+              - '**'
+              - '!website/**'
+
   host-tests:
     # arm64 ON PURPOSE: closer to the Cortex-M target than x86_64 is. Plain `char`
     # is unsigned on ARM and signed on x86, and unaligned access is less
     # forgiving - so the host suite now runs with the target's signedness rather
     # than one that hides a whole class of parser bug until it reaches hardware.
     name: host unit tests (doctest)
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v7
@@ -52,6 +80,8 @@ jobs:
 
   lint:
     name: clang-format
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v7
@@ -76,6 +106,8 @@ jobs:
       matrix:
         product: [skyblip_go]
     name: product image (${{ matrix.product }})
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
     # x86_64 ON PURPOSE, unlike the host jobs. This is a CROSS build:
     # arm-zephyr-eabi-gcc emits the same bytes for the nRF52840 whichever
     # architecture the host is, so an arm64 runner buys nothing here. It costs
@@ -253,6 +285,8 @@ jobs:
     # is about the platform rather than any one product - hence its own job
     # instead of a step that would repeat for every SKU in the matrix.
     name: platform adapters (native_sim)
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

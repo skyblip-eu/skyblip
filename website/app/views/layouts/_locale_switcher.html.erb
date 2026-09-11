@@ -1,0 +1,17 @@
+<nav class="locale-switcher" aria-label="Language"
+     data-controller="locale"
+     data-locale-current-value="<%= I18n.locale %>"
+     data-locale-default-value="<%= I18n.default_locale %>"
+     data-locale-available-value="<%= I18n.available_locales.to_json %>"
+     data-locale-alternates-value="<%= page_alternate_paths.to_json %>">
+  <% I18n.available_locales.each do |locale| %>
+    <% if locale == I18n.locale %>
+      <span aria-current="true"><%= locale.to_s.upcase %></span>
+    <% elsif (path = page_alternate_paths[locale]) %>
+      <%= link_to locale.to_s.upcase, path,
+            data: { action: "locale#choose", locale_locale_param: locale } %>
+    <% else %>
+      <span aria-disabled="true"><%= locale.to_s.upcase %></span>
+    <% end %>
+  <% end %>
+</nav>
