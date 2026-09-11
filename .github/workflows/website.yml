@@ -65,7 +65,7 @@ jobs:
       # The buttons page embeds a WASM build of the firmware, so the site needs a
       # C++ toolchain. Pinned: an unpinned one changes the bytes we publish
       # without a commit saying so.
-      - uses: mymindstorm/setup-emsdk@v14
+      - uses: mymindstorm/setup-emsdk@v16
         with:
           version: 6.0.9
           actions-cache-folder: emsdk-cache
