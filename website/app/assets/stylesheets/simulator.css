@@ -4,7 +4,7 @@
     --case-edge: #D6D2C7;
     --epd-paper: #C9CBC4;
     --key: #B9BCC0;
-    --glass: 800px;
+    --glass: 600px;
     --case-pad: var(--space-inline-m);
 
     display: grid;
@@ -37,8 +37,8 @@
     position: absolute;
     inset-inline-start: -4px;
     inset-block-start: 55%;
-    inline-size: 18px;
-    block-size: 88px;
+    inline-size: 16px;
+    block-size: 68px;
     padding: 0;
     border: 1px solid var(--case-edge);
     border-radius: 4px 2px 2px 4px;
