@@ -1,0 +1,81 @@
+@layer components {
+  .simulator {
+    --case: #EFEDE6;
+    --case-edge: #D6D2C7;
+    --epd-paper: #C9CBC4;
+    --key: #B9BCC0;
+
+    display: grid;
+    gap: var(--space-s);
+    justify-items: start;
+    margin: var(--space-l) 0 var(--space-3xl);
+  }
+
+  .simulator-case {
+    position: relative;
+    padding: var(--space-m) var(--space-inline-m);
+    padding-inline-start: var(--space-inline-xl);
+    background: var(--case);
+    border: 1px solid var(--case-edge);
+    border-radius: var(--space-inline-m);
+  }
+
+  .simulator-glass {
+    display: block;
+    inline-size: min(400px, 100%);
+    block-size: auto;
+    aspect-ratio: 1;
+    image-rendering: pixelated;
+    background: var(--epd-paper);
+  }
+
+  .simulator-key {
+    position: absolute;
+    inset-inline-start: -4px;
+    inset-block-start: 55%;
+    inline-size: 14px;
+    block-size: 52px;
+    padding: 0;
+    border: 1px solid var(--case-edge);
+    border-radius: 4px 2px 2px 4px;
+    background: var(--key);
+    cursor: pointer;
+    touch-action: none;
+  }
+  .simulator-key:active { transform: translateX(2px); }
+
+  .simulator-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-inline-s);
+    flex-wrap: wrap;
+  }
+
+  .simulator-start,
+  .simulator-restart {
+    font: inherit;
+    font-size: var(--text-s);
+    color: var(--paper);
+    background: var(--ink);
+    border: 1px solid var(--ink);
+    border-radius: var(--space-inline-2xs);
+    padding: var(--space-2xs) var(--space-inline-s);
+    cursor: pointer;
+  }
+  .simulator-start:hover,
+  .simulator-restart:hover { background: var(--blip); border-color: var(--blip); }
+  .simulator-start[disabled] { display: none; }
+
+  .simulator-restart { display: none; }
+  .simulator--off .simulator-restart { display: inline-block; }
+
+  .simulator-status {
+    font-size: var(--text-xs);
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0;
+  }
+
+  .simulator:not(.simulator--running) .simulator-key { visibility: hidden; }
+}

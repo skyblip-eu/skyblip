@@ -51,6 +51,28 @@ description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pressi
 </section>
 
 <section>
+  <h2 class="kicker">Essayez</h2>
+  <h3>Le même firmware, dans cette page.</h3>
+  <p>
+    L&rsquo;appareil ci-dessous, c&rsquo;est le firmware que fait tourner un
+    skyBlip Go, compilé en WebAssembly&nbsp;: même radar, mêmes pages, même
+    bouton anti-rebond. Appuyez sur la touche du bord pour changer de page,
+    appuyez deux fois rapidement, ou maintenez-la deux secondes et regardez
+    l&rsquo;appareil s&rsquo;éteindre en gardant le logo à l&rsquo;écran.
+  </p>
+
+  <%= render "shared/simulator",
+        start: "Allumer l’appareil",
+        restart: "Rallumer",
+        on: "en marche",
+        off: "éteint",
+        glass: "L’écran e-paper simulé d’un skyBlip Go",
+        key: "Le bouton de l’appareil : une pression change de page, un appui de deux secondes éteint",
+        caption: "Les capteurs sont simulés, le firmware ne l’est pas : c’est la version depuis laquelle ce site a été publié.",
+        missing: "Le simulateur ne fait pas partie de cette version du site." %>
+</section>
+
+<section>
   <h2 class="kicker">Allumer, éteindre</h2>
   <h3>Une pression le réveille. Un appui long le range.</h3>
   <p>

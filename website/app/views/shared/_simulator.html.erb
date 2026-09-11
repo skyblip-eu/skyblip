@@ -1,0 +1,32 @@
+<% if simulator_module_path %>
+  <figure class="simulator"
+          data-controller="simulator"
+          data-simulator-src-value="<%= simulator_module_path %>"
+          data-simulator-on-value="<%= on %>"
+          data-simulator-off-value="<%= off %>">
+    <div class="simulator-case">
+      <canvas class="simulator-glass" width="200" height="200"
+              data-simulator-target="canvas" role="img" aria-label="<%= glass %>"></canvas>
+      <button class="simulator-key" type="button" aria-label="<%= key %>"
+              data-simulator-target="device"
+              data-action="pointerdown->simulator#hold
+                           pointerup->simulator#release
+                           pointerleave->simulator#release
+                           pointercancel->simulator#release
+                           keydown->simulator#hold
+                           keyup->simulator#release"></button>
+    </div>
+
+    <div class="simulator-controls">
+      <button class="simulator-start" type="button"
+              data-simulator-target="start" data-action="simulator#start"><%= start %></button>
+      <button class="simulator-restart" type="button"
+              data-action="simulator#restart"><%= restart %></button>
+      <p class="simulator-status mono" data-simulator-target="status" aria-live="polite"></p>
+    </div>
+
+    <figcaption class="note"><%= caption %></figcaption>
+  </figure>
+<% else %>
+  <p class="note"><%= missing %></p>
+<% end %>
