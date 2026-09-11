@@ -1,0 +1,15 @@
+@layer components {
+  .locale-switcher {
+    font-size: var(--text-xs);
+    letter-spacing: 0.08em;
+  }
+  .locale-switcher a,
+  .locale-switcher span {
+    padding: var(--space-2xs) var(--space-inline-2xs);
+    text-decoration: none;
+    color: var(--quiet);
+  }
+  .locale-switcher span[aria-current="true"] { color: var(--ink); font-weight: 700; }
+  .locale-switcher span[aria-disabled="true"] { opacity: .45; }
+  .locale-switcher a:hover { color: var(--blip); }
+}

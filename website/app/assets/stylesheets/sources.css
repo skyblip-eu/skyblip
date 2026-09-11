@@ -1,0 +1,28 @@
+@layer components {
+  .sources {
+    list-style: none;
+    padding-inline: 0;
+    margin-block: var(--space-l) var(--space-3xl);
+    display: grid;
+    gap: var(--space-s);
+    max-inline-size: 78ch;
+  }
+
+  .sources li {
+    font-size: var(--text-s);
+    line-height: 1.55;
+    color: var(--ink-muted);
+    padding-inline-start: var(--space-inline-s);
+    border-inline-start: 1px solid var(--card-border);
+  }
+
+  .sources strong {
+    font-weight: 700;
+    color: var(--ink-soft);
+  }
+
+  .sources .support {
+    display: block;
+    color: var(--quiet);
+  }
+}

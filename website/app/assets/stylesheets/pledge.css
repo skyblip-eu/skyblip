@@ -1,0 +1,14 @@
+@layer components {
+  .pledge {
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: var(--space-inline-s);
+    padding: var(--space-2xl) clamp(var(--space-inline-m), 4vw, var(--space-inline-xl));
+    margin-block: var(--space-l) var(--space-4xl);
+    margin-inline: max(var(--gutter), (100% - var(--measure)) / 2);
+  }
+
+  .pledge p { color: var(--pledge-ink); max-inline-size: 64ch; }
+  .pledge strong { color: var(--paper); }
+  .pledge .cta { color: var(--quiet); }
+}

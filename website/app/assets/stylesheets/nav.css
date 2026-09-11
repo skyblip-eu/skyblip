@@ -1,0 +1,25 @@
+@layer components {
+  .site-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs) var(--space-inline-l);
+    max-inline-size: var(--measure);
+    margin-inline: auto;
+    padding-block: var(--space-l);
+    padding-inline: var(--gutter);
+  }
+
+  .site-nav-brand { text-decoration: none; }
+
+  .site-nav-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs) var(--space-inline-m);
+    font-size: var(--text-s);
+  }
+
+  .site-nav .locale-switcher { margin-inline-start: auto; }
+
+  .wordmark-nav { font-size: var(--text-xl); }
+}

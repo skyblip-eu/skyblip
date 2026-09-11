@@ -1,0 +1,182 @@
+---
+title: Using the button
+nav_title: Buttons
+description: One button on skyBlip Go, three things it says · a press changes page, two presses authorise, a two-second hold switches the device off. What RST does, and why the touch pad does nothing.
+---
+
+<section>
+  <h2 class="kicker">Using the button</h2>
+  <h3>One button, three things.</h3>
+  <p class="lede">
+    skyBlip Go has one button worth learning, and it says three things: a press
+    changes page, two quick presses authorise what the device is asking about, and
+    a hold of two seconds switches it off. Nothing else is hidden behind it, and
+    the three never overlap &mdash; a hold is never read as a press, and a press
+    made before a question appeared can never answer it.
+  </p>
+  <p>
+    The case carries two more inputs: a small <span class="mono">RST</span>
+    button, which is the processor&rsquo;s reset and the way into the USB
+    bootloader, and a capacitive touch pad, which the firmware does not read at
+    all. Both are covered at the foot of this page.
+  </p>
+
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Gesture</th>
+          <th>What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>One press</th>
+          <td>next page &mdash; or, at a question on the glass, refuses it</td>
+        </tr>
+        <tr>
+          <th>Two presses, under 0.6&nbsp;s apart</th>
+          <td>allows the question on the glass; on the settings page, changes the focused row</td>
+        </tr>
+        <tr>
+          <th>Hold, 2&nbsp;s</th>
+          <td>switches the device off</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="kicker">On and off</h2>
+  <h3>A press wakes it. A hold puts it away.</h3>
+  <p>
+    Switching on is one press. Switching off is a hold of two seconds: the radio
+    is parked, the panel is given three seconds to finish drawing the wordmark,
+    and the rails drop only once your thumb is off the button. E-paper keeps its
+    last image with no power at all, so the wordmark is what the device wears
+    while it is off &mdash; that image on the glass means off, not asleep.
+  </p>
+  <p>
+    Two cases are deliberately not what a phone does. A charger plugged into a
+    device that is off leaves it off and charging, because a cable found in a
+    flight bag is not a request to start transmitting; hold the button while you
+    plug in if you want the device as well. And a device that switched itself off
+    on a flat cell will not come back on a press: it waits for a charger, so a
+    button pressed by the weight of a bag cannot finish the battery off.
+  </p>
+
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>From off</th>
+          <th>What happens</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th>Press the button</th><td>boots, unless the cell is under 3.4&nbsp;V with no charger</td></tr>
+        <tr><th>Plug the charger in</th><td>charges, stays off</td></tr>
+        <tr><th>Hold the button, plug the charger in</th><td>boots and charges</td></tr>
+        <tr><th>Press after a flat-battery shutdown</th><td>nothing, by design &mdash; plug the charger in</td></tr>
+        <tr><th>Press <span class="mono">RST</span></th><td>boots</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="kicker">The pages</h2>
+  <h3>A press moves on, and the list is yours.</h3>
+  <p>
+    In flight the button is a page selector: radar, six-pack, status, signal, then
+    the settings page, then round again. The PAGES row in the settings hides the
+    ones you do not fly with &mdash; all of them, radar and status only, or radar
+    alone &mdash; and a hidden page is skipped by the button rather than cycled
+    through. The settings page is always in the cycle, so the way back in is never
+    something you can hide from yourself.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">Settings on the glass</h2>
+  <h3>A press moves down a row, two presses change it.</h3>
+  <p>
+    Everything that matters can be set on the device, with no phone: press to walk
+    down the rows, press twice to act on the one highlighted. Keep tapping inside
+    the window and the value keeps stepping, which is how you wind the subscale to
+    where you want it. Nothing is a draft: each act is one finished change, so
+    there is no way to leave the device half edited.
+  </p>
+  <p>
+    The rows only ever advance, the last one hands the glass back to the traffic
+    picture, and a settings page nobody has pressed for a minute returns there on
+    its own. You cannot get stuck in here.
+  </p>
+
+  <div class="table-scroll">
+    <table class="modules">
+      <thead>
+        <tr><th>Row</th><th>Two presses</th></tr>
+      </thead>
+      <tbody>
+        <tr><th>ID</th><td>nothing &mdash; your ADS-L address, shown, never changed by a thumb</td></tr>
+        <tr><th>AIRCRAFT</th><td>next type: glider, microlight, helicopter, paraglider, balloon, and the rest of the ADS-L list</td></tr>
+        <tr><th>ALARM</th><td>on or off</td></tr>
+        <tr><th>VOLUME</th><td>0 to 5</td></tr>
+        <tr><th>UNITS</th><td>metric, or feet and knots</td></tr>
+        <tr><th>QNH UP / QNH DOWN</th><td>one hectopascal per press, 940 to 1050</td></tr>
+        <tr><th>PAGES</th><td>all, radar and status, radar only</td></tr>
+        <tr><th>BACK TO TRAFFIC</th><td>leaves the settings</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="kicker">Answering the device</h2>
+  <h3>Two presses allow, one press refuses.</h3>
+  <p>
+    When the companion app asks for something that could change the aircraft you
+    are flying &mdash; new firmware, a settings blob, erasing your flights,
+    switching the device off &mdash; the device does not act on the phone&rsquo;s
+    word. It puts the question on its own glass, names it, and waits thirty
+    seconds: <span class="mono">PRESS TWICE TO ALLOW</span>,
+    <span class="mono">ONE PRESS REFUSES</span>. No answer inside the window is a
+    refusal too.
+  </p>
+  <p>
+    Presses only count once the question has actually reached the glass and your
+    thumb has stopped, so a run of presses that was cycling pages cannot be spent
+    on an authorisation. Physical presence is the whole of the security here: the
+    device asks nobody to pair, and it asks you to be holding it.
+  </p>
+</section>
+
+<section>
+  <h2 class="kicker">The other two</h2>
+  <h3><span class="mono">RST</span> reboots. The pad does nothing.</h3>
+  <p>
+    <span class="mono">RST</span> is a hardware reset: press it and the device
+    reboots, whatever the firmware was doing. Two presses inside half a second put
+    it into the USB bootloader instead, where it appears as a drive you can drop a
+    firmware file onto. That route belongs to the bootloader rather than to our
+    firmware, which is what makes it the way back from a device that will not
+    start.
+  </p>
+  <p>
+    The touch pad on the case is not read. It is fitted to the board, it is
+    documented in the pin map, and nothing is wired to it: a capacitive pad is
+    unusable through winter gloves, it fires on a cheek and on rain, and one
+    button whose three gestures you can practise on the ground beats two inputs
+    whose vocabulary you have to remember in the air.
+  </p>
+</section>
+
+<section>
+  <p>
+    <%= link_to_page "devices", class: "cta" %>
+    &nbsp;·&nbsp;
+    <%= link_to_page "index", label: "skyBlip", class: "cta cta--previous" %>
+  </p>
+</section>

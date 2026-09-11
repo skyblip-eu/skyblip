@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+
+  <head>
+
+    <title>No Traffic Detected (404 Not Found)</title>
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1, width=device-width">
+    <meta name="robots" content="noindex, nofollow">
+
+    <link rel="icon" href="/icon.png" type="image/png">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+    <style>
+      @layer reset, base, components;
+
+      :root {
+        --ink: #0A1220;
+        --ink-soft: #3C4655;
+        --ink-muted: #5E6A7C;
+        --quiet: #92A1B9;
+        --paper: #F4F1EA;
+        --blip: #FF4F1F;
+        --blip-soft: #FB8866;
+
+        --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-display: var(--font-sans);
+
+        --text-m: 1.125rem;
+
+        --space-xs: 0.5rem;
+        --space-l: 1.5rem;
+        --space-2xl: 2.5rem;
+
+        --measure: 80ch;
+        --gutter: clamp(1rem, 4vw, 2rem);
+      }
+
+      @layer reset {
+        *, *::before, *::after { box-sizing: border-box; }
+        body, h1 { margin: 0; }
+        p, h1 { word-break: break-word; }
+        html, body { overflow-x: clip; }
+        body { min-height: 100dvh; }
+        img, svg { max-inline-size: 100%; }
+
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      }
+
+      @layer base {
+        body {
+          background: var(--paper);
+          color: var(--ink);
+          font-family: var(--font-sans);
+          line-height: 1.6;
+          text-rendering: optimizeLegibility;
+          text-size-adjust: none;
+          display: grid;
+          place-items: center;
+          padding-block: var(--space-2xl);
+          padding-inline: var(--gutter);
+        }
+
+        main {
+          inline-size: 100%;
+          max-inline-size: var(--measure);
+          margin-inline: auto;
+          display: grid;
+          justify-items: center;
+          gap: var(--space-l);
+          text-align: center;
+        }
+
+        h1 {
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: clamp(2rem, 6vw, 2.75rem);
+          line-height: 1.1;
+          letter-spacing: -0.02em;
+        }
+
+        .lede {
+          color: var(--ink-soft);
+          font-size: var(--text-m);
+          max-inline-size: 60ch;
+        }
+      }
+
+      @layer components {
+        .wordmark {
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: clamp(1.75rem, 6vw, 2.25rem);
+          letter-spacing: -0.02em;
+          line-height: 1;
+          white-space: nowrap;
+        }
+        .wordmark .quiet { color: var(--quiet); }
+        .glyph { position: relative; display: inline-block; }
+        .glyph > .overlay {
+          position: absolute; left: 50%; transform: translateX(-50%);
+          overflow: visible; max-inline-size: none;
+          inline-size: 0.72em; block-size: 0.72em; bottom: 0.79em;
+        }
+
+        .four04 {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: clamp(var(--space-xs), 2vw, var(--space-l));
+        }
+        .digit {
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: clamp(6rem, 27vw, 13rem);
+          line-height: 0.8;
+          letter-spacing: -0.04em;
+          color: var(--blip-soft);
+        }
+
+        .radar { inline-size: clamp(5.5rem, 25vw, 12rem); block-size: auto; }
+        .radar .ring { fill: none; stroke: var(--blip); }
+        .radar .grid { stroke: var(--ink-muted); opacity: 0.28; }
+        .radar .sweep, .radar .beam {
+          transform-box: view-box;
+          transform-origin: 120px 120px;
+          animation: radar-sweep 4.5s linear infinite;
+        }
+        .radar .sweep { fill: var(--blip-soft); }
+        .radar .beam { stroke: var(--blip); }
+        .radar .pip { fill: var(--ink-muted); opacity: 0.35; }
+
+        @keyframes radar-sweep {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+
+        .cta {
+          color: var(--ink-muted);
+          text-decoration: none;
+          transition: color 100ms ease-out;
+        }
+        .cta:hover { color: var(--blip); }
+        .cta--next::after { content: "\00a0\2192"; }
+      }
+    </style>
+
+  </head>
+
+  <body>
+
+    <main>
+
+      <div class="wordmark"><span class="quiet">sky</span><span>Bl<span class="glyph">&#305;<svg class="overlay" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="34" r="5.5" fill="#FF4F1F"/><path d="M10 25 A14 14 0 0 1 30 25" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".65"/><path d="M4 15 A22 22 0 0 1 36 15" fill="none" stroke="#FF4F1F" stroke-width="3.5" stroke-linecap="round" opacity=".3"/></svg></span>p</span></div>
+
+      <div class="four04">
+        <span class="digit">4</span>
+        <svg class="radar" data-t="radar" viewBox="0 0 240 240" role="img" aria-label="Radar sweep finding no traffic — error 404">
+          <circle class="ring" cx="120" cy="120" r="112" stroke-width="2" opacity="0.28"/>
+          <circle class="ring" cx="120" cy="120" r="76"  stroke-width="2" opacity="0.5"/>
+          <circle class="ring" cx="120" cy="120" r="40"  stroke-width="2" opacity="0.8"/>
+          <line class="grid" x1="120" y1="8"  x2="120" y2="232" stroke-width="1.5"/>
+          <line class="grid" x1="8"  y1="120" x2="232" y2="120" stroke-width="1.5"/>
+          <path class="sweep" d="M120,120 L120,8 A112,112 0 0 0 28.26,55.76 Z" opacity="0.16"/>
+          <line class="beam" x1="120" y1="120" x2="120" y2="8" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+          <circle class="pip" cx="120" cy="120" r="4"/>
+        </svg>
+        <span class="digit">4</span>
+      </div>
+
+      <h1 data-t="h1">No Traffic Detected</h1>
+
+      <p class="lede">
+        <span data-t="lede1">The page you were looking for doesn&rsquo;t exist.</span><br>
+        <span data-t="lede2">You may have mistyped the address, or the page may have moved.</span>
+      </p>
+
+      <p><a class="cta cta--next" data-t="cta" href="/">Return home</a></p>
+
+    </main>
+
+    <script>
+      (function () {
+        if (!/^\/fr(\/|$)/.test(location.pathname.toLowerCase())) return;
+        document.documentElement.lang = "fr";
+        document.title = "Aucun Trafic Détecté (404 Page introuvable)";
+        var t = {
+          h1: "Aucun Trafic Détecté",
+          lede1: "La page que vous cherchez n\u2019existe pas.",
+          lede2: "Vous avez peut-être mal saisi l\u2019adresse, ou la page a été déplacée.",
+          cta: "Retour à l\u2019accueil",
+          radar: "Balayage radar sans trafic détecté — erreur 404"
+        };
+        document.querySelectorAll("[data-t]").forEach(function (el) {
+          var v = t[el.getAttribute("data-t")];
+          if (v == null) return;
+          if (el.tagName.toLowerCase() === "svg") el.setAttribute("aria-label", v);
+          else el.textContent = v;
+        });
+      })();
+    </script>
+
+  </body>
+
+</html>

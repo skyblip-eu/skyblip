@@ -1,0 +1,5 @@
+@media print {
+  .locale-switcher { display: none; }
+  .pledge { border: 1px solid var(--ink); background: none; color: var(--ink); }
+  .pledge p, .pledge strong { color: var(--ink); }
+}

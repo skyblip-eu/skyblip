@@ -1,0 +1,105 @@
+@layer reset, base, components;
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("Inter-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("Inter-Bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Fira Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("FiraSans-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fira Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("FiraSans-Bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "B612 Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("B612Mono-Regular.woff2") format("woff2");
+}
+
+:root {
+  --ink: #0A1220;
+  --paper: #F4F1EA;
+  --blip: #FF4F1F;
+  --coverage: #19C37D;
+  --card-ink: #2D3644;
+  --ink-soft: #3C4655;
+  --ink-muted: #5E6A7C;
+  --quiet: #92A1B9;
+  --pledge-ink: #C7CCD6;
+  --signal: #236FEA;
+  --card-bg: #FDFCF9;
+  --card-border: #E2DDD2;
+
+  --font-sans: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-display: "Fira Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "B612 Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-s: 0.875rem;
+  --text-base: 1rem;
+  --text-m: 1.125rem;
+  --text-l: 1.25rem;
+  --text-xl: 1.375rem;
+
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-s: 0.75rem;
+  --space-m: 1rem;
+  --space-l: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 2.5rem;
+  --space-3xl: 3rem;
+  --space-4xl: 6rem;
+
+  --space-inline-2xs: 0.5ch;
+  --space-inline-xs: 1ch;
+  --space-inline-s: 1.5ch;
+  --space-inline-m: 2ch;
+  --space-inline-l: 2.5ch;
+  --space-inline-xl: 3ch;
+  --space-inline-2xl: 4ch;
+
+  --measure: 88ch;
+  --gutter: clamp(var(--space-inline-s), 4vw, var(--space-inline-xl));
+}
+
+@supports (color: oklch(from red l c h)) {
+  :root {
+    --ink: oklch(18.31% 0.031 260);
+    --paper: oklch(95.85% 0.010 88);
+    --blip: oklch(67.06% 0.2195 35.03);
+    --coverage: oklch(72.19% 0.1636 158.23);
+
+    --card-ink: oklch(from var(--ink) 33% 0.028 h);
+    --ink-soft: oklch(from var(--ink) 39% 0.030 h);
+    --ink-muted: oklch(from var(--ink) 52% 0.033 h);
+    --quiet: oklch(from var(--ink) 70.5% 0.040 h);
+    --pledge-ink: oklch(from var(--ink) 84.5% 0.014 h);
+    --signal: oklch(from var(--ink) 57% 0.20 h);
+
+    --card-bg: oklch(from var(--paper) 99.1% 0.004 h);
+    --card-border: oklch(from var(--paper) 89.9% 0.016 h);
+  }
+}
