@@ -20,7 +20,8 @@ build:
 	@$(MAKE) --no-print-directory -C $(FIRMWARE) browser
 	@mkdir -p $(BUILD)/scenarios
 	cp index.html $(BUILD)/
-	cp $(WASM_DIR)/skyblip_simulator.js $(WASM_DIR)/skyblip_simulator.wasm $(BUILD)/
+	cp $(WASM_DIR)/skyblip_simulator.js $(WASM_DIR)/skyblip_simulator.wasm \
+	   $(WASM_DIR)/embed.js $(BUILD)/
 	# The scenarios are the firmware's, and the page fetches them at runtime, so
 	# they have to be under the server root: outside it every fetch was a 404 and
 	# the page silently offered a menu that could not load anything. The manifest

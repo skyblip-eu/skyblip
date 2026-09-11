@@ -107,8 +107,9 @@
                 onclick="SIM.touch()"></button>
         <button class="key side reset" title="RESET (button 1), P0.18 = nRESET: reboot"
                 onclick="SIM.reset()"></button>
-        <button class="key side prog" title="button 2, P1.10: next page"
-                onclick="SIM.button()"></button>
+        <button class="key side prog" title="button 2, P1.10: a press pages, a hold of 2 s switches off"
+                onpointerdown="SIM.hold(1)" onpointerup="SIM.hold(0)"
+                onpointerleave="SIM.hold(0)"></button>
         <div class="leds">
           <span class="led red" id="led_alarm" title="the LED we drive: lit on a traffic alarm"></span>
           <span class="led amber" id="led_charge" title="charge state: the charger drives this one, not the MCU"></span>
@@ -117,7 +118,7 @@
       <div class="keymap">
         <div><b>top pad</b></div><div><code>P0.11</code></div><div>repaint</div>
         <div><b>left top</b></div><div><code>P0.18</code></div><div>reset (nRESET)</div>
-        <div><b>left bottom</b></div><div><code>P1.10</code></div><div>next page</div>
+        <div><b>left bottom</b></div><div><code>P1.10</code></div><div>press: page · hold: off</div>
       </div>
       <div class="row">
         <button onclick="SIM.backlight()">Backlight</button>
@@ -251,270 +252,187 @@
     </div>
   </div>
 
-<script src="skyblip_simulator.js"></script>
-<script>
+<script type="module">
+import { load, PAGES, ALARM, DWELL, SHUTDOWN } from './embed.js';
+
 const SIM = {};
-Module.onRuntimeInitialized = () => {
-  const C = (n, r, a) => Module.cwrap(n, r, a);
-  const f = {
-    setup: C('simulator_setup', null, []),
-    loadScenario: C('simulator_load_scenario', 'number', ['string', 'number']),
-    mode: C('simulator_mode', 'number', []),
-    setPps: C('simulator_set_pps', null, ['number']),
-    failures: C('simulator_failures', 'number', []),
-    step: C('simulator_step', null, ['number']),
-    button: C('simulator_button', null, []),
-    touch: C('simulator_touch', null, []),
-    backlight: C('simulator_backlight', null, ['number']),
-    power: C('simulator_power', null, ['number']),
-    setRange: C('simulator_set_range', null, ['number']),
-    setFix: C('simulator_set_fix', null, ['number']),
-    setSats: C('simulator_set_sats', null, ['number']),
-    setAlt: C('simulator_set_alt', null, ['number']),
-    setSpeed: C('simulator_set_speed', null, ['number']),
-    setTrack: C('simulator_set_track', null, ['number']),
-    setClimb: C('simulator_set_climb', null, ['number']),
-    setQnh: C('simulator_set_qnh', null, ['number']),
-    setAirmass: C('simulator_set_airmass', null, ['number']),
-    setBatteryMv: C('simulator_set_battery_mv', null, ['number']),
-    setExternalPower: C('simulator_set_external_power', null, ['number']),
-    pressurePa: C('simulator_pressure_pa', 'number', []),
-    batteryMv: C('simulator_battery_mv', 'number', []),
-    batteryPercent: C('simulator_battery_percent', 'number', []),
-    batteryCharging: C('simulator_battery_charging', 'number', []),
-    addAircraft: C('simulator_add_aircraft', null,
-                   ['number','number','number','number','number','number']),
-    addThreat: C('simulator_add_threat', null, ['number']),
-    clearTraffic: C('simulator_clear_traffic', null, []),
-    fb: C('simulator_fb', 'number', []),
-    W: C('simulator_fb_w', 'number', [])(),
-    H: C('simulator_fb_h', 'number', [])(),
-    STRIDE: C('simulator_fb_stride', 'number', [])(),
-    blOn: C('simulator_backlight_on', 'number', []),
-    powered: C('simulator_powered', 'number', []),
-    page: C('simulator_page', 'number', []),
-    fixValid: C('simulator_fix_valid', 'number', []),
-    sats: C('simulator_sats', 'number', []),
-    lat: C('simulator_lat_1e7', 'number', []),
-    lon: C('simulator_lon_1e7', 'number', []),
-    alt: C('simulator_alt_m', 'number', []),
-    speedQ: C('simulator_speed_q', 'number', []),
-    trackC9: C('simulator_track_c9', 'number', []),
-    climbE8: C('simulator_climb_e8', 'number', []),
-    traffic: C('simulator_traffic_count', 'number', []),
-    alarm: C('simulator_alarm_level', 'number', []),
-    rxOk: C('simulator_rx_ok', 'number', []),
-    rxBad: C('simulator_rx_bad', 'number', []),
-    txOk: C('simulator_tx_ok', 'number', []),
-    txBusy: C('simulator_tx_busy', 'number', []),
-    slotState: C('simulator_slot_state', 'number', []),
-    dwellFreq: C('simulator_dwell_freq', 'number', []),
-    addAircraftAt: C('simulator_add_aircraft_at', null,
-                     ['number','number','number','number','number','number','number','number']),
-    airCount: C('simulator_air_count', 'number', []),
-    airPhase: C('simulator_air_phase_ms', 'number', ['number']),
-    airEvent: C('simulator_air_event', 'number', ['number']),
-    airFreqKhz: C('simulator_air_freq_khz', 'number', ['number']),
-    airLine: C('simulator_air_line', 'string', ['number']),
-  };
+window.SIM = SIM;
+const f = await load();
 
-  let bl = false, pwr = true, fix = true, ext = false;
-  f.setup();
+let bl = false, pwr = true, fix = true, ext = false;
 
-  const $ = id => document.getElementById(id);
-  const canvas = $('epd'), ctx = canvas.getContext('2d');
-  const img = ctx.createImageData(f.W, f.H);
+const $ = id => document.getElementById(id);
+const canvas = $('epd');
 
-  // --- controls ---
-  SIM.button = () => f.button();
-  SIM.touch = () => f.touch();
-  // A reset is a reboot: the world and the firmware both start over.
-  SIM.reset = () => location.reload();
-  SIM.backlight = () => { bl = !bl; f.backlight(bl ? 1 : 0); };
-  SIM.power = () => { pwr = !pwr; f.power(pwr ? 1 : 0); };
-  SIM.toggleFix = () => { fix = !fix; f.setFix(fix ? 1 : 0);
-                          $('fixbtn').textContent = 'Fix: ' + (fix ? 'ON' : 'OFF'); };
-  SIM.sats  = v => { f.setSats(+v);  $('sats_o').textContent = v; };
-  SIM.alt   = v => { f.setAlt(+v);   $('alt_o').textContent = v + ' m'; };
-  SIM.speed = v => { f.setSpeed(+v); $('spd_o').textContent = v + ' kt'; };
-  SIM.track = v => { f.setTrack(+v); $('trk_o').textContent = String(v).padStart(3,'0') + '°'; };
-  SIM.climb = v => { f.setClimb(+v); $('clb_o').textContent = (v/10).toFixed(1) + ' m/s'; };
-  // Sliders are in tenths of a hectopascal, the firmware speaks pascals.
-  const HPA_E1_TO_PA = 10;
-  SIM.airmass = v => { f.setAirmass(v * HPA_E1_TO_PA); $('air_o').textContent = (v/10).toFixed(1) + ' hPa'; };
-  SIM.qnh = v => { f.setQnh(v * HPA_E1_TO_PA); $('qnh_o').textContent = (v/10).toFixed(1) + ' hPa'; };
-  SIM.range = v => { f.setRange(+v); $('rng_o').textContent = (v/1000) + ' km'; };
-  SIM.battery = v => { f.setBatteryMv(+v); $('bat_o').textContent = (v/1000).toFixed(2) + ' V'; };
-  SIM.toggleExternalPower = () => { ext = !ext; f.setExternalPower(ext ? 1 : 0);
-                                    $('extbtn').textContent = 'USB power: ' + (ext ? 'ON' : 'OFF'); };
-  // Which system the next aircraft transmits with. Nothing else about the two
-  // differs from the page's side: same channels, same buttons, same radar.
-  const alptas = () => ($('tfc_system').value === 'alptas' ? 1 : 0);
-  SIM.addRandom = () => {
-    const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 4000;
-    f.addAircraft(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d),
-                  Math.round((Math.random()-0.5)*300),
-                  20 + Math.round(Math.random()*40), Math.round(Math.random()*359), alptas());
-  };
-  SIM.addThreat = () => f.addThreat(alptas());
-  // A neighbour pinned to one instant of the second: the only way to prove the
-  // dwell map is to put a burst where we should, and should not, hear it.
-  SIM.addAt = phase => {
-    const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 3000;
-    f.addAircraftAt(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d), 0, 30,
-                    Math.round(Math.random()*359), phase, -1, alptas());
-  };
-  // A mode is a scenario plus chrome: the firmware runs the same either way.
-  const MODES = ['dev', 'demo', 'training'];
-  SIM.applyMode = () => {
-    const mode = MODES[f.mode()] || 'dev';
-    document.body.dataset.mode = mode;
-    for (const panel of document.querySelectorAll('.panel')) {
-      if (panel.id === 'scenariopanel') continue;
-      panel.style.display = mode === 'dev' ? '' : 'none';
-    }
-    $('modehint').textContent = mode === 'dev'
-      ? 'mode: dev, every control visible'
-      : 'mode: ' + mode + ', controls hidden, the scenario is driving';
-  };
-  SIM.loadScenario = async url => {
-    if (!url) { location.reload(); return; }
-    const reply = await fetch(url);
-    if (!reply.ok) { $('modehint').textContent = 'scenario missing: ' + url; return; }
-    const text = await reply.text();
-    if (!f.loadScenario(text, text.length)) { $('modehint').textContent = 'scenario rejected'; return; }
-    SIM.applyMode();
-  };
-
-  // The menu is built from what the firmware actually holds, listed by the
-  // simulator's own build step, so a scenario committed next door shows up here
-  // without anyone remembering to add a line.
-  SIM.listScenarios = async () => {
-    const menu = $('scenario');
-    const reply = await fetch('scenarios/index.json');
-    if (!reply.ok) { $('modehint').textContent = 'no scenario manifest: run make build'; return; }
-    for (const file of await reply.json()) {
-      const scenario = await (await fetch('scenarios/' + file)).json();
-      const option = document.createElement('option');
-      option.value = 'scenarios/' + file;
-      option.textContent = scenario.name || file;
-      menu.appendChild(option);
-    }
-  };
-  SIM.listScenarios();
-  SIM.applyMode();
-  SIM.clearTraffic = () => f.clearTraffic();
-
-  const PAGES = ['radar', '6-pack', 'status', 'signal', 'settings'];
-  const ALARM = ['none', 'info', 'important', 'URGENT'];
-
-  const bandCanvas = $('band'), band = bandCanvas.getContext('2d');
-  const EVENT = ['tx', 'rx', 'deaf', 'coll'];
-  const EVENT_COLOR = {tx:'#7fd1ff', rx:'#8fe08f', deaf:'#ff9b9b', coll:'#ffd591'};
-  const DWELL = ['uplink RX · 869.525', 'retune O->M', 'slot 0 · 868.200',
-                 'hop', 'slot 1 · 868.400', 'retune M->O'];
-
-  // Slot 1 wraps: 0..200 is the tail of the slot that opened at 800. The dashed
-  // line at 450 is where our own bursts may start.
-  function drawBand() {
-    const W = bandCanvas.width, H = bandCanvas.height, ms = x => x * W / 1000;
-    band.clearRect(0, 0, W, H);
-    band.fillStyle = '#1b2733'; band.fillRect(0, 0, ms(200), 30);
-    band.fillStyle = '#141a20'; band.fillRect(ms(205), 0, ms(190), 30);
-    band.fillStyle = '#16202a'; band.fillRect(ms(400), 0, ms(400), 30);
-    band.fillStyle = '#1b2733'; band.fillRect(ms(800), 0, ms(200), 30);
-    band.fillStyle = '#7d8894'; band.font = '12px system-ui';
-    band.fillText('slot 1 cont., RX only', 6, 19);
-    band.fillText('uplink 205-395, O-band', ms(208), 19);
-    band.fillText('slot 0: 868.200', ms(408), 19);
-    band.fillText('slot 1: 868.400 ->', ms(808), 19);
-    band.strokeStyle = '#46525e';
-    for (const t of [200, 205, 395, 400, 800]) {
-      band.beginPath(); band.moveTo(ms(t), 0); band.lineTo(ms(t), 96); band.stroke();
-    }
-    // The direct slot, where our own bursts live: narrower than what we hear.
-    band.strokeStyle = '#7fd1ff66'; band.setLineDash([3, 3]);
-    band.beginPath(); band.moveTo(ms(450), 0); band.lineTo(ms(450), 96);
-    band.moveTo(ms(1000) - 1, 0); band.lineTo(ms(1000) - 1, 96); band.stroke();
-    band.setLineDash([]);
-    // One lane per channel, so a burst on the wrong channel is visibly on the
-    // wrong line rather than merely absent.
-    const LANE = {869525: 44, 868200: 64, 868400: 84};
-    band.fillStyle = '#5b6672'; band.font = '10px ui-monospace,monospace';
-    band.fillText('869.525', 8, 42); band.fillText('868.200', 8, 62); band.fillText('868.400', 8, 82);
-    const n = f.airCount();
-    for (let i = 0; i < n; i++) {
-      const khz = f.airFreqKhz(i);
-      const y = LANE[khz > 869000 ? 869525 : (khz > 868300 ? 868400 : 868200)];
-      band.fillStyle = EVENT_COLOR[EVENT[f.airEvent(i)]];
-      band.fillRect(ms(f.airPhase(i)) - 1, y - 10, 3, 11);
-    }
-  }
-
-  function drawTape() {
-    const n = f.airCount(), out = [];
-    for (let i = Math.max(0, n - 12); i < n; i++)
-      out.push('<span class="' + EVENT[f.airEvent(i)] + '">' + f.airLine(i) + '</span>');
-    $('tape').innerHTML = out.join('\n') || '-';
-  }
-
-  // Slot edges are 5 ms wide: stepping a whole animation frame at once would
-  // step over them, so the loop catches up in 5 ms slices.
-  const STEP_MS = 5;
-  let simMs = 0;
-  function draw() {
-    const target = performance.now() | 0;
-    while (simMs + STEP_MS <= target) { simMs += STEP_MS; f.step(simMs); }
-
-    // paint the e-paper
-    const base = f.fb(), heap = Module.HEAPU8;
-    for (let y = 0; y < f.H; y++) {
-      for (let x = 0; x < f.W; x++) {
-        const black = heap[base + y * f.STRIDE + (x >> 3)] & (0x80 >> (x & 7));
-        const o = (y * f.W + x) * 4;
-        img.data[o] = img.data[o+1] = black ? 20 : 201;
-        img.data[o+2] = black ? 20 : 196;
-        img.data[o+3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    canvas.className = (f.powered() ? '' : 'off ') + (f.blOn() ? 'bl' : '');
-    // Only the left LED is the firmware's. The right one follows the charger,
-    // which on this board is USB power minus a full cell.
-    $('led_alarm').className = 'led red' + (f.alarm() ? ' on' : '');
-    $('led_charge').className = 'led amber' + (f.batteryCharging() ? ' on' : '');
-    $('pagehint').textContent = 'page: ' + PAGES[f.page()] +
-        '  ·  backlight ' + (f.blOn() ? 'on' : 'off') +
-        '  ·  power ' + (f.powered() ? 'on' : 'off');
-
-    // telemetry the firmware decoded
-    $('t_fix').textContent  = f.fixValid() ? '3D' : 'no fix';
-    $('t_sats').textContent = f.sats();
-    $('t_pos').textContent  = (f.lat()/1e7).toFixed(5) + ', ' + (f.lon()/1e7).toFixed(5);
-    $('t_alt').textContent  = f.alt() + ' m';
-    $('t_spd').textContent  = (f.speedQ()/4).toFixed(1) + ' m/s';
-    $('t_trk').textContent  = Math.round(f.trackC9()*360/512).toString().padStart(3,'0') + '°';
-    $('t_vs').textContent   = (f.climbE8()/8).toFixed(1) + ' m/s';
-    $('t_baro').textContent = (f.pressurePa()/100).toFixed(1) + ' hPa';
-    $('t_bat').textContent  = (f.batteryMv()/1000).toFixed(2) + ' V · ' + f.batteryPercent() + ' %'
-                              + (f.batteryCharging() ? ' charging' : '');
-    $('t_tfc').textContent  = f.traffic() + ' target(s)';
-    $('t_rx').textContent   = f.rxOk() + ' / ' + f.rxBad();
-    $('t_tx').textContent   = f.txOk() + ' / ' + f.txBusy();
-    $('t_dwell').textContent = DWELL[f.slotState()] || '-';
-    drawBand();
-    drawTape();
-    if (document.body.dataset.mode === 'training')
-      $('modehint').textContent = 'mode: training, expectations failed: ' + f.failures();
-    const lvl = f.alarm();
-    const el = $('t_alarm');
-    el.textContent = ALARM[lvl] || lvl;
-    el.className = 'alarm a' + lvl;
-
-    requestAnimationFrame(draw);
-  }
-  requestAnimationFrame(draw);
+// --- controls ---
+SIM.button = () => f.button();
+SIM.hold = down => f.holdButton(down);
+SIM.touch = () => f.touch();
+// A reset is a reboot: the world and the firmware both start over.
+SIM.reset = () => location.reload();
+SIM.backlight = () => { bl = !bl; f.backlight(bl ? 1 : 0); };
+SIM.power = () => { pwr = !pwr; f.power(pwr ? 1 : 0); };
+SIM.toggleFix = () => { fix = !fix; f.setFix(fix ? 1 : 0);
+                        $('fixbtn').textContent = 'Fix: ' + (fix ? 'ON' : 'OFF'); };
+SIM.sats  = v => { f.setSats(+v);  $('sats_o').textContent = v; };
+SIM.alt   = v => { f.setAlt(+v);   $('alt_o').textContent = v + ' m'; };
+SIM.speed = v => { f.setSpeed(+v); $('spd_o').textContent = v + ' kt'; };
+SIM.track = v => { f.setTrack(+v); $('trk_o').textContent = String(v).padStart(3,'0') + '°'; };
+SIM.climb = v => { f.setClimb(+v); $('clb_o').textContent = (v/10).toFixed(1) + ' m/s'; };
+// Sliders are in tenths of a hectopascal, the firmware speaks pascals.
+const HPA_E1_TO_PA = 10;
+SIM.airmass = v => { f.setAirmass(v * HPA_E1_TO_PA); $('air_o').textContent = (v/10).toFixed(1) + ' hPa'; };
+SIM.qnh = v => { f.setQnh(v * HPA_E1_TO_PA); $('qnh_o').textContent = (v/10).toFixed(1) + ' hPa'; };
+SIM.range = v => { f.setRange(+v); $('rng_o').textContent = (v/1000) + ' km'; };
+SIM.battery = v => { f.setBatteryMv(+v); $('bat_o').textContent = (v/1000).toFixed(2) + ' V'; };
+SIM.toggleExternalPower = () => { ext = !ext; f.setExternalPower(ext ? 1 : 0);
+                                  $('extbtn').textContent = 'USB power: ' + (ext ? 'ON' : 'OFF'); };
+// Which system the next aircraft transmits with. Nothing else about the two
+// differs from the page's side: same channels, same buttons, same radar.
+const alptas = () => ($('tfc_system').value === 'alptas' ? 1 : 0);
+SIM.addRandom = () => {
+  const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 4000;
+  f.addAircraft(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d),
+                Math.round((Math.random()-0.5)*300),
+                20 + Math.round(Math.random()*40), Math.round(Math.random()*359), alptas());
 };
+SIM.addThreat = () => f.addThreat(alptas());
+// A neighbour pinned to one instant of the second: the only way to prove the
+// dwell map is to put a burst where we should, and should not, hear it.
+SIM.addAt = phase => {
+  const brg = Math.random() * 2 * Math.PI, d = 800 + Math.random() * 3000;
+  f.addAircraftAt(Math.round(Math.cos(brg)*d), Math.round(Math.sin(brg)*d), 0, 30,
+                  Math.round(Math.random()*359), phase, -1, alptas());
+};
+// A mode is a scenario plus chrome: the firmware runs the same either way.
+const MODES = ['dev', 'demo', 'training'];
+SIM.applyMode = () => {
+  const mode = MODES[f.mode()] || 'dev';
+  document.body.dataset.mode = mode;
+  for (const panel of document.querySelectorAll('.panel')) {
+    if (panel.id === 'scenariopanel') continue;
+    panel.style.display = mode === 'dev' ? '' : 'none';
+  }
+  $('modehint').textContent = mode === 'dev'
+    ? 'mode: dev, every control visible'
+    : 'mode: ' + mode + ', controls hidden, the scenario is driving';
+};
+SIM.loadScenario = async url => {
+  if (!url) { location.reload(); return; }
+  const reply = await fetch(url);
+  if (!reply.ok) { $('modehint').textContent = 'scenario missing: ' + url; return; }
+  const text = await reply.text();
+  if (!f.loadScenario(text, text.length)) { $('modehint').textContent = 'scenario rejected'; return; }
+  SIM.applyMode();
+};
+
+// The menu is built from what the firmware actually holds, listed by the
+// simulator's own build step, so a scenario committed next door shows up here
+// without anyone remembering to add a line.
+SIM.listScenarios = async () => {
+  const menu = $('scenario');
+  const reply = await fetch('scenarios/index.json');
+  if (!reply.ok) { $('modehint').textContent = 'no scenario manifest: run make build'; return; }
+  for (const file of await reply.json()) {
+    const scenario = await (await fetch('scenarios/' + file)).json();
+    const option = document.createElement('option');
+    option.value = 'scenarios/' + file;
+    option.textContent = scenario.name || file;
+    menu.appendChild(option);
+  }
+};
+SIM.listScenarios();
+SIM.applyMode();
+SIM.clearTraffic = () => f.clearTraffic();
+
+const bandCanvas = $('band'), band = bandCanvas.getContext('2d');
+const EVENT = ['tx', 'rx', 'deaf', 'coll'];
+const EVENT_COLOR = {tx:'#7fd1ff', rx:'#8fe08f', deaf:'#ff9b9b', coll:'#ffd591'};
+
+// Slot 1 wraps: 0..200 is the tail of the slot that opened at 800. The dashed
+// line at 450 is where our own bursts may start.
+function drawBand() {
+  const W = bandCanvas.width, H = bandCanvas.height, ms = x => x * W / 1000;
+  band.clearRect(0, 0, W, H);
+  band.fillStyle = '#1b2733'; band.fillRect(0, 0, ms(200), 30);
+  band.fillStyle = '#141a20'; band.fillRect(ms(205), 0, ms(190), 30);
+  band.fillStyle = '#16202a'; band.fillRect(ms(400), 0, ms(400), 30);
+  band.fillStyle = '#1b2733'; band.fillRect(ms(800), 0, ms(200), 30);
+  band.fillStyle = '#7d8894'; band.font = '12px system-ui';
+  band.fillText('slot 1 cont., RX only', 6, 19);
+  band.fillText('uplink 205-395, O-band', ms(208), 19);
+  band.fillText('slot 0: 868.200', ms(408), 19);
+  band.fillText('slot 1: 868.400 ->', ms(808), 19);
+  band.strokeStyle = '#46525e';
+  for (const t of [200, 205, 395, 400, 800]) {
+    band.beginPath(); band.moveTo(ms(t), 0); band.lineTo(ms(t), 96); band.stroke();
+  }
+  // The direct slot, where our own bursts live: narrower than what we hear.
+  band.strokeStyle = '#7fd1ff66'; band.setLineDash([3, 3]);
+  band.beginPath(); band.moveTo(ms(450), 0); band.lineTo(ms(450), 96);
+  band.moveTo(ms(1000) - 1, 0); band.lineTo(ms(1000) - 1, 96); band.stroke();
+  band.setLineDash([]);
+  // One lane per channel, so a burst on the wrong channel is visibly on the
+  // wrong line rather than merely absent.
+  const LANE = {869525: 44, 868200: 64, 868400: 84};
+  band.fillStyle = '#5b6672'; band.font = '10px ui-monospace,monospace';
+  band.fillText('869.525', 8, 42); band.fillText('868.200', 8, 62); band.fillText('868.400', 8, 82);
+  const n = f.airCount();
+  for (let i = 0; i < n; i++) {
+    const khz = f.airFreqKhz(i);
+    const y = LANE[khz > 869000 ? 869525 : (khz > 868300 ? 868400 : 868200)];
+    band.fillStyle = EVENT_COLOR[EVENT[f.airEvent(i)]];
+    band.fillRect(ms(f.airPhase(i)) - 1, y - 10, 3, 11);
+  }
+}
+
+function drawTape() {
+  const n = f.airCount(), out = [];
+  for (let i = Math.max(0, n - 12); i < n; i++)
+    out.push('<span class="' + EVENT[f.airEvent(i)] + '">' + f.airLine(i) + '</span>');
+  $('tape').innerHTML = out.join('\n') || '-';
+}
+
+function draw() {
+  f.advance(performance.now() | 0);
+  f.paint(canvas);
+  canvas.className = (f.powered() ? '' : 'off ') + (f.blOn() ? 'bl' : '');
+  // Only the left LED is the firmware's. The right one follows the charger,
+  // which on this board is USB power minus a full cell.
+  $('led_alarm').className = 'led red' + (f.alarm() ? ' on' : '');
+  $('led_charge').className = 'led amber' + (f.batteryCharging() ? ' on' : '');
+  $('pagehint').textContent = 'page: ' + PAGES[f.page()] +
+      '  ·  backlight ' + (f.blOn() ? 'on' : 'off') +
+      '  ·  power ' + (f.powered() ? 'on' : 'off') +
+      '  ·  ' + SHUTDOWN[f.shutdownPhase()];
+
+  // telemetry the firmware decoded
+  $('t_fix').textContent  = f.fixValid() ? '3D' : 'no fix';
+  $('t_sats').textContent = f.sats();
+  $('t_pos').textContent  = (f.lat()/1e7).toFixed(5) + ', ' + (f.lon()/1e7).toFixed(5);
+  $('t_alt').textContent  = f.alt() + ' m';
+  $('t_spd').textContent  = (f.speedQ()/4).toFixed(1) + ' m/s';
+  $('t_trk').textContent  = Math.round(f.trackC9()*360/512).toString().padStart(3,'0') + '°';
+  $('t_vs').textContent   = (f.climbE8()/8).toFixed(1) + ' m/s';
+  $('t_baro').textContent = (f.pressurePa()/100).toFixed(1) + ' hPa';
+  $('t_bat').textContent  = (f.batteryMv()/1000).toFixed(2) + ' V · ' + f.batteryPercent() + ' %'
+                            + (f.batteryCharging() ? ' charging' : '');
+  $('t_tfc').textContent  = f.traffic() + ' target(s)';
+  $('t_rx').textContent   = f.rxOk() + ' / ' + f.rxBad();
+  $('t_tx').textContent   = f.txOk() + ' / ' + f.txBusy();
+  $('t_dwell').textContent = DWELL[f.slotState()] || '-';
+  drawBand();
+  drawTape();
+  if (document.body.dataset.mode === 'training')
+    $('modehint').textContent = 'mode: training, expectations failed: ' + f.failures();
+  const lvl = f.alarm();
+  const el = $('t_alarm');
+  el.textContent = ALARM[lvl] || lvl;
+  el.className = 'alarm a' + lvl;
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
 </script>
 </body>
 </html>
