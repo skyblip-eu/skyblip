@@ -1,0 +1,96 @@
+name: website
+
+# skyblip.eu: a Parklife static build of website/, served from GitHub Pages.
+#
+# The site shares this tree with the firmware, so every job here is gated on the
+# commit having touched website/. A Zephyr-only merge must not spend a Pages
+# deployment, and a content typo must not wait on a 5-minute cross build.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # The escape hatch: a Pages setting or a domain change the tree cannot see.
+  # Always builds, whatever the filter below says.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # A filter, not a `paths:` trigger: a required status check that is never
+  # triggered leaves a pull request pending for ever, while a job skipped by `if`
+  # reports and satisfies it.
+  changes:
+    name: what changed
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      website: ${{ steps.filter.outputs.website }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            website:
+              - 'website/**'
+              - '.github/workflows/website.yml'
+
+  build:
+    name: parklife build
+    needs: changes
+    if: needs.changes.outputs.website == 'true' || github.event_name == 'workflow_dispatch'
+    # arm64 runners: cheaper per-minute and native aarch64 gem installs.
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      # `working-directory` is what points bundler-cache at website/Gemfile.lock;
+      # without it the cache key is computed from a lockfile that is not there.
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+          working-directory: website
+
+      - uses: actions/configure-pages@v6
+        id: pages
+
+      # Parklife needs the deployment's own base URL to write absolute canonical
+      # and hreflang links, which is why it comes from the step above rather than
+      # from a constant in the repo.
+      - name: build
+        working-directory: website
+        run: bin/static-build --base "${{ steps.pages.outputs.base_url }}"
+
+      - name: upload artifact
+        uses: actions/upload-pages-artifact@v5
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: website/build
+
+  deploy:
+    name: deploy to pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # One live site, so a queued deployment waits instead of racing the one
+    # ahead of it.
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    steps:
+      - name: deploy
+        id: deployment
+        uses: actions/deploy-pages@v5
