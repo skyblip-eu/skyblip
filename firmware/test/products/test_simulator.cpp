@@ -267,3 +267,26 @@ TEST_CASE("simulator: an ALP-TAS-equipped aircraft enters traffic as ALP-TAS") {
     }
     CHECK(alptas == 1);
 }
+
+// The browser page drives the hold through world::hold_button, and a tap cannot
+// stand in for it: kPressMs is 60 ms and the device switches off at 2 s.
+TEST_CASE("simulator: holding the button switches the device off, a tap never does") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    run(h, 0, 2000);
+
+    uint32_t t = press(h, 2000);
+    run(h, t, t + power::kLongPressMs);
+    CHECK(h.product().shutdown().phase() == power::ShutdownPhase::Running);
+
+    t += power::kLongPressMs;
+    h.world().hold_button(true);
+    run(h, t, t + power::kLongPressMs + 100);
+    t += power::kLongPressMs + 100;
+    CHECK(h.product().shutdown().reason() == power::ShutdownReason::LongPress);
+
+    h.world().hold_button(false);
+    run(h, t, t + power::kParkMs + power::kReleaseSettleMs + 100);
+    CHECK(h.product().ready_to_power_off());
+    CHECK_FALSE(h.panel_powered());
+}

@@ -26,6 +26,7 @@ KEEPALIVE int simulator_load_scenario(const char* json, int len) {
 KEEPALIVE int simulator_mode() { return static_cast<int>(g_simulator.mode()); }
 
 KEEPALIVE void simulator_button() { g_simulator.world().press_button(); }
+KEEPALIVE void simulator_button_down(int down) { g_simulator.world().hold_button(down != 0); }
 // The capacitive pad on P0.11 is not an input the firmware polls: on this case
 // it asks for a repaint, which is a full refresh of the panel.
 KEEPALIVE void simulator_touch() { g_simulator.product().screen().mark_dirty(); }
@@ -116,6 +117,9 @@ KEEPALIVE int simulator_track_c9() { return g_simulator.product().state().own.tr
 KEEPALIVE int simulator_climb_e8() { return g_simulator.product().state().own.climb_e8; }
 KEEPALIVE int simulator_traffic_count() { return g_simulator.product().state().traffic.count(); }
 KEEPALIVE int simulator_alarm_level() { return g_simulator.product().state().alarm_level; }
+KEEPALIVE int simulator_shutdown_phase() {
+    return static_cast<int>(g_simulator.product().shutdown().phase());
+}
 KEEPALIVE int simulator_vibro_ms() { return g_simulator.vibro_ms(); }
 KEEPALIVE int simulator_rx_ok() { return static_cast<int>(g_simulator.product().state().rx_ok); }
 KEEPALIVE int simulator_rx_bad() { return static_cast<int>(g_simulator.product().state().rx_bad); }

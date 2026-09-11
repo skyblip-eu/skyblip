@@ -40,6 +40,7 @@ jobs:
           filters: |
             website:
               - 'website/**'
+              - 'firmware/**'
               - '.github/workflows/website.yml'
 
   build:
@@ -61,11 +62,23 @@ jobs:
       - uses: actions/configure-pages@v6
         id: pages
 
+      # The buttons page embeds a WASM build of the firmware, so the site needs a
+      # C++ toolchain. Pinned: an unpinned one changes the bytes we publish
+      # without a commit saying so.
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.9
+          actions-cache-folder: emsdk-cache
+
       # Parklife needs the deployment's own base URL to write absolute canonical
       # and hreflang links, which is why it comes from the step above rather than
       # from a constant in the repo.
+      # SIMULATOR_REQUIRED makes a missing toolchain fatal here, where a laptop
+      # without emsdk renders the page's fallback and builds the rest.
       - name: build
         working-directory: website
+        env:
+          SIMULATOR_REQUIRED: 1
         run: bin/static-build --base "${{ steps.pages.outputs.base_url }}"
 
       - name: upload artifact

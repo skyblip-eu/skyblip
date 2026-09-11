@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+
+# The simulator the buttons page embeds: a WASM build of the firmware next door,
+# dropped into public/ under the commit it was built from. public/ is copied into
+# the Parklife build verbatim, so nothing here goes through the asset pipeline.
+#
+# Without Emscripten this is a no-op and the page renders its fallback. CI sets
+# SIMULATOR_REQUIRED=1, so a missing toolchain fails the build that is meant to
+# publish one.
+
+set -eu
+
+firmware="$(CDPATH='' cd -- "$(dirname -- "$0")/../../firmware" && pwd)"
+public="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)/public/simulator"
+build="$(git -C "$firmware" rev-parse --short HEAD)"
+
+if ! command -v emcc >/dev/null 2>&1; then
+  if [ "${SIMULATOR_REQUIRED:-0}" = "1" ]; then
+    echo "FAIL: emcc not found and SIMULATOR_REQUIRED=1" >&2
+    exit 1
+  fi
+  echo "simulator: emcc not found, the page will show its fallback"
+  exit 0
+fi
+
+make -C "$firmware" browser
+
+rm -rf "$public"
+mkdir -p "$public/$build"
+cp "$firmware/build/browser/skyblip_simulator.js" \
+   "$firmware/build/browser/skyblip_simulator.wasm" \
+   "$firmware/build/browser/embed.js" \
+   "$public/$build/"
+echo "simulator: public/simulator/$build"

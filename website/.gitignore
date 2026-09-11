@@ -28,3 +28,6 @@
 
 
 /build
+
+# The simulator, built into public/ by bin/simulator-build.
+/public/simulator

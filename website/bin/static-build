@@ -22,6 +22,9 @@ export SECRET_KEY_BASE_DUMMY=1
 rm -rf public/assets
 bundle exec rails assets:precompile
 
+# Before Parklife, because the pages ask which simulator build is on disk.
+bin/simulator-build
+
 # Build with Parklife - and forward arguments sent to this script.
 bundle exec parklife build "$@"
 

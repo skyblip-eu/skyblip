@@ -48,6 +48,27 @@ description: One button on skyBlip Go, three things it says · a press changes p
 </section>
 
 <section>
+  <h2 class="kicker">Try it</h2>
+  <h3>The same firmware, in this page.</h3>
+  <p>
+    The device below is the firmware a skyBlip Go runs, compiled to WebAssembly:
+    the same radar, the same pages, the same debounced button. Press the key on
+    the edge to change page, press it twice quickly, or hold it for two seconds
+    and watch the device switch itself off and keep the wordmark on the glass.
+  </p>
+
+  <%= render "shared/simulator",
+        start: "Switch the device on",
+        restart: "Switch it back on",
+        on: "running",
+        off: "off",
+        glass: "The simulated e-paper panel of a skyBlip Go",
+        key: "The device button: press to change page, hold two seconds to switch off",
+        caption: "Sensors are simulated, the firmware is not. It is the build this site was published from.",
+        missing: "The simulator is not part of this build of the site." %>
+</section>
+
+<section>
   <h2 class="kicker">On and off</h2>
   <h3>A press wakes it. A hold puts it away.</h3>
   <p>
