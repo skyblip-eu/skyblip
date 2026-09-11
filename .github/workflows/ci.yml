@@ -28,6 +28,11 @@ jobs:
   # rather than a list of firmware paths: a new top-level directory then runs the
   # full suite by default instead of silently running nothing.
   #
+  # ONE extglob pattern, and not `'**'` followed by `'!website/**'`: a filter's
+  # patterns are OR-ed, so a leading `**` matches every file and no later
+  # negation can take one back. The first version of this filter did exactly
+  # that and ran the whole matrix on a content-only pull request.
+  #
   # A filter, not a `paths:` trigger: a required status check that is never
   # triggered leaves a pull request pending for ever, while a job skipped by `if`
   # reports and satisfies it.
@@ -46,8 +51,7 @@ jobs:
         with:
           filters: |
             firmware:
-              - '**'
-              - '!website/**'
+              - '!(website)/**'
 
   host-tests:
     # arm64 ON PURPOSE: closer to the Cortex-M target than x86_64 is. Plain `char`
