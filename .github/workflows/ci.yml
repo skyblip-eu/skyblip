@@ -1,36 +1,29 @@
 name: ci
 
-# `push:` unqualified fires on EVERY branch push, and a push to a branch with an
-# open PR also fires `pull_request` - so every commit ran the whole matrix twice,
-# including the 5-minute Zephyr build. Pushes are watched on main only (the
-# post-merge signal). Everything else is covered by the PR event, and this repo
-# never commits to main directly anyway.
+# A push to a branch with an open PR already fires `pull_request`; main is the
+# post-merge signal, and this repo never commits to it directly.
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
-# Least privilege: every job here only ever reads the repository. The device
-# build's artifact upload uses the Actions runtime token, not this one.
 permissions:
   contents: read
 
-# Supersede in-flight runs on a branch when new commits land, but never cancel a
-# run on main - that one is the record of what the merged tree does.
+# Never cancel a run on main: that one is the record of what the merged tree does.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # website/ shares this tree and has its own workflow, so a content commit must
-  # not spend five minutes of Zephyr. Stated as "everything except the site"
-  # rather than a list of firmware paths: a new top-level directory then runs the
-  # full suite by default instead of silently running nothing.
+  # not spend five minutes of Zephyr.
   #
-  # A filter, not a `paths:` trigger: a required status check that is never
-  # triggered leaves a pull request pending for ever, while a job skipped by `if`
-  # reports and satisfies it.
+  # ONE extglob, not `'**'` plus `'!website/**'`: a filter's patterns are OR-ed,
+  # so a leading `**` matches everything and no later negation takes it back.
+  # And a filter rather than a `paths:` trigger: a required check that never
+  # triggers leaves a pull request pending for ever, a job skipped by `if` does not.
   changes:
     name: what changed
     runs-on: ubuntu-26.04-arm
@@ -46,14 +39,10 @@ jobs:
         with:
           filters: |
             firmware:
-              - '**'
-              - '!website/**'
+              - '!(website)/**'
 
   host-tests:
-    # arm64 ON PURPOSE: closer to the Cortex-M target than x86_64 is. Plain `char`
-    # is unsigned on ARM and signed on x86, and unaligned access is less
-    # forgiving - so the host suite now runs with the target's signedness rather
-    # than one that hides a whole class of parser bug until it reaches hardware.
+    # arm64 on purpose: plain `char` is unsigned there, as on the Cortex-M target.
     name: host unit tests (doctest)
     needs: changes
     if: needs.changes.outputs.firmware == 'true'
@@ -65,14 +54,12 @@ jobs:
         run: make test
       - name: test-coverage structural gate
         run: python3 scripts/check_test_coverage.py
-      # The .uf2 range guards are the only thing between a partition edit and an
-      # install that erases the factory bootloader or lands truncated. Stdlib
-      # only and no Zephyr, so it belongs on the fast job rather than the
-      # 5-minute device build.
+      # All that stands between a partition edit and an install that erases the
+      # factory bootloader. Stdlib only, so it runs here and not on the slow job.
       - name: mkuf2 range guards
         run: python3 scripts/test_mkuf2.py
-      # docs/BEHAVIOR.md is the test names, so a rename that is not committed with
-      # the doc leaves the repo claiming behavior the suite no longer states.
+      # docs/BEHAVIOR.md is generated from the test names: a rename that does not
+      # land with the doc leaves the repo claiming behavior the suite dropped.
       - name: behavior index matches the suite
         run: |
           python3 scripts/behavior_index.py
@@ -85,10 +72,8 @@ jobs:
     runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v7
-      # PINNED. `apt-get install clang-format` is whatever the runner image ships
-      # (18 today) and the versions disagree: 18 mangles `struct spi_buf b{x, y}`
-      # brace-init into a multi-line block. An unpinned formatter is a gate that
-      # changes its mind on an image bump, so take the version from PyPI.
+      # Pinned: the runner image ships clang-format 18, which reformats brace-init
+      # differently, so an unpinned formatter is a gate that changes its mind.
       - name: install clang-format
         run: pipx install clang-format==21.1.8
       - name: check formatting
@@ -98,9 +83,6 @@ jobs:
             -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
   product-image:
-    # One entry per SKU, and the board is deliberately NOT listed: the product
-    # owns that pair in its own CMakeLists, and naming it here would make CI a
-    # second place to assert the one thing this layout made single.
     strategy:
       fail-fast: false
       matrix:
@@ -108,23 +90,13 @@ jobs:
     name: product image (${{ matrix.product }})
     needs: changes
     if: needs.changes.outputs.firmware == 'true'
-    # x86_64 ON PURPOSE, unlike the host jobs. This is a CROSS build:
-    # arm-zephyr-eabi-gcc emits the same bytes for the nRF52840 whichever
-    # architecture the host is, so an arm64 runner buys nothing here. It costs
-    # something though - on ubuntu-26.04-arm the Zephyr SDK fails to register
-    # its CMake package and FindZephyr-sdk.cmake:57 dies on an empty variable
-    # (`( zephyr STREQUAL )`). Keep the firmware image built by the combination
-    # that is known to work.
+    # x86_64, unlike the host jobs: the cross output is identical either way, and
+    # on arm runners the Zephyr SDK fails to register its CMake package
+    # (FindZephyr-sdk.cmake:57 dies on an empty variable).
     runs-on: ubuntu-24.04
     steps:
-      # No `path:` - the repo root IS the app root, so firmware/ is at the top
-      # level. The old `path: skyblip` nested it one level deeper than app-path
-      # claimed, and `west init -l` then found no manifest to build a workspace
-      # from: "no west workspace found".
       - uses: actions/checkout@v7
 
-      # Installs west, fetches Zephyr + modules per firmware/west.yml, and
-      # provisions the arm-zephyr-eabi SDK (modern GCC -> C++20).
       - name: set up Zephyr
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
@@ -132,15 +104,10 @@ jobs:
           manifest-file-name: west.yml
           toolchains: arm-zephyr-eabi
 
-      # MCUboot's Kconfig default signing key is its own PUBLISHED
-      # root-ec-p256.pem, which everyone has - so a signature against it proves
-      # nothing. The real path is injected as a sysbuild Kconfig fragment,
-      # because Kconfig does not expand $(ENV) inside .conf fragments.
-      #
-      # Release builds use the key from Actions secrets. Ordinary CI runs get a
-      # throwaway key generated here: it proves the signing path works end to end
-      # without a distributable key ever being in the repo, and an artifact from a
-      # PR build will not boot a production unit.
+      # MCUboot's default signing key is its own published root-ec-p256.pem, which
+      # everyone has, so a signature against it proves nothing. Without the release
+      # secret this builds an ephemeral one: the path is exercised end to end and
+      # the artifact will not boot a production unit.
       - name: provision a signing key
         run: |
           python3 -m pip install --quiet imgtool
@@ -156,11 +123,8 @@ jobs:
             > "$RUNNER_TEMP/signing.conf"
           cat "$RUNNER_TEMP/signing.conf"
 
-      # The build number is what orders two images of the same release, and it is
-      # NOT in the VERSION file: Zephyr rejects a tweak above 255
-      # (cmake/modules/version.cmake:79-81) and a local build has no run number.
-      # github.run_number only ever increases for this workflow, so an image can
-      # never be built with a build number the fleet has already seen.
+      # The build number orders two images of one release and is NOT in the VERSION
+      # file: Zephyr rejects a tweak above 255 (cmake/modules/version.cmake:79-81).
       - name: stamp the image version
         working-directory: firmware
         run: |
@@ -176,10 +140,8 @@ jobs:
           echo "IMAGE_VERSION=$version" >> "$GITHUB_ENV"
           cat "$RUNNER_TEMP/version.conf"
 
-      # The app dir IS the product, and the board comes out of the product's own
-      # CMakeLists - sysbuild needs one named before the app is configured, and
-      # the product refuses any other. Reading it here keeps CI from becoming a
-      # second place where the pair is asserted.
+      # The board is read from the product's own CMakeLists so CI never becomes a
+      # second place the product/board pair is asserted.
       - name: west build (sysbuild -> MCUboot + app)
         working-directory: firmware
         run: |
@@ -188,15 +150,11 @@ jobs:
                   products/$product/CMakeLists.txt)
           test -n "$board" || { echo "FAIL: $product declares no board"; exit 1; }
           echo "building $product for $board"
-          # -D<image>_ is sysbuild's namespace for one image's variables, and the
-          # main image is named after the app directory, i.e. the product.
+          # -D<image>_ is sysbuild's namespace for one image, named after the app dir.
           west build -b "$board" products/$product --sysbuild \
             -- -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf" \
                -D${product}_EXTRA_CONF_FILE="$RUNNER_TEMP/version.conf"
 
-      # Guards against silently regressing to a key anyone can sign with. The
-      # default lives in the mcuboot module directory, so any resolved key path
-      # under it is a failure regardless of which algorithm was chosen.
       - name: assert the image was not signed with MCUboot's published key
         working-directory: firmware
         run: |
@@ -208,10 +166,9 @@ jobs:
               echo "FAIL: signed with an MCUboot sample key"; exit 1 ;;
           esac
 
-      # An image signed 0.0.0+0 is one MCUboot can never order against another,
-      # so downgrade prevention protects nothing and every unit reports the same
-      # version. The default is 0.0.0+0 whenever the VERSION file stops being
-      # picked up (modules/Kconfig.mcuboot:110-113), which is silent otherwise.
+      # 0.0.0+0 is what gets signed whenever the VERSION file stops being picked up
+      # (modules/Kconfig.mcuboot:110-113), and it silently disables downgrade
+      # prevention: every unit then reports a version MCUboot cannot order.
       - name: assert the signed image carries a real version
         working-directory: firmware
         run: |
@@ -225,8 +182,6 @@ jobs:
           test "$stamped" = "$IMAGE_VERSION" \
             || { echo "FAIL: expected $IMAGE_VERSION"; exit 1; }
 
-      # scripts/ is at the repo root, but the .elf is under firmware/build, so this
-      # step runs from firmware/ and reaches back up for the script.
       - name: flash-size budget
         working-directory: firmware
         run: python3 ../scripts/size_check.py build/${{ matrix.product }}/zephyr/zephyr.elf
@@ -236,11 +191,6 @@ jobs:
         working-directory: firmware
         run: find build -maxdepth 3 -name '*.hex' -o -name '*.bin' -o -name '*.uf2' | sort
 
-      # The .uf2 must carry the CONFIRMED image, and mkuf2.py cannot tell one hex
-      # from another. Dropping CONFIG_MCUBOOT_GENERATE_CONFIRMED_IMAGE would
-      # either lose the file at the last step of a long build, or - worse, if
-      # someone then points the merge at zephyr.signed.hex - ship an image that
-      # boots once and reverts.
       - name: assert the confirmed image exists and is not the plain signed one
         working-directory: firmware
         run: |
@@ -255,12 +205,9 @@ jobs:
             exit 1
           fi
 
-      # Merges the two sysbuild images and guards that the result cannot land on
-      # the factory MBR/SoftDevice or above the bootloader's silent write ceiling.
-      # Not SB_CONFIG_MERGED_HEX_FILES: that merges each image's DEFAULT hex, and
-      # for the application that is the unconfirmed one.
       # The application image must be the CONFIRMED one: a slot0 written directly
-      # never swaps, so it never marks itself good and would be reverted.
+      # never swaps, so it never marks itself good and the bootloader reverts it.
+      # Not SB_CONFIG_MERGED_HEX_FILES, which merges each image's default hex.
       - name: build the drag-and-drop .uf2
         working-directory: firmware
         run: |
@@ -280,10 +227,8 @@ jobs:
           if-no-files-found: error
 
   platform-adapters:
-    # What the pure-host suite cannot link: the Zephyr-backed adapters (NVS, SMP,
-    # GATT plumbing). native_sim needs no board and no cross toolchain, and this
-    # is about the platform rather than any one product - hence its own job
-    # instead of a step that would repeat for every SKU in the matrix.
+    # What the pure-host suite cannot link: NVS, SMP, the GATT plumbing. It is
+    # about the platform, not any one product, hence its own job.
     name: platform adapters (native_sim)
     needs: changes
     if: needs.changes.outputs.firmware == 'true'
@@ -301,7 +246,6 @@ jobs:
       - name: twister
         working-directory: firmware
         run: |
-          # ZEPHYR_BASE is not exported into this step's env, so ask west where
-          # the workspace is instead of guessing a path.
+          # ZEPHYR_BASE is not in this step's env, so ask west for the workspace.
           python3 "$(west topdir)/zephyr/scripts/twister" \
             -T test/twister -p native_sim --inline-logs
