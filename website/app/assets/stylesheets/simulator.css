@@ -4,6 +4,8 @@
     --case-edge: #D6D2C7;
     --epd-paper: #C9CBC4;
     --key: #B9BCC0;
+    --glass: 800px;
+    --case-pad: var(--space-inline-m);
 
     display: grid;
     gap: var(--space-s);
@@ -13,8 +15,10 @@
 
   .simulator-case {
     position: relative;
-    padding: var(--space-m) var(--space-inline-m);
-    padding-inline-start: var(--space-inline-xl);
+    box-sizing: border-box;
+    inline-size: min(100%, calc(var(--glass) + var(--case-pad) * 3 + 2px));
+    padding: var(--space-m) var(--case-pad);
+    padding-inline-start: calc(var(--case-pad) * 2);
     background: var(--case);
     border: 1px solid var(--case-edge);
     border-radius: var(--space-inline-m);
@@ -22,7 +26,7 @@
 
   .simulator-glass {
     display: block;
-    inline-size: min(400px, 100%);
+    inline-size: 100%;
     block-size: auto;
     aspect-ratio: 1;
     image-rendering: pixelated;
@@ -33,8 +37,8 @@
     position: absolute;
     inset-inline-start: -4px;
     inset-block-start: 55%;
-    inline-size: 14px;
-    block-size: 52px;
+    inline-size: 18px;
+    block-size: 88px;
     padding: 0;
     border: 1px solid var(--case-edge);
     border-radius: 4px 2px 2px 4px;
