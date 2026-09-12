@@ -158,11 +158,15 @@ class Sx1262 : public io::Spi, public io::Gpio {
 
     // What the world needs to know to be an honest channel: where this radio is
     // tuned, whether it is listening, and what it just put on the air.
+    //
+    // INFO: fc 15sep26 DS 6.2.2: the part inserts its sync register on transmit as on receive
     bool take_tx(uint8_t* out, uint8_t& len) {
         if (!tx_pending) return false;
         tx_pending = false;
-        len = static_cast<uint8_t>(tx_buf_.size());
-        for (size_t i = 0; i < tx_buf_.size(); i++) out[i] = tx_buf_[i];
+        const size_t inserted = sync_bits / 8u;
+        for (size_t i = 0; i < inserted; i++) out[i] = sync[i];
+        for (size_t i = 0; i < tx_buf_.size(); i++) out[inserted + i] = tx_buf_[i];
+        len = static_cast<uint8_t>(inserted + tx_buf_.size());
         return true;
     }
 

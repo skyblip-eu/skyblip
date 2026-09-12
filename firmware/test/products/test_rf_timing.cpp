@@ -10,6 +10,8 @@
 #include "core/timing/timing_stats.h"
 #include "core/timing/transmit.h"
 #include "doctest/doctest.h"
+#include "hardware/parts/sx1262/model.h"
+#include "hardware/parts/sx1262/sx1262.h"
 #include "simulator/simulator.h"
 
 using namespace skyblip;
@@ -46,7 +48,65 @@ int count_of(const simulator::Air& air, simulator::AirEvent want) {
     return n;
 }
 
+// A device on the next bench: the real driver over its own part, armed for the M-band dwell.
+struct Peer {
+    models::Sx1262 chip;
+    parts::Sx1262 radio{chip, chip, chip.busy_pin, chip.reset_pin, chip.dio1_pin};
+
+    Peer() {
+        radio.begin();
+        parts::RadioConfig cfg{};
+        cfg.sync = protocol::kSharedSync;
+        cfg.sync_bits = protocol::kSharedSyncBits;
+        cfg.payload_bytes = protocol::kRxChipBytes;
+        cfg.bitrate = protocol::kMbandChipRateBps;
+        cfg.fdev_hz = protocol::kMbandDeviationHz;
+        cfg.bandwidth_hz = protocol::kMbandChannelBandwidthHz;
+        REQUIRE(radio.configure_radio(cfg) == Status::Ok);
+        radio.start_receive();
+    }
+
+    bool frames(const simulator::AirRecord& burst, protocol::Frame& out) {
+        if (!chip.receive_air(burst.chips, burst.len, /*crc_error=*/false, burst.rssi_dbm,
+                              burst.bitrate))
+            return false;
+        uint8_t buf[messages::kRfEventBytes];
+        const parts::RadioEvent ev = radio.poll(buf, sizeof(buf));
+        radio.start_receive();
+        if (ev.type != parts::RadioEventType::RxDone) return false;
+        return protocol::receive_mband(buf, ev.len, out);
+    }
+};
+
 }  // namespace
+
+// Two devices on a bench, both transmitting, neither ever hearing the other.
+TEST_CASE("rf: a burst own-ship put on air is one another skyBlip frames") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_speed_kt(50);
+    run_on(h, past_settling(h), 6000);
+
+    const simulator::Air& air = h.world().air();
+    Peer peer;
+    int framed = 0;
+    for (int i = 0; i < air.record_count(); i++) {
+        const simulator::AirRecord& mine = air.record(i);
+        if (mine.event != simulator::AirEvent::Tx) continue;
+        protocol::Frame heard{};
+        REQUIRE(peer.frames(mine, heard));
+        CHECK(heard.system == protocol::System::AdslDirect);
+        protocol::AdslPacket p{};
+        p.init();
+        std::memcpy(&p.Version, heard.data, protocol::kAdslFrameBytes);
+        REQUIRE(p.check_crc() == 0);
+        p.descramble();
+        CHECK(p.address() == h.platform().device_addr());
+        framed++;
+    }
+    CHECK(framed > 0);
+}
 
 TEST_CASE("rf: a burst is heard only inside the dwell that owns its channel") {
     struct Case {

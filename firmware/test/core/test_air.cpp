@@ -11,11 +11,9 @@ using namespace skyblip;
 
 namespace {
 
-// A burst as it leaves a transmitter, then as the radio reports it: the detector
-// matched 16 chips two chips into the sync word, so everything before the match
-// is gone and the report is byte-aligned on what follows.
+// A burst as it leaves a transmitter, then as the radio reports it: the matched window is gone.
 void deliver(const uint8_t* chips, size_t chip_len, uint8_t* out, size_t out_len) {
-    const size_t first_bit = protocol::kSharedSyncSkipChips + protocol::kSharedSyncBits;
+    const size_t first_bit = protocol::kSharedSyncEndChip;
     for (size_t i = 0; i < out_len; i++) {
         uint8_t byte = 0;
         for (int b = 0; b < 8; b++) {
@@ -53,20 +51,19 @@ TEST_CASE("air: the constexpr chip coding is the one fec::manchester_encode uses
     }
 }
 
-// The trick: the two sync words are different, their chips agree for 18, and the
-// 16 the detector is armed with are the byte-aligned middle of that agreement.
+// The trick: two sync words whose chips agree for 18, and a detector armed with 16 of them.
 TEST_CASE("air: the two sync words share the window the detector matches") {
     CHECK(protocol::kAdslSyncWord != protocol::kAlptasSyncWord);
     CHECK(protocol::shared_sync(protocol::kAdslSyncWord) ==
           protocol::shared_sync(protocol::kAlptasSyncWord));
-    CHECK(protocol::kSharedSync[0] == 0x56);
-    CHECK(protocol::kSharedSync[1] == 0x66);
+    // The chips of 0xF5, the sync-word byte both systems open on.
+    CHECK(protocol::kSharedSync[0] == 0x55);
+    CHECK(protocol::kSharedSync[1] == 0x99);
 
-    // 23 bits of sync word are still ahead of the frame when the report starts,
-    // and they are what names the system.
-    CHECK(protocol::kSyncTailBits == 23);
-    CHECK(protocol::sync_tail(protocol::kAdslSyncWord) == 0xE49630u);
-    CHECK(protocol::sync_tail(protocol::kAlptasSyncWord) == 0x63F56Cu);
+    // The 24 bits of sync word still ahead of the frame when the report starts name the system.
+    CHECK(protocol::kSyncTailBits == 24);
+    CHECK(protocol::sync_tail(protocol::kAdslSyncWord) == 0x724B18u);
+    CHECK(protocol::sync_tail(protocol::kAlptasSyncWord) == 0x31FAB6u);
 }
 
 TEST_CASE("air: an ADS-L burst frames as ADS-L, byte-aligned on its data") {
@@ -92,7 +89,24 @@ TEST_CASE("air: an ALP-TAS burst frames as ALP-TAS through the same window") {
     CHECK(std::memcmp(frame.data, payload, sizeof(payload)) == 0);
 }
 
-// A dead chip pair in the sync tail must not cost the frame: it is 23 bits long
+// The burst two devices on a bench could not exchange: both had written the window into the buffer.
+TEST_CASE("air: the buffer a radio is handed is the burst, less the window the radio inserts") {
+    uint8_t payload[protocol::kAdslFrameBytes];
+    fill(payload, sizeof(payload), 23);
+
+    uint8_t on_air[protocol::kTxChipBytes] = {0};
+    const size_t air_len =
+        protocol::encode_mband(protocol::kAdslSyncWord, payload, sizeof(payload), on_air);
+    uint8_t buffer[protocol::kTxPayloadChipBytes] = {0};
+    const size_t buffer_len =
+        protocol::mband_payload(protocol::kAdslSyncWord, payload, sizeof(payload), buffer);
+
+    CHECK(air_len == buffer_len + protocol::kSyncWindowChipBytes);
+    CHECK(std::memcmp(on_air, protocol::kSharedSync, protocol::kSyncWindowChipBytes) == 0);
+    CHECK(std::memcmp(on_air + protocol::kSyncWindowChipBytes, buffer, buffer_len) == 0);
+}
+
+// A dead chip pair in the sync tail must not cost the frame: it is 24 bits long
 // and the two systems differ in far more than one of them.
 TEST_CASE("air: one flipped chip in the sync tail still names the system") {
     uint8_t payload[protocol::kAdslFrameBytes];

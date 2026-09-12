@@ -75,7 +75,7 @@ class RadioService : public runtime::Service {
     // dwell to defend against a state this composition cannot reach; the property
     // is asserted over the air instead, in test/products/test_rf_timing.cpp.
     protocol::AdslPacket outgoing_{};
-    uint8_t outgoing_chips_[protocol::kTxChipBytes]{};
+    uint8_t outgoing_chips_[protocol::kTxPayloadChipBytes]{};
     hal::RfMode armed_{hal::RfMode::Idle};
     uint32_t armed_freq_{0};
     uint32_t arm_count_{0};

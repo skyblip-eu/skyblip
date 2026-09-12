@@ -47,12 +47,22 @@ uint8_t frame_bytes(System system) {
     return 0;
 }
 
+size_t mband_payload(uint32_t sync_word, const uint8_t* frame, uint8_t frame_len, uint8_t* chips) {
+    uint8_t tail[kSyncTailBytes] = {0};
+    for (int i = 0; i < kSyncTailBytes; i++)
+        tail[i] = static_cast<uint8_t>(sync_word >> (8 * (kSyncTailBytes - 1 - i)));
+    fec::manchester_encode(tail, sizeof(tail), chips);
+    fec::manchester_encode(frame, frame_len, chips + kSyncTailChipBytes);
+    return kSyncTailChipBytes + 2u * frame_len;
+}
+
 size_t encode_mband(uint32_t sync_word, const uint8_t* frame, uint8_t frame_len, uint8_t* chips) {
-    uint8_t sync[4] = {0};
-    for (int i = 0; i < 4; i++) sync[i] = static_cast<uint8_t>(sync_word >> (24 - 8 * i));
-    fec::manchester_encode(sync, sizeof(sync), chips);
-    fec::manchester_encode(frame, frame_len, chips + kSyncChipBytes);
-    return kSyncChipBytes + 2u * frame_len;
+    uint8_t window[kSyncWindowBytes] = {0};
+    for (int i = 0; i < kSyncWindowBytes; i++)
+        window[i] = static_cast<uint8_t>(sync_word >> (24 - 8 * i));
+    fec::manchester_encode(window, sizeof(window), chips);
+    return kSyncWindowChipBytes +
+           mband_payload(sync_word, frame, frame_len, chips + kSyncWindowChipBytes);
 }
 
 bool receive_mband(const uint8_t* chips, size_t chip_bytes, Frame& out) {

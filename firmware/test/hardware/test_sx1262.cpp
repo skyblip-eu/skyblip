@@ -234,6 +234,34 @@ TEST_CASE("radio: what was written to the buffer is what goes on air") {
     CHECK_FALSE(chip.take_tx(out, len));
 }
 
+// What a peer's detector matches is the window the part inserts, not one the dwell wrote itself.
+TEST_CASE("radio: what goes on air is the sync window the part inserts, then the buffer") {
+    models::Sx1262 chip;
+    Sx1262 r = make(chip);
+    r.begin();
+    RadioConfig cfg{};
+    cfg.sync = protocol::kSharedSync;
+    cfg.sync_bits = protocol::kSharedSyncBits;
+    cfg.payload_bytes = protocol::kRxChipBytes;
+    REQUIRE(r.configure_radio(cfg) == Status::Ok);
+
+    uint8_t payload[protocol::kAdslFrameBytes];
+    for (uint8_t i = 0; i < sizeof(payload); i++) payload[i] = static_cast<uint8_t>(i + 1);
+    uint8_t buffer[protocol::kTxPayloadChipBytes] = {0};
+    const size_t buffer_len =
+        protocol::mband_payload(protocol::kAdslSyncWord, payload, sizeof(payload), buffer);
+    r.transmit(buffer, static_cast<uint8_t>(buffer_len));
+
+    uint8_t on_air[protocol::kTxChipBytes] = {0};
+    uint8_t len = 0;
+    REQUIRE(chip.take_tx(on_air, len));
+    uint8_t expected[protocol::kTxChipBytes] = {0};
+    const size_t expected_len =
+        protocol::encode_mband(protocol::kAdslSyncWord, payload, sizeof(payload), expected);
+    CHECK(len == expected_len);
+    CHECK(std::memcmp(on_air, expected, expected_len) == 0);
+}
+
 // The dwell hands the radio a sync window and a length. Without them programmed
 // the chip frames nothing, so this is where the shared-window trick either
 // reaches the hardware or quietly does not.

@@ -179,7 +179,7 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
         outgoing_.scramble();
         outgoing_.set_crc();
         plan.tx = outgoing_chips_;
-        plan.tx_len = static_cast<uint8_t>(protocol::encode_mband(
+        plan.tx_len = static_cast<uint8_t>(protocol::mband_payload(
             protocol::kAdslSyncWord, reinterpret_cast<const uint8_t*>(&outgoing_.Version),
             protocol::kAdslFrameBytes, outgoing_chips_));
         plan.tx_at_us = tx_at_us;
