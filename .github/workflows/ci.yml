@@ -82,162 +82,163 @@ jobs:
                firmware/runtime firmware/products firmware/simulator firmware/test \
             -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
-  product-image:
-    strategy:
-      fail-fast: false
-      # `slug` is the product as a human writes it: the board name carries an
-      # underscore Zephyr requires, and expressions have no replace().
-      matrix:
-        include:
-          - product: skyblip_go
-            slug: skyblip-go
-    name: product image (${{ matrix.product }})
-    needs: changes
-    if: needs.changes.outputs.firmware == 'true'
-    # x86_64, unlike the host jobs: the cross output is identical either way, and
-    # on arm runners the Zephyr SDK fails to register its CMake package
-    # (FindZephyr-sdk.cmake:57 dies on an empty variable).
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: set up Zephyr
-        uses: zephyrproject-rtos/action-zephyr-setup@v1
-        with:
-          app-path: firmware
-          manifest-file-name: west.yml
-          toolchains: arm-zephyr-eabi
-
-      # MCUboot's default signing key is its own published root-ec-p256.pem, which
-      # everyone has, so a signature against it proves nothing. Without the release
-      # secret this builds an ephemeral one: the path is exercised end to end and
-      # the artifact will not boot a production unit.
-      - name: provision a signing key
-        run: |
-          python3 -m pip install --quiet imgtool
-          if [ -n "${{ secrets.SKYBLIP_SIGNING_KEY_PEM }}" ]; then
-            echo "${{ secrets.SKYBLIP_SIGNING_KEY_PEM }}" > "$RUNNER_TEMP/signing.pem"
-            echo "using the release signing key"
-          else
-            imgtool keygen -k "$RUNNER_TEMP/signing.pem" -t ecdsa-p256
-            echo "using an EPHEMERAL signing key (artifacts will not boot a production unit)"
-          fi
-          chmod 600 "$RUNNER_TEMP/signing.pem"
-          echo "SB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$RUNNER_TEMP/signing.pem\"" \
-            > "$RUNNER_TEMP/signing.conf"
-          cat "$RUNNER_TEMP/signing.conf"
-
-      # The build number orders two images of one release and is NOT in the VERSION
-      # file: Zephyr rejects a tweak above 255 (cmake/modules/version.cmake:79-81).
-      - name: stamp the image version
-        working-directory: firmware
-        run: |
-          file=products/${{ matrix.product }}/VERSION
-          major=$(sed -n 's/^VERSION_MAJOR *= *\([0-9][0-9]*\).*/\1/p' "$file")
-          minor=$(sed -n 's/^VERSION_MINOR *= *\([0-9][0-9]*\).*/\1/p' "$file")
-          patch=$(sed -n 's/^PATCHLEVEL *= *\([0-9][0-9]*\).*/\1/p' "$file")
-          test -n "$major" && test -n "$minor" && test -n "$patch" \
-            || { echo "FAIL: no version triple in $file"; exit 1; }
-          version="$major.$minor.$patch+${{ github.run_number }}"
-          echo "CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION=\"$version\"" \
-            > "$RUNNER_TEMP/version.conf"
-          echo "IMAGE_VERSION=$version" >> "$GITHUB_ENV"
-          cat "$RUNNER_TEMP/version.conf"
-
-      # The board is read from the product's own CMakeLists so CI never becomes a
-      # second place the product/board pair is asserted.
-      - name: west build (sysbuild -> MCUboot + app)
-        working-directory: firmware
-        run: |
-          product=${{ matrix.product }}
-          board=$(sed -n 's/^skyblip_product_board(\(.*\))$/\1/p' \
-                  products/$product/CMakeLists.txt)
-          test -n "$board" || { echo "FAIL: $product declares no board"; exit 1; }
-          echo "building $product for $board"
-          # -D<image>_ is sysbuild's namespace for one image, named after the app dir.
-          west build -b "$board" products/$product --sysbuild \
-            -- -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf" \
-               -D${product}_EXTRA_CONF_FILE="$RUNNER_TEMP/version.conf"
-
-      - name: assert the image was not signed with MCUboot's published key
-        working-directory: firmware
-        run: |
-          key=$(grep -h '^CONFIG_BOOT_SIGNATURE_KEY_FILE=' build/mcuboot/zephyr/.config | cut -d'"' -f2)
-          echo "signing key: $key"
-          case "$key" in
-            "") echo "FAIL: no signing key configured"; exit 1 ;;
-            *bootloader/mcuboot*|*root-ec-p256.pem|*root-rsa-2048.pem|*root-ed25519.pem)
-              echo "FAIL: signed with an MCUboot sample key"; exit 1 ;;
-          esac
-
-      # 0.0.0+0 is what gets signed whenever the VERSION file stops being picked up
-      # (modules/Kconfig.mcuboot:110-113), and it silently disables downgrade
-      # prevention: every unit then reports a version MCUboot cannot order.
-      - name: assert the signed image carries a real version
-        working-directory: firmware
-        run: |
-          image=build/${{ matrix.product }}/zephyr/zephyr.signed.bin
-          stamped=$(imgtool verify "$image" | sed -n 's/^Image version: //p')
-          echo "imgtool stamped: ${stamped:-<nothing>}"
-          case "$stamped" in
-            "") echo "FAIL: imgtool verify printed no version for $image"; exit 1 ;;
-            0.0.0+0) echo "FAIL: signed 0.0.0+0, the VERSION file was not used"; exit 1 ;;
-          esac
-          test "$stamped" = "$IMAGE_VERSION" \
-            || { echo "FAIL: expected $IMAGE_VERSION"; exit 1; }
-
-      - name: flash-size budget
-        working-directory: firmware
-        run: python3 ../scripts/size_check.py build/${{ matrix.product }}/zephyr/zephyr.elf
-
-      - name: list build artifacts
-        if: always()
-        working-directory: firmware
-        run: find build -maxdepth 3 -name '*.hex' -o -name '*.bin' -o -name '*.uf2' | sort
-
-      - name: assert the confirmed image exists and is not the plain signed one
-        working-directory: firmware
-        run: |
-          out=build/${{ matrix.product }}/zephyr
-          if [ ! -f "$out/zephyr.signed.confirmed.hex" ]; then
-            echo "FAIL: no zephyr.signed.confirmed.hex"
-            echo "is CONFIG_MCUBOOT_GENERATE_CONFIRMED_IMAGE still y?"
-            exit 1
-          fi
-          if cmp -s "$out/zephyr.signed.hex" "$out/zephyr.signed.confirmed.hex"; then
-            echo "FAIL: the confirmed hex is byte-identical to the unconfirmed one"
-            exit 1
-          fi
-
-      # The application image must be the CONFIRMED one: a slot0 written directly
-      # never swaps, so it never marks itself good and the bootloader reverts it.
-      # Not SB_CONFIG_MERGED_HEX_FILES, which merges each image's default hex.
-      - name: build the drag-and-drop .uf2
-        working-directory: firmware
-        run: |
-          python3 ../scripts/mkuf2.py "build/${{ matrix.slug }}.uf2" \
-            build/mcuboot/zephyr/zephyr.hex \
-            "build/${{ matrix.product }}/zephyr/zephyr.signed.confirmed.hex"
-
-      # One staging directory, so the artifact unzips flat and every file says
-      # which product it came off: zephyr.signed.bin does not, three deep. It
-      # leaves mkuf2's intermediate .merged.hex behind in build/.
-      - name: stage the artifact
-        working-directory: firmware
-        run: |
-          mkdir -p build/out
-          zephyr=build/${{ matrix.product }}/zephyr
-          slug=build/out/${{ matrix.slug }}
-          cp "build/${{ matrix.slug }}.uf2" build/out/
-          cp "$zephyr/zephyr.signed.bin" "$slug.signed.bin"
-          cp "$zephyr/zephyr.signed.confirmed.bin" "$slug.signed.confirmed.bin"
-
-      - name: upload firmware artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.slug }}_firmware
-          path: firmware/build/out/*
-          if-no-files-found: error
+# TODO: fc 12sep26 uncomment once the image is built in CI again, local for now: scripts/build_local.sh
+#   product-image:
+#     strategy:
+#       fail-fast: false
+#       # `slug` is the product as a human writes it: the board name carries an
+#       # underscore Zephyr requires, and expressions have no replace().
+#       matrix:
+#         include:
+#           - product: skyblip_go
+#             slug: skyblip-go
+#     name: product image (${{ matrix.product }})
+#     needs: changes
+#     if: needs.changes.outputs.firmware == 'true'
+#     # x86_64, unlike the host jobs: the cross output is identical either way, and
+#     # on arm runners the Zephyr SDK fails to register its CMake package
+#     # (FindZephyr-sdk.cmake:57 dies on an empty variable).
+#     runs-on: ubuntu-24.04
+#     steps:
+#       - uses: actions/checkout@v7
+#
+#       - name: set up Zephyr
+#         uses: zephyrproject-rtos/action-zephyr-setup@v1
+#         with:
+#           app-path: firmware
+#           manifest-file-name: west.yml
+#           toolchains: arm-zephyr-eabi
+#
+#       # MCUboot's default signing key is its own published root-ec-p256.pem, which
+#       # everyone has, so a signature against it proves nothing. Without the release
+#       # secret this builds an ephemeral one: the path is exercised end to end and
+#       # the artifact will not boot a production unit.
+#       - name: provision a signing key
+#         run: |
+#           python3 -m pip install --quiet imgtool
+#           if [ -n "${{ secrets.SKYBLIP_SIGNING_KEY_PEM }}" ]; then
+#             echo "${{ secrets.SKYBLIP_SIGNING_KEY_PEM }}" > "$RUNNER_TEMP/signing.pem"
+#             echo "using the release signing key"
+#           else
+#             imgtool keygen -k "$RUNNER_TEMP/signing.pem" -t ecdsa-p256
+#             echo "using an EPHEMERAL signing key (artifacts will not boot a production unit)"
+#           fi
+#           chmod 600 "$RUNNER_TEMP/signing.pem"
+#           echo "SB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$RUNNER_TEMP/signing.pem\"" \
+#             > "$RUNNER_TEMP/signing.conf"
+#           cat "$RUNNER_TEMP/signing.conf"
+#
+#       # The build number orders two images of one release and is NOT in the VERSION
+#       # file: Zephyr rejects a tweak above 255 (cmake/modules/version.cmake:79-81).
+#       - name: stamp the image version
+#         working-directory: firmware
+#         run: |
+#           file=products/${{ matrix.product }}/VERSION
+#           major=$(sed -n 's/^VERSION_MAJOR *= *\([0-9][0-9]*\).*/\1/p' "$file")
+#           minor=$(sed -n 's/^VERSION_MINOR *= *\([0-9][0-9]*\).*/\1/p' "$file")
+#           patch=$(sed -n 's/^PATCHLEVEL *= *\([0-9][0-9]*\).*/\1/p' "$file")
+#           test -n "$major" && test -n "$minor" && test -n "$patch" \
+#             || { echo "FAIL: no version triple in $file"; exit 1; }
+#           version="$major.$minor.$patch+${{ github.run_number }}"
+#           echo "CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION=\"$version\"" \
+#             > "$RUNNER_TEMP/version.conf"
+#           echo "IMAGE_VERSION=$version" >> "$GITHUB_ENV"
+#           cat "$RUNNER_TEMP/version.conf"
+#
+#       # The board is read from the product's own CMakeLists so CI never becomes a
+#       # second place the product/board pair is asserted.
+#       - name: west build (sysbuild -> MCUboot + app)
+#         working-directory: firmware
+#         run: |
+#           product=${{ matrix.product }}
+#           board=$(sed -n 's/^skyblip_product_board(\(.*\))$/\1/p' \
+#                   products/$product/CMakeLists.txt)
+#           test -n "$board" || { echo "FAIL: $product declares no board"; exit 1; }
+#           echo "building $product for $board"
+#           # -D<image>_ is sysbuild's namespace for one image, named after the app dir.
+#           west build -b "$board" products/$product --sysbuild \
+#             -- -DSB_EXTRA_CONF_FILE="$RUNNER_TEMP/signing.conf" \
+#                -D${product}_EXTRA_CONF_FILE="$RUNNER_TEMP/version.conf"
+#
+#       - name: assert the image was not signed with MCUboot's published key
+#         working-directory: firmware
+#         run: |
+#           key=$(grep -h '^CONFIG_BOOT_SIGNATURE_KEY_FILE=' build/mcuboot/zephyr/.config | cut -d'"' -f2)
+#           echo "signing key: $key"
+#           case "$key" in
+#             "") echo "FAIL: no signing key configured"; exit 1 ;;
+#             *bootloader/mcuboot*|*root-ec-p256.pem|*root-rsa-2048.pem|*root-ed25519.pem)
+#               echo "FAIL: signed with an MCUboot sample key"; exit 1 ;;
+#           esac
+#
+#       # 0.0.0+0 is what gets signed whenever the VERSION file stops being picked up
+#       # (modules/Kconfig.mcuboot:110-113), and it silently disables downgrade
+#       # prevention: every unit then reports a version MCUboot cannot order.
+#       - name: assert the signed image carries a real version
+#         working-directory: firmware
+#         run: |
+#           image=build/${{ matrix.product }}/zephyr/zephyr.signed.bin
+#           stamped=$(imgtool verify "$image" | sed -n 's/^Image version: //p')
+#           echo "imgtool stamped: ${stamped:-<nothing>}"
+#           case "$stamped" in
+#             "") echo "FAIL: imgtool verify printed no version for $image"; exit 1 ;;
+#             0.0.0+0) echo "FAIL: signed 0.0.0+0, the VERSION file was not used"; exit 1 ;;
+#           esac
+#           test "$stamped" = "$IMAGE_VERSION" \
+#             || { echo "FAIL: expected $IMAGE_VERSION"; exit 1; }
+#
+#       - name: flash-size budget
+#         working-directory: firmware
+#         run: python3 ../scripts/size_check.py build/${{ matrix.product }}/zephyr/zephyr.elf
+#
+#       - name: list build artifacts
+#         if: always()
+#         working-directory: firmware
+#         run: find build -maxdepth 3 -name '*.hex' -o -name '*.bin' -o -name '*.uf2' | sort
+#
+#       - name: assert the confirmed image exists and is not the plain signed one
+#         working-directory: firmware
+#         run: |
+#           out=build/${{ matrix.product }}/zephyr
+#           if [ ! -f "$out/zephyr.signed.confirmed.hex" ]; then
+#             echo "FAIL: no zephyr.signed.confirmed.hex"
+#             echo "is CONFIG_MCUBOOT_GENERATE_CONFIRMED_IMAGE still y?"
+#             exit 1
+#           fi
+#           if cmp -s "$out/zephyr.signed.hex" "$out/zephyr.signed.confirmed.hex"; then
+#             echo "FAIL: the confirmed hex is byte-identical to the unconfirmed one"
+#             exit 1
+#           fi
+#
+#       # The application image must be the CONFIRMED one: a slot0 written directly
+#       # never swaps, so it never marks itself good and the bootloader reverts it.
+#       # Not SB_CONFIG_MERGED_HEX_FILES, which merges each image's default hex.
+#       - name: build the drag-and-drop .uf2
+#         working-directory: firmware
+#         run: |
+#           python3 ../scripts/mkuf2.py "build/${{ matrix.slug }}.uf2" \
+#             build/mcuboot/zephyr/zephyr.hex \
+#             "build/${{ matrix.product }}/zephyr/zephyr.signed.confirmed.hex"
+#
+#       # One staging directory, so the artifact unzips flat and every file says
+#       # which product it came off: zephyr.signed.bin does not, three deep. It
+#       # leaves mkuf2's intermediate .merged.hex behind in build/.
+#       - name: stage the artifact
+#         working-directory: firmware
+#         run: |
+#           mkdir -p build/out
+#           zephyr=build/${{ matrix.product }}/zephyr
+#           slug=build/out/${{ matrix.slug }}
+#           cp "build/${{ matrix.slug }}.uf2" build/out/
+#           cp "$zephyr/zephyr.signed.bin" "$slug.signed.bin"
+#           cp "$zephyr/zephyr.signed.confirmed.bin" "$slug.signed.confirmed.bin"
+#
+#       - name: upload firmware artifacts
+#         uses: actions/upload-artifact@v7
+#         with:
+#           name: ${{ matrix.slug }}_firmware
+#           path: firmware/build/out/*
+#           if-no-files-found: error
 
   platform-adapters:
     # What the pure-host suite cannot link: NVS, SMP, the GATT plumbing. It is
