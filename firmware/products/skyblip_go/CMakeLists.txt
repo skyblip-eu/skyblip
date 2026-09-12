@@ -21,7 +21,3 @@ file(GLOB SKYBLIP_GO_SOURCES
   ${CMAKE_CURRENT_LIST_DIR}/services/*.cpp
 )
 target_sources(app PRIVATE ${SKYBLIP_GO_SOURCES})
-
-# Two devices on a bench withhold nearly every burst. This build never listens before talking, so
-# the bench can say whether carrier sense is the reason. Not for air, not for merge.
-target_compile_definitions(app PRIVATE SKYBLIP_BENCH_NO_LBT)
