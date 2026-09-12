@@ -27,9 +27,7 @@ KEEPALIVE int simulator_mode() { return static_cast<int>(g_simulator.mode()); }
 
 KEEPALIVE void simulator_button() { g_simulator.world().press_button(); }
 KEEPALIVE void simulator_button_down(int down) { g_simulator.world().hold_button(down != 0); }
-// The capacitive pad on P0.11 is not an input the firmware polls: on this case
-// it asks for a repaint, which is a full refresh of the panel.
-KEEPALIVE void simulator_touch() { g_simulator.product().screen().mark_dirty(); }
+KEEPALIVE void simulator_pad_down(int down) { g_simulator.world().hold_pad(down != 0); }
 KEEPALIVE void simulator_backlight(int on) {
     g_simulator.product().screen().set_backlight(on != 0);
 }

@@ -263,6 +263,50 @@ TEST_CASE("shutdown: a short press is not a shutdown, a long one is") {
     CHECK(seq.reason() == ShutdownReason::LongPress);
 }
 
+TEST_CASE("shutdown: the pad held through the press asks to be stowed, not switched off") {
+    ShutdownSequencer seq;
+    uint32_t t = 0;
+    seq.tick(t, false);
+    for (t = 10; t <= 10 + kLongPressMs; t += 10) seq.tick(t, true, /*pad_down=*/true);
+    CHECK(seq.phase() == ShutdownPhase::Parking);
+    CHECK(seq.reason() == ShutdownReason::Stow);
+    CHECK(std::string(to_string(ShutdownReason::Stow)) == "STOW");
+}
+
+TEST_CASE("shutdown: a pad that was not held throughout is an ordinary power-off") {
+    ShutdownSequencer late;
+    uint32_t t = 0;
+    late.tick(t, false);
+    for (t = 10; t < 10 + kLongPressMs / 2; t += 10) late.tick(t, true, /*pad_down=*/true);
+    for (; t <= 10 + kLongPressMs; t += 10) late.tick(t, true, /*pad_down=*/false);
+    CHECK(late.reason() == ShutdownReason::LongPress);
+
+    ShutdownSequencer brushed;
+    t = 0;
+    brushed.tick(t, false);
+    for (t = 10; t < 10 + kLongPressMs / 2; t += 10) brushed.tick(t, true, /*pad_down=*/false);
+    for (; t <= 10 + kLongPressMs; t += 10) brushed.tick(t, true, /*pad_down=*/true);
+    CHECK(brushed.reason() == ShutdownReason::LongPress);
+}
+
+// A cheek, a raindrop or a bag rests on the pad: it may never switch anything off.
+TEST_CASE("shutdown: the pad on its own switches nothing off") {
+    ShutdownSequencer seq;
+    seq.tick(0, false);
+    for (uint32_t t = 10; t < 30000; t += 10) seq.tick(t, /*button_down=*/false, /*pad_down=*/true);
+    CHECK(seq.phase() == ShutdownPhase::Running);
+    CHECK(seq.reason() == ShutdownReason::None);
+}
+
+TEST_CASE("shutdown: a stow waits for the button like any other press") {
+    ShutdownSequencer seq;
+    seq.request(ShutdownReason::Stow, 0);
+    CHECK(seq.waits_for_release());
+    for (uint32_t t = 0; t <= kParkMs; t += 10) seq.tick(t, true, /*pad_down=*/true);
+    CHECK(seq.phase() == ShutdownPhase::AwaitRelease);
+    CHECK(button_wake_after(ShutdownReason::Stow, /*external_power=*/false) == ButtonWake::Armed);
+}
+
 TEST_CASE("shutdown: the wake pin waits for the button to come up") {
     ShutdownSequencer seq;
     uint32_t t = 0;

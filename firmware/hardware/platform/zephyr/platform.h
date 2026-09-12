@@ -70,6 +70,7 @@ class Platform {
         link_.begin();
         baro_ = baro76_.ready() ? &baro76_ : (baro77_.ready() ? &baro77_ : nullptr);
         gpio_pin_configure_dt(&button_, GPIO_INPUT);
+        gpio_pin_configure_dt(&pad_, GPIO_INPUT);
         pps_.begin();
         return Status::Ok;
     }
@@ -100,6 +101,9 @@ class Platform {
     zephyr::SystemPower& system_power() { return system_power_; }
 
     bool button_down() { return gpio_pin_get_dt(&button_) == 1; }
+
+    // TODO: fc 12sep26 read P0.11 on a bench, the polarity is SoftRF's alone (fcatuhe/skyblip#60)
+    bool pad_down() { return gpio_pin_get_dt(&pad_) == 1; }
 
     // The 21 bytes the board port clocked out of the panel, or false if it could
     // not take them at all.
@@ -186,6 +190,7 @@ class Platform {
     struct pwm_dt_spec buzzer_ = PWM_DT_SPEC_GET(DT_ALIAS(buzzer));
     struct gpio_dt_spec haptic_enable_ = GPIO_DT_SPEC_GET(DT_ALIAS(vibro), gpios);
     struct gpio_dt_spec button_ = GPIO_DT_SPEC_GET(DT_ALIAS(button), gpios);
+    struct gpio_dt_spec pad_ = GPIO_DT_SPEC_GET(DT_ALIAS(pad), gpios);
     // _OR, not _GET: a board file with no LED node has to build. That is the seam
     // - the specs come back null, ready() answers false, and the device runs the
     // same table and lights nothing.

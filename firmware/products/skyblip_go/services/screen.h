@@ -55,6 +55,7 @@ class ScreenService : public runtime::Service {
     void set_backlight(bool on);
     void set_power(bool on);
     void park_for_install();
+    void park_for_stow();
     void set_range_m(int32_t m) {
         range_m_ = m;
         dirty_ = true;
@@ -85,6 +86,9 @@ class ScreenService : public runtime::Service {
     bool decide_full(uint32_t now_ms, bool quiet) const;
     void park_idle_panel(uint32_t now_ms);
     bool may_present_park_frame() const;
+    enum class ParkFrame : uint8_t { Wordmark, Installing, Blank };
+    void park(ParkFrame frame);
+    void draw_park_frame(ParkFrame frame);
     void note_presented(hal::Refresh mode, uint32_t now_ms);
 
     // 1 m/s = 196.85 ft/min, from eighth-m/s.

@@ -252,16 +252,33 @@ void ScreenService::set_power(bool on) {
         context_.roles.display.power_on();
         return;
     }
+    park(ParkFrame::Wordmark);
+}
+
+// INFO: fc 01aug25 pushed before power-off: the glass wears it while off
+void ScreenService::park(ParkFrame frame) {
+    powered_ = false;
     // A lit backlight is a rail nobody switched off: the panel sleeps, the LED
     // would not have.
     set_backlight(false);
     if (may_present_park_frame()) {
-        // INFO: fc 01aug25 pushed before power-off: the glass wears it while off
-        fb_.clear(/*white=*/true);
-        ui::draw_wordmark(fb_, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
+        draw_park_frame(frame);
         context_.roles.display.present(fb_, hal::Refresh::Full, last_render_ms_);
     }
     context_.roles.display.power_off();
+}
+
+void ScreenService::draw_park_frame(ParkFrame frame) {
+    switch (frame) {
+        case ParkFrame::Installing: ui::draw_installing(fb_); return;
+        // INFO: fc 12sep26 months of one image is the ghosting an e-paper never fully loses
+        case ParkFrame::Blank: fb_.clear(/*white=*/true); return;
+        case ParkFrame::Wordmark:
+        default:
+            fb_.clear(/*white=*/true);
+            ui::draw_wordmark(fb_, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
+            return;
+    }
 }
 
 bool ScreenService::may_present_park_frame() const {
@@ -271,15 +288,9 @@ bool ScreenService::may_present_park_frame() const {
 }
 
 // INFO: fc 07sep26 the glass wears this through the swap; a frozen prompt invites a reset
-void ScreenService::park_for_install() {
-    powered_ = false;
-    set_backlight(false);
-    if (may_present_park_frame()) {
-        ui::draw_installing(fb_);
-        context_.roles.display.present(fb_, hal::Refresh::Full, last_render_ms_);
-    }
-    context_.roles.display.power_off();
-}
+void ScreenService::park_for_install() { park(ParkFrame::Installing); }
+
+void ScreenService::park_for_stow() { park(ParkFrame::Blank); }
 
 void ScreenService::draw_prompt() {
     ui::ConfirmSnapshot snapshot;

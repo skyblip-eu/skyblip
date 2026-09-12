@@ -11,7 +11,8 @@
 
 namespace skyblip::power {
 
-enum class ShutdownReason : uint8_t { None, LongPress, LowBattery, LinkRequest, Install };
+// INFO: fc 12sep26 Stow is the long press with the pad held: same road out, blank glass
+enum class ShutdownReason : uint8_t { None, LongPress, Stow, LowBattery, LinkRequest, Install };
 enum class ShutdownPhase : uint8_t { Running, Parking, AwaitRelease, Off };
 
 const char* to_string(ShutdownReason reason);
@@ -156,7 +157,7 @@ class ShutdownSequencer {
    public:
     // One sample of the world per service step. The button level is the raw
     // debounced level, not the page-press edge: a hold produces no edges.
-    void tick(uint32_t now_ms, bool button_down);
+    void tick(uint32_t now_ms, bool button_down, bool pad_down = false);
 
     // The other two entries. The first reason to arrive is the one reported;
     // nothing cancels a shutdown once it has started.
@@ -185,6 +186,7 @@ class ShutdownSequencer {
     uint32_t released_at_ms_{0};
     bool holding_{false};
     bool released_{false};
+    bool stowing_{false};
     // A press is what wakes the device from SYSTEM OFF, so the very first thing
     // the sequencer sees after a wake is a button that is already down. Counting
     // that as a hold powers the device off again before the panel has drawn.

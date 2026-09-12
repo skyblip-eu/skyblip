@@ -27,6 +27,7 @@
 		buzzer = &buzzer_pwm;
 		vibro = &vibro_gpio;
 		button = &button_gpio;
+		pad = &pad_gpio;
 		gnss-pps = &gnss_pps_gpio;
 		led-green = &led_green;
 		led-red = &led_red;
@@ -54,6 +55,16 @@
 		button_gpio: button {
 			gpios = <&gpio1 10 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			label = "button";
+		};
+
+		/* Capacitive touch pad (P0.11), external pull-up, touched reads low.
+		 * SoftRF iomap/LilyGO_TEcho.h:68 names the pin and nRF52.cpp:4937
+		 * reads it as a plain input; nobody has read it on our own unit. Held
+		 * through a two-second press it makes the power-off a stow, and that
+		 * is the whole of what it can do. */
+		pad_gpio: pad {
+			gpios = <&gpio0 11 GPIO_ACTIVE_LOW>;
+			label = "pad";
 		};
 
 		/* L76K 1 PPS (P1.04): the slot clock's only hardware anchor. */
@@ -190,10 +201,9 @@
 	 * `status = "disabled"` for the same load-bearing reason as the two nodes
 	 * above: a pin map, never a device.
 	 *
-	 * Two pins are deliberately not here, because nothing drives them and a node
-	 * is a claim that something might: P0.18, the second button, which LilyGO
-	 * labels reset and wires as an ordinary GPIO, and P0.11, the capacitive touch
-	 * pad (SoftRF iomap/LilyGO_TEcho.h). A third is P0.21, which LilyGO's README
+	 * One pin is deliberately not here, because nothing drives it and a node is a
+	 * claim that something might: P0.18, the second button, which LilyGO labels
+	 * reset and wires as an ordinary GPIO. A second is P0.21, which LilyGO's README
 	 * pin table wires to the SX1262's DIO3: the part drives that line itself to
 	 * power its TCXO (hardware/parts/sx1262/sx1262.cpp:89-96), so the SoC end
 	 * stays an input. meshcore's variant.cpp:30-31 drives it high; do not copy that.

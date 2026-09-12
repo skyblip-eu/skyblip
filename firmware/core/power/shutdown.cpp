@@ -5,6 +5,7 @@ namespace skyblip::power {
 const char* to_string(ShutdownReason reason) {
     switch (reason) {
         case ShutdownReason::LongPress: return "BUTTON";
+        case ShutdownReason::Stow: return "STOW";
         case ShutdownReason::LowBattery: return "LOW BATTERY";
         case ShutdownReason::LinkRequest: return "LINK";
         case ShutdownReason::Install: return "INSTALL";
@@ -60,7 +61,7 @@ uint32_t ShutdownSequencer::held_ms(uint32_t now_ms) const {
     return now_ms - hold_since_ms_;
 }
 
-void ShutdownSequencer::tick(uint32_t now_ms, bool button_down) {
+void ShutdownSequencer::tick(uint32_t now_ms, bool button_down, bool pad_down) {
     switch (phase_) {
         case ShutdownPhase::Running:
             if (!button_down) {
@@ -71,10 +72,12 @@ void ShutdownSequencer::tick(uint32_t now_ms, bool button_down) {
             if (!holding_) {
                 holding_ = true;
                 hold_since_ms_ = now_ms;
+                stowing_ = pad_down;
                 return;
             }
+            if (!pad_down) stowing_ = false;
             if (hold_armed_ && now_ms - hold_since_ms_ >= kLongPressMs)
-                request(ShutdownReason::LongPress, now_ms);
+                request(stowing_ ? ShutdownReason::Stow : ShutdownReason::LongPress, now_ms);
             return;
 
         case ShutdownPhase::Parking:

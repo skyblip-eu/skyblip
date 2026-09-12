@@ -149,7 +149,7 @@ class Product {
                 board_.gnss().request_restart(parts::L76k::Restart::Cold);
             }
         }
-        shutdown_.tick(now_ms, platform_.button_down());
+        shutdown_.tick(now_ms, platform_.button_down(), platform_.pad_down());
         drive_shutdown(now_ms);
     }
 
@@ -173,6 +173,7 @@ class Product {
     const power::ShutdownSequencer& shutdown() const { return shutdown_; }
     bool ready_to_power_off() const { return shutdown_.ready_to_power_off() && !installing(); }
     bool installing() const { return shutdown_.reason() == power::ShutdownReason::Install; }
+    bool stowing() const { return shutdown_.reason() == power::ShutdownReason::Stow; }
 
     // Feeding through a deliberate shutdown is correct: the device is doing what
     // it was told, and a held button must not turn a power-off into a reboot.
@@ -290,6 +291,8 @@ class Product {
         board_.park();
         if (installing())
             screen_.park_for_install();
+        else if (stowing())
+            screen_.park_for_stow();
         else
             screen_.set_power(false);
     }

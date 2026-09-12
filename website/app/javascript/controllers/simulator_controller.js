@@ -38,10 +38,6 @@ export default class extends Controller {
     if (this.sim) this.sim.holdButton(0)
   }
 
-  touch() {
-    if (this.sim) this.sim.touch()
-  }
-
   #run() {
     this.lastMs = performance.now()
     const frame = () => {

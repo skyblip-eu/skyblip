@@ -173,6 +173,7 @@ class Platform {
     host::Watchdog& watchdog() { return watchdog_; }
     host::SystemPower& system_power() { return system_power_; }
     bool button_down() { return gpio_.button_down; }
+    bool pad_down() { return gpio_.pad_down; }
 
     // The panel fingerprint, as the silicon platform's board port takes it: 11
     // bytes of register 0x2D then 10 of 0x2E. The virtual glass carries which lot

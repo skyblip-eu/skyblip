@@ -95,6 +95,25 @@ TEST_CASE("product: powering the panel down leaves the wordmark on it") {
     CHECK(arc_ink > 20);
 }
 
+// An e-paper stored for months under one image keeps a shadow of it for good.
+TEST_CASE("product: the pad held through the press leaves the glass blank") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.run(0, 1000);
+    t = 1000;
+
+    rig.platform.board_gpio().pad_down = true;
+    rig.platform.board_gpio().button_down = true;
+    rig.run(t, t + power::kLongPressMs + 200);
+    t += power::kLongPressMs + 200;
+
+    CHECK(rig.product.shutdown().reason() == power::ShutdownReason::Stow);
+    CHECK_FALSE(rig.platform.chips().epd.powered);
+    CHECK(rig.platform.chips().epd.last_full);
+    CHECK(rig.platform.chips().epd.framebuffer().count_black() == 0);
+}
+
 TEST_CASE("product: the backlight starts off") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);

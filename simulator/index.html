@@ -103,8 +103,9 @@
     <div class="device">
       <div class="case">
         <canvas id="epd" width="200" height="200"></canvas>
-        <button class="key touch" title="capacitive pad on the top edge, P0.11: repaint the panel"
-                onclick="SIM.touch()"></button>
+        <button class="key touch" title="capacitive pad on the top edge, P0.11: hold it through a 2 s press to switch off with a blank panel"
+                onpointerdown="SIM.pad(1)" onpointerup="SIM.pad(0)"
+                onpointerleave="SIM.pad(0)"></button>
         <button class="key side reset" title="RESET (button 1), P0.18 = nRESET: reboot"
                 onclick="SIM.reset()"></button>
         <button class="key side prog" title="button 2, P1.10: a press pages, a hold of 2 s switches off"
@@ -116,7 +117,7 @@
         </div>
       </div>
       <div class="keymap">
-        <div><b>top pad</b></div><div><code>P0.11</code></div><div>repaint</div>
+        <div><b>top pad</b></div><div><code>P0.11</code></div><div>held through a hold: off, blank glass</div>
         <div><b>left top</b></div><div><code>P0.18</code></div><div>reset (nRESET)</div>
         <div><b>left bottom</b></div><div><code>P1.10</code></div><div>press: page · hold: off</div>
       </div>
@@ -267,7 +268,7 @@ const canvas = $('epd');
 // --- controls ---
 SIM.button = () => f.button();
 SIM.hold = down => f.holdButton(down);
-SIM.touch = () => f.touch();
+SIM.pad = down => f.holdPad(down);
 // A reset is a reboot: the world and the firmware both start over.
 SIM.reset = () => location.reload();
 SIM.backlight = () => { bl = !bl; f.backlight(bl ? 1 : 0); };

@@ -88,6 +88,7 @@ class World {
     void set_external_power(bool on) { platform_.battery().external_power = on; }
     void press_button() { press_pending_ = true; }
     void hold_button(bool down) { holding_ = down; }
+    void hold_pad(bool down) { platform_.board_gpio().pad_down = down; }
 
     // The pilot's phone walking up and walking away. It drives the platform's own
     // comms::LinkSession, which is the object Zephyr's connection callbacks drive

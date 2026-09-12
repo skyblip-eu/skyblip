@@ -129,6 +129,7 @@ class Gpio : public io::Gpio {
     }
 
     bool button_down{false};
+    bool pad_down{false};
 
    private:
     static constexpr int kMaxPins = 16;

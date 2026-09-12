@@ -25,7 +25,7 @@ export async function load() {
 
     button: call('simulator_button', null, n),
     holdButton: call('simulator_button_down', null, num),
-    touch: call('simulator_touch', null, n),
+    holdPad: call('simulator_pad_down', null, num),
     backlight: call('simulator_backlight', null, num),
     power: call('simulator_power', null, num),
 

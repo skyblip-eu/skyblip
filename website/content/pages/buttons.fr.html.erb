@@ -2,7 +2,7 @@
 title: Se servir du bouton
 nav_title: Boutons
 slug: boutons
-description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pression change de page, deux pressions autorisent, un appui de deux secondes éteint. Ce que fait RST, et pourquoi le pavé tactile ne fait rien.
+description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pression change de page, deux pressions autorisent, un appui de deux secondes éteint. Ce que fait RST, et la seule chose pour laquelle le pavé tactile est lu.
 ---
 
 <section>
@@ -21,7 +21,8 @@ description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pressi
     Le boîtier porte deux autres entrées&nbsp;: un petit bouton
     <span class="mono">RST</span>, qui est le reset du processeur et la porte
     d&rsquo;entrée du bootloader USB, et un pavé tactile capacitif, que le
-    firmware ne lit pas du tout. Les deux sont traités en bas de page.
+    firmware ne lit que pour une seule chose&nbsp;: ranger l&rsquo;appareil pour
+    la saison, écran vierge. Les deux sont traités en bas de page.
   </p>
 
   <div class="table-scroll">
@@ -44,6 +45,10 @@ description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pressi
         <tr>
           <th>Appui de 2&nbsp;s</th>
           <td>éteint l&rsquo;appareil</td>
+        </tr>
+        <tr>
+          <th>Le même appui, doigt sur le pavé</th>
+          <td>éteint l&rsquo;appareil et laisse l&rsquo;écran vierge, pour le rangement</td>
         </tr>
       </tbody>
     </table>
@@ -82,6 +87,14 @@ description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pressi
     pouce relevé. Le papier électronique garde sa dernière image sans aucune
     alimentation&nbsp;: le logo est donc ce que l&rsquo;appareil porte pendant
     qu&rsquo;il est éteint, et cette image veut dire éteint, pas en veille.
+  </p>
+  <p>
+    Le ranger pour la saison, c&rsquo;est le même appui avec un doigt posé sur le
+    pavé tactile dès le début&nbsp;: même chemin de sortie, mais l&rsquo;écran est
+    laissé vierge au lieu de porter le logo. Le papier électronique garde sa
+    dernière image aussi longtemps qu&rsquo;il est éteint, et une image laissée là
+    pendant des mois y laisse une ombre que la dalle ne perd jamais tout à fait.
+    Un appareil qui part au placard jusqu&rsquo;au printemps ne doit rien porter.
   </p>
   <p>
     Deux cas ne font délibérément pas ce que ferait un téléphone. Un chargeur
@@ -189,7 +202,7 @@ description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pressi
 
 <section>
   <h2 class="kicker">Les deux autres</h2>
-  <h3><span class="mono">RST</span> redémarre. Le pavé ne fait rien.</h3>
+  <h3><span class="mono">RST</span> redémarre. Le pavé range l&rsquo;appareil.</h3>
   <p>
     <span class="mono">RST</span> est un reset matériel&nbsp;: une pression et
     l&rsquo;appareil redémarre, quoi que le firmware ait été en train de faire.
@@ -199,12 +212,21 @@ description: Un seul bouton sur skyBlip Go, trois choses qu'il dit · une pressi
     qui en fait le chemin de retour d&rsquo;un appareil qui ne démarre plus.
   </p>
   <p>
-    Le pavé tactile du boîtier n&rsquo;est pas lu. Il est présent sur la carte, il
-    est documenté dans le brochage, et rien n&rsquo;y est relié&nbsp;: un pavé
-    capacitif est inutilisable à travers des gants d&rsquo;hiver, il se déclenche
-    sur une joue et sous la pluie, et un bouton dont on peut répéter les trois
-    gestes au sol vaut mieux que deux entrées dont il faut se rappeler le
-    vocabulaire en vol.
+    Le pavé tactile est lu à un seul endroit et nulle part ailleurs&nbsp;: maintenu
+    pendant les deux secondes d&rsquo;appui qui éteignent l&rsquo;appareil, il laisse
+    l&rsquo;écran vierge pour le rangement. Seul, il ne fait rien du tout. Il ne peut
+    ni allumer ni éteindre l&rsquo;appareil, ni changer de page, ni répondre à une
+    question affichée.
+  </p>
+  <p>
+    C&rsquo;est délibéré, et c&rsquo;est le raisonnement qui a longtemps laissé ce
+    pavé non lu&nbsp;: un pavé capacitif est inutilisable à travers des gants
+    d&rsquo;hiver, il se déclenche sur une joue et sous la pluie, et un bouton dont
+    on peut répéter les trois gestes au sol vaut mieux que deux entrées dont il
+    faut se rappeler le vocabulaire en vol. Rien de tout cela n&rsquo;atteint un
+    geste que l&rsquo;on fait une fois par saison, au sol, l&rsquo;appareil à deux
+    mains. Le pire qu&rsquo;un pavé mouillé puisse faire, c&rsquo;est envoyer
+    l&rsquo;appareil au repos avec un écran vierge plutôt qu&rsquo;un logo.
   </p>
 </section>
 
