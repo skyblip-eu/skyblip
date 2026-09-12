@@ -197,7 +197,8 @@ class Platform {
     bool read_pressure_pa(uint32_t& out_pa) { return baro_.read_pressure_pa(out_pa); }
     bool read_battery_mv(uint16_t& out_mv) { return battery_.read_mv(out_mv); }
     bool external_power() { return battery_.external_power; }
-    uint32_t device_addr() const { return 0x0ABBCC; }
+    static constexpr uint32_t kDeviceAddr = 0x5B5AFEu;
+    uint32_t device_addr() const { return kDeviceAddr; }
     Chips& chips() { return chips_; }
     Gpio& board_gpio() { return gpio_; }
     // The bus itself, so a test can fit a unit that came off the line with the

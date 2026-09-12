@@ -33,7 +33,7 @@ struct Pass {
     runtime::NullRoles null{};
     hal::Roles roles{
         platform.clock(), rf,       null.link,           null.display, null.kv, null.log_flash,
-        null.annunciator, null.dfu, hal::Capability::Rf, 0x0ABBCC};
+        null.annunciator, null.dfu, hal::Capability::Rf, 0x5B7E57};
     runtime::Context context{roles, bus, state};
     go::RadioService radio_service{context};
     go::TrafficService traffic_service{context, go::kFeatures};
@@ -210,7 +210,8 @@ TEST_CASE("rf: the transmit instant is measured from the latched edge, not from 
         REQUIRE(pass.begin() == Status::Ok);
 
         // A real edge is not on a millisecond boundary either.
-        const uint64_t edge_us = 4000000;
+        // This second's draw is 535 ms: inside the slot, after the pass that arms it.
+        const uint64_t edge_us = 3000000;
         pass.poll_clock(edge_us + 460450);
         const uint64_t at_service_us = edge_us + 460450 + lag_ms * 1000;
         const uint32_t now_ms = static_cast<uint32_t>(at_service_us / 1000);
@@ -218,7 +219,7 @@ TEST_CASE("rf: the transmit instant is measured from the latched edge, not from 
 
         const timing::SlotPlan plan = timing::Scheduler{}.plan(500, pass.state.clock);
         const timing::Transmitter::Attempt wanted =
-            pass.radio_service.transmitter().attempt(plan, 4, now_ms, true, 0);
+            pass.radio_service.transmitter().attempt(plan, 3, now_ms, true, 0);
         REQUIRE(wanted.go);
         const uint64_t wanted_us = edge_us + static_cast<uint64_t>(wanted.at_ms) * 1000;
 

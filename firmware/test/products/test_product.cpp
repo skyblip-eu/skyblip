@@ -16,7 +16,7 @@ TEST_CASE("product: setup brings the radio to Rx and reports its capabilities") 
     CHECK(rig.state().started);
     CHECK(hal::has(rig.product.capabilities(), hal::Capability::Rf | hal::Capability::Gnss));
     CHECK(rig.product.degraded() == hal::Capability::None);
-    CHECK(rig.state().settings.device_addr == 0x0ABBCC);
+    CHECK(rig.state().settings.device_addr == platform::host::Platform::kDeviceAddr);
 }
 
 TEST_CASE("product: a missing optional capability is degraded, a required one refuses") {

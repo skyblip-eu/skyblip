@@ -37,7 +37,7 @@ bool row_reads(const Framebuffer& fb, int row, const char* verdict) {
 
 BootSnapshot page(const BootPart* parts, int n, bool flyable) {
     BootSnapshot s;
-    s.device_addr = 0x0ABBCC;
+    s.device_addr = 0x5B7E57;
     s.reset_reason = "WATCHDOG";
     s.parts = parts;
     s.n_parts = n;

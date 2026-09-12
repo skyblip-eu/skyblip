@@ -136,6 +136,13 @@ TEST_CASE("address: neither all-zeros nor all-ones goes on the air") {
     CHECK(defaults(0).device_addr == kFallbackAddress);
 }
 
+// Every device with a dead chip id transmits this address: it is a collision we mint.
+TEST_CASE("address: the fallback sits on the prefix SoftRF moves every device off") {
+    CHECK((kFallbackAddress >> 16) == 0x5Bu);  // DevID_Mapper sends 0x5B to 0x6B
+    CHECK_FALSE(address_is_crowded(kFallbackAddress));
+    CHECK(safe_device_address(kFallbackAddress) == kFallbackAddress);
+}
+
 TEST_CASE("settings: the defaults a chip id produces are already hygienic") {
     CHECK(defaults(0xDD0042).device_addr == 0xED0042u);
     CHECK(validate(defaults(0xDD0042)) == Status::Ok);
@@ -163,7 +170,7 @@ TEST_CASE("settings: a blob written by version-1 firmware comes back as itself")
     };
 
     V1 old{};
-    old.device_addr = 0x0ABBCC;
+    old.device_addr = 0x5B7E57;
     old.addr_table = 6;
     old.aircraft_type = 9;
     old.region = 2;         // a field this firmware no longer has
@@ -184,7 +191,7 @@ TEST_CASE("settings: a blob written by version-1 firmware comes back as itself")
 
     Settings out;
     REQUIRE(from_blob(blob, 1 + sizeof(V1) + 4, out) == Status::Ok);
-    CHECK(out.device_addr == 0x0ABBCCu);
+    CHECK(out.device_addr == 0x5B7E57u);
     CHECK(int(out.addr_table) == 6);
     CHECK(int(out.aircraft_type) == 9);
     CHECK_FALSE(out.alarm_enabled);
@@ -209,7 +216,7 @@ TEST_CASE("settings: a blob written by version-1 firmware comes back as itself")
 // against a bench supply, bounded because a calibration field that accepts
 // anything is a support incident of its own.
 TEST_CASE("settings: the battery trim is bounded at the boundary, in both framings") {
-    Settings s = defaults(0x0ABBCC);
+    Settings s = defaults(0x5B7E57);
     CHECK(int(s.battery_offset_mv) == 0);  // an uncalibrated unit reads as it always did
 
     // The bound itself is inclusive, and one millivolt past it is not.
@@ -284,7 +291,7 @@ TEST_CASE("settings: a blob written by version-2 firmware comes back as itself, 
     };
 
     V2 old{};
-    old.device_addr = 0x0ABBCC;
+    old.device_addr = 0x5B7E57;
     old.addr_table = 6;
     old.aircraft_type = 9;
     old.alarm_enabled = false;
@@ -302,7 +309,7 @@ TEST_CASE("settings: a blob written by version-2 firmware comes back as itself, 
 
     Settings out;
     REQUIRE(from_blob(blob, 1 + sizeof(V2) + 4, out) == Status::Ok);
-    CHECK(out.device_addr == 0x0ABBCCu);
+    CHECK(out.device_addr == 0x5B7E57u);
     CHECK(int(out.addr_table) == 6);
     CHECK(int(out.aircraft_type) == 9);
     CHECK_FALSE(out.alarm_enabled);
@@ -345,7 +352,7 @@ TEST_CASE("settings: a blob written by version-3 firmware comes back as itself, 
     CHECK(sizeof(V3) + 4 == blob_size() - 5);
 
     V3 old{};
-    old.device_addr = 0x0ABBCC;
+    old.device_addr = 0x5B7E57;
     old.battery_offset_mv = -120;  // a unit that WAS calibrated keeps its trim
     old.addr_table = 6;
     old.aircraft_type = 9;
@@ -364,7 +371,7 @@ TEST_CASE("settings: a blob written by version-3 firmware comes back as itself, 
 
     Settings out;
     REQUIRE(from_blob(blob, 1 + sizeof(V3) + 4, out) == Status::Ok);
-    CHECK(out.device_addr == 0x0ABBCCu);
+    CHECK(out.device_addr == 0x5B7E57u);
     CHECK(int(out.battery_offset_mv) == -120);
     CHECK(int(out.addr_table) == 6);
     CHECK(int(out.aircraft_type) == 9);
@@ -391,7 +398,7 @@ TEST_CASE("settings: a blob written by version-3 firmware comes back as itself, 
 // J. The frequency trim: the field exists because a TCXO gives no way to find
 // out it is wrong, so the bound is what says "out of trim" rather than "broken".
 TEST_CASE("settings: the frequency trim is bounded at the boundary, in both framings") {
-    Settings s = defaults(0x0ABBCC);
+    Settings s = defaults(0x5B7E57);
     CHECK(int(s.freq_trim_e1_ppm) == 0);  // the design intent on a TCXO part
 
     s.freq_trim_e1_ppm = kFreqTrimLimitTenthsPpm;
@@ -415,7 +422,7 @@ TEST_CASE("settings: the frequency trim is bounded at the boundary, in both fram
 }
 
 TEST_CASE("settings: the frequency trim is set over the link and refused whole when it is not") {
-    Settings s = defaults(0x0ABBCC);
+    Settings s = defaults(0x5B7E57);
     const char* set = "{\"freq_trim_e1_ppm\":-25,\"alarm_volume\":2}";
     REQUIRE(apply_json(s, set, static_cast<int>(strlen(set))) == Status::Ok);
     CHECK(int(s.freq_trim_e1_ppm) == -25);
@@ -444,7 +451,7 @@ TEST_CASE("settings: the frequency trim is set over the link and refused whole w
 }
 
 TEST_CASE("settings: a blob from a version this firmware never wrote is refused") {
-    Settings s = defaults(0x0ABBCC);
+    Settings s = defaults(0x5B7E57);
     uint8_t blob[128];
     to_blob(s, blob, sizeof(blob));
     blob[0] = 7;
@@ -453,7 +460,7 @@ TEST_CASE("settings: a blob from a version this firmware never wrote is refused"
 }
 
 TEST_CASE("settings: the JSON offers nothing the firmware does not read") {
-    Settings s = defaults(0x0ABBCC);
+    Settings s = defaults(0x5B7E57);
     char buf[256];
     const int n = to_json(s, buf, sizeof(buf));
     const std::string json(buf, static_cast<size_t>(n));
@@ -505,7 +512,7 @@ TEST_CASE("settings: a callsign is what a panel can draw, and a patch that is no
 }
 
 TEST_CASE("settings: a patched address is hygienic when it is ours to mint, kept when it is not") {
-    Settings s = defaults(0x0ABBCC);
+    Settings s = defaults(0x5B7E57);
     const char* self_minted = "{\"addr\":11599823,\"addr_table\":0}";  // 0xB0FFCF -> untouched
     CHECK(apply_json(s, self_minted, static_cast<int>(strlen(self_minted))) == Status::Ok);
     CHECK(s.device_addr == 0xB0FFCFu);

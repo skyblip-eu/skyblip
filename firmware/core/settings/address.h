@@ -16,7 +16,7 @@ constexpr uint32_t kAddressMask = 0x00FFFFFFu;
 // chip id that lands on one is answered with a fixed address instead.
 constexpr uint32_t kUnusableLow = 0x000000u;
 constexpr uint32_t kUnusableHigh = kAddressMask;
-constexpr uint32_t kFallbackAddress = 0x7E5701u;
+constexpr uint32_t kFallbackAddress = 0x5BCAFEu;
 
 // INFO: hk 02aug26 the leading byte of the 24-bit id, not the ADS-L address
 // table. SoftRF moves off 0xD0/0xDD/0xDE/0xDF (congested FLARM range) and 0x11

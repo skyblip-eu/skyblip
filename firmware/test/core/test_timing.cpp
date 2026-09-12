@@ -125,7 +125,7 @@ TEST_CASE("timing: past holdover or no UTC, listen only, fail closed") {
 
 namespace {
 
-Transmitter airborne_transmitter(uint32_t addr = 0x0ABBCC) {
+Transmitter airborne_transmitter(uint32_t addr = 0x5B7E57) {
     Transmitter t;
     t.configure(addr);
     return t;
@@ -142,7 +142,7 @@ SlotPlan slot_plan(int phase_ms) {
 TEST_CASE("transmit: the instant is inside the direct slot, with room for the burst") {
     Transmitter t = airborne_transmitter();
     int earliest = 1000, latest = 0;
-    for (uint32_t utc = 1000; utc < 1500; utc++) {
+    for (uint32_t utc = 1000; utc < 6000; utc++) {
         const Transmitter::Attempt a = t.attempt(slot_plan(500), utc, utc * 1000, true, 0);
         REQUIRE(a.go);
         // Not from kSlot0Start: the dwell opens at 400, the direct slot at 450.
@@ -170,7 +170,7 @@ TEST_CASE("transmit: the first instant of a dwell is the moment it opens") {
     Transmitter t = airborne_transmitter();
     t.sent(0, 0, false);
     int earliest = 2000, latest = 0;
-    for (uint32_t utc = 1; utc < 500; utc++) {
+    for (uint32_t utc = 1; utc < 5000; utc++) {
         const Transmitter::Attempt a = t.attempt(slot_plan(900), utc, utc * 1000, true, 0);
         REQUIRE(a.go);
         if (a.at_ms < earliest) earliest = a.at_ms;
@@ -182,7 +182,7 @@ TEST_CASE("transmit: the first instant of a dwell is the moment it opens") {
 }
 
 TEST_CASE("transmit: two devices do not pick the same instant every second") {
-    Transmitter a = airborne_transmitter(0x0ABBCC);
+    Transmitter a = airborne_transmitter(0x5B7E57);
     Transmitter b = airborne_transmitter(0x123456);
     int same = 0;
     for (uint32_t utc = 0; utc < 100; utc++) {

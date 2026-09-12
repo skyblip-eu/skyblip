@@ -37,8 +37,9 @@ uint32_t past_settling(simulator::Simulator& h) {
     return gnss::kFirstFixSettleMs;
 }
 
-void run_on(simulator::Simulator& h, uint32_t from_ms, uint32_t for_ms) {
-    for (uint32_t t = from_ms; t <= from_ms + for_ms; t += simulator::Simulator::kStepMs) h.step(t);
+void run_on(simulator::Simulator& h, uint32_t from_ms, uint32_t for_ms,
+            uint32_t step_ms = simulator::Simulator::kStepMs) {
+    for (uint32_t t = from_ms; t <= from_ms + for_ms; t += step_ms) h.step(t);
 }
 
 int count_of(const simulator::Air& air, simulator::AirEvent want) {
@@ -280,7 +281,8 @@ TEST_CASE("rf: a completed burst lands in the bench's dwell-phase histogram") {
     REQUIRE(h.setup() == Status::Ok);
     h.world().set_fix(true);
     h.world().set_speed_kt(50);
-    run_on(h, past_settling(h), 6000);
+    // 1 ms passes: a 5 ms one spends the burst's completion slack before the carrier is sampled.
+    run_on(h, past_settling(h), 6000, 1);
 
     const timing::SlotTimingStats& stats = h.product().state().timing_stats;
     CHECK(stats.dwell_samples() > 0);
