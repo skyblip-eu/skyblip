@@ -85,8 +85,12 @@ jobs:
   product-image:
     strategy:
       fail-fast: false
+      # `slug` is the product as a human writes it: the board name carries an
+      # underscore Zephyr requires, and expressions have no replace().
       matrix:
-        product: [skyblip_go]
+        include:
+          - product: skyblip_go
+            slug: skyblip-go
     name: product image (${{ matrix.product }})
     needs: changes
     if: needs.changes.outputs.firmware == 'true'
@@ -211,19 +215,28 @@ jobs:
       - name: build the drag-and-drop .uf2
         working-directory: firmware
         run: |
-          product=${{ matrix.product }}
-          python3 ../scripts/mkuf2.py "build/${product//_/-}.uf2" \
+          python3 ../scripts/mkuf2.py "build/${{ matrix.slug }}.uf2" \
             build/mcuboot/zephyr/zephyr.hex \
-            "build/$product/zephyr/zephyr.signed.confirmed.hex"
+            "build/${{ matrix.product }}/zephyr/zephyr.signed.confirmed.hex"
+
+      # One staging directory, so the artifact unzips flat and every file says
+      # which product it came off: zephyr.signed.bin does not, three deep. It
+      # leaves mkuf2's intermediate .merged.hex behind in build/.
+      - name: stage the artifact
+        working-directory: firmware
+        run: |
+          mkdir -p build/out
+          zephyr=build/${{ matrix.product }}/zephyr
+          slug=build/out/${{ matrix.slug }}
+          cp "build/${{ matrix.slug }}.uf2" build/out/
+          cp "$zephyr/zephyr.signed.bin" "$slug.signed.bin"
+          cp "$zephyr/zephyr.signed.confirmed.bin" "$slug.signed.confirmed.bin"
 
       - name: upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.product }}-firmware
-          path: |
-            firmware/build/*.uf2
-            firmware/build/${{ matrix.product }}/zephyr/zephyr.signed.bin
-            firmware/build/${{ matrix.product }}/zephyr/zephyr.signed.confirmed.bin
+          name: ${{ matrix.slug }}_firmware
+          path: firmware/build/out/*
           if-no-files-found: error
 
   platform-adapters:
