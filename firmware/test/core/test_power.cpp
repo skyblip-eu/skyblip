@@ -509,6 +509,14 @@ TEST_CASE("power down: the external flash is told to sleep while it still has a 
           sink.at(PowerDownStep::ExternalFlashLinesReleased));
 }
 
+// A line left high on a panel with no rail back-feeds it, and the parked image drifts dark.
+TEST_CASE("power down: the panel's lines are released before its rail, not after") {
+    RecordingSink sink;
+    power_down(sink, ButtonWake::Armed);
+    CHECK(sink.at(PowerDownStep::PanelLinesReleased) < sink.at(PowerDownStep::PeripheralRailOff));
+    CHECK(sink.at(PowerDownStep::PanelLinesReleased) < sink.at(PowerDownStep::DrivenPinsReleased));
+}
+
 TEST_CASE("power down: the radio is asleep before anything touches its reset line") {
     RecordingSink sink;
     power_down(sink, ButtonWake::Armed);
@@ -533,8 +541,9 @@ TEST_CASE("power down: the rails go last, and the pins are released after them")
     const int aux = sink.at(PowerDownStep::AuxRailOff);
     for (const PowerDownStep step :
          {PowerDownStep::RadioSleep, PowerDownStep::ExternalFlashDeepPowerDown,
-          PowerDownStep::ExternalFlashLinesReleased, PowerDownStep::GnssBackupOff,
-          PowerDownStep::GnssResetAsserted, PowerDownStep::RadioResetAsserted}) {
+          PowerDownStep::ExternalFlashLinesReleased, PowerDownStep::PanelLinesReleased,
+          PowerDownStep::GnssBackupOff, PowerDownStep::GnssResetAsserted,
+          PowerDownStep::RadioResetAsserted}) {
         CHECK(sink.at(step) < rail);
         CHECK(sink.at(step) < aux);
     }

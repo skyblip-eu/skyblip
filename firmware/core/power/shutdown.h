@@ -39,6 +39,8 @@ enum class PowerDownStep : uint8_t {
     ExternalFlashDeepPowerDown,
     // CS, WP# and HOLD# are the lines that command travelled on.
     ExternalFlashLinesReleased,
+    // INFO: fc 13sep26 the panel sleeps at the park frame, but CS, DC and RES# stay driven high
+    PanelLinesReleased,
     // L76K: the wake pin low, then reset asserted. The receiver is the largest
     // steady draw on the board with a fix.
     GnssBackupOff,
@@ -61,12 +63,13 @@ enum class PowerDownStep : uint8_t {
     WakePinArmed,
 };
 
-constexpr int kPowerDownStepCount = 10;
+constexpr int kPowerDownStepCount = 11;
 
 inline constexpr PowerDownStep kPowerDownOrder[kPowerDownStepCount] = {
     PowerDownStep::RadioSleep,
     PowerDownStep::ExternalFlashDeepPowerDown,
     PowerDownStep::ExternalFlashLinesReleased,
+    PowerDownStep::PanelLinesReleased,
     PowerDownStep::GnssBackupOff,
     PowerDownStep::GnssResetAsserted,
     PowerDownStep::RadioResetAsserted,
@@ -109,6 +112,9 @@ static_assert(step_order(PowerDownStep::RadioSleep) < step_order(PowerDownStep::
 static_assert(step_order(PowerDownStep::GnssResetAsserted) <
                   step_order(PowerDownStep::PeripheralRailOff),
               "the GNSS is told to stop before its supply is taken away");
+static_assert(step_order(PowerDownStep::PanelLinesReleased) <
+                  step_order(PowerDownStep::PeripheralRailOff),
+              "a panel line left driven high back-feeds the glass through its protection diodes");
 static_assert(step_order(PowerDownStep::PeripheralRailOff) <
                       step_order(PowerDownStep::DrivenPinsReleased) &&
                   step_order(PowerDownStep::AuxRailOff) <

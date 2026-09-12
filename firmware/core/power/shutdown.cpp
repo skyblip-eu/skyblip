@@ -19,6 +19,7 @@ const char* to_string(PowerDownStep step) {
         case PowerDownStep::RadioSleep: return "RADIO SLEEP";
         case PowerDownStep::ExternalFlashDeepPowerDown: return "FLASH DPD";
         case PowerDownStep::ExternalFlashLinesReleased: return "FLASH LINES";
+        case PowerDownStep::PanelLinesReleased: return "PANEL LINES";
         case PowerDownStep::GnssBackupOff: return "GNSS OFF";
         case PowerDownStep::GnssResetAsserted: return "GNSS RESET";
         case PowerDownStep::RadioResetAsserted: return "RADIO RESET";
