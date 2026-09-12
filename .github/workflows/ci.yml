@@ -250,6 +250,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Restored before the setup action runs its `west update`, which then finds
+      # every pinned revision already checked out and fetches nothing. The action
+      # caches pip, the SDK and ccache itself, but not the clones, and those are
+      # most of the minute it spends. Keyed on the manifest, the only thing that
+      # can move them.
+      - name: cache the west workspace
+        uses: actions/cache@v6
+        with:
+          path: |
+            zephyr
+            modules
+            bootloader
+          key: west-${{ hashFiles('firmware/west.yml') }}
+
       - name: set up Zephyr
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
