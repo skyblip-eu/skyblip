@@ -1850,8 +1850,8 @@ The panel a pilot already knows how to read, so these check it against that habi
 - six dials are drawn, each with its own needle
 - the altimeter reads like a three-pointer, the card like a compass
 - the attitude dial banks with the turn and pitches with climb
-- the unit setting decides the number under each dial, not just its label
-  > B4. settings::units, on the page where it can mean something: the status page prints both columns, but a dial has one needle and one number under it, so a European glider pilot reading km/h and metres has to be able to ask for them.
+- the unit setting decides the speed dial, and only the speed dial
+  > B4. A dial has one needle and one number, so the km/h pilot has to ask for it.
 
 ### test/ui/test_skyship.cpp
 

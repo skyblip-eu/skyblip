@@ -95,7 +95,7 @@ int settings_row_value(char* out, SettingsRow row, const SettingsValues& v) {
             n += fmt_string(out + n, " OF 5");
             break;
         case SettingsRow::Units:
-            n = fmt_string(out, v.settings.units == settings::Units::Metric ? "METRIC" : "FEET KT");
+            n = fmt_string(out, v.settings.units == settings::Units::Metric ? "KM/H" : "KNOTS");
             break;
         case SettingsRow::QnhUp:
         case SettingsRow::QnhDown:

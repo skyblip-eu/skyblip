@@ -106,16 +106,15 @@ TEST_CASE("sixpack: the altimeter reads like a three-pointer, the card like a co
     CHECK(right > left);
 }
 
-// B4. settings::units, on the page where it can mean something: the status page
-// prints both columns, but a dial has one needle and one number under it, so a
-// European glider pilot reading km/h and metres has to be able to ask for them.
-TEST_CASE("sixpack: the unit setting decides the number under each dial, not just its label") {
+// B4. A dial has one needle and one number, so the km/h pilot has to ask for it.
+TEST_CASE("sixpack: the unit setting decides the speed dial, and only the speed dial") {
     SixPackSnapshot imperial;
     imperial.have_data = true;
     imperial.units = skyblip::settings::Units::Imperial;
     imperial.speed_kt = 90;  // 166 km/h
-    imperial.alt_ft = 3450;  // 1051 m
-    imperial.vs_fpm = 500;   // 2.5 m/s
+    imperial.alt_ft = 3450;
+    imperial.vs_fpm = 500;
+    imperial.track_deg = 7;
     SixPackSnapshot metric = imperial;
     metric.units = skyblip::settings::Units::Metric;
 
@@ -139,16 +138,14 @@ TEST_CASE("sixpack: the unit setting decides the number under each dial, not jus
     };
     CHECK(value_matches(fi, kTiles[0], "90"));
     CHECK(value_matches(fm, kTiles[0], "166"));
-    CHECK(value_matches(fi, kTiles[2], "3450"));
-    CHECK(value_matches(fm, kTiles[2], "1051"));
-    // A vario is read to the decimal: 500 fpm is +2.5 m/s, not +2.
-    CHECK(value_matches(fi, kTiles[5], "+500"));
-    CHECK(value_matches(fm, kTiles[5], "+2.5"));
 
-    // The altimeter stays a three-pointer graduated 100 to the mark, so the two
-    // faces cannot look alike either: at 3450 ft the long hand sits at 450, at
-    // 1051 m it sits at 51.
-    CHECK(black_in(fm, kTiles[2], 30) != black_in(fi, kTiles[2], 30));
+    const Framebuffer* faces[2] = {&fi, &fm};
+    for (const Framebuffer* fb : faces) {
+        CHECK(value_matches(*fb, kTiles[2], "3450"));
+        CHECK(value_matches(*fb, kTiles[5], "+500"));
+        CHECK(value_matches(*fb, kTiles[4], "007"));
+    }
+    for (int i = 1; i < 6; i++) CHECK(black_in(fm, kTiles[i], 30) == black_in(fi, kTiles[i], 30));
 }
 
 TEST_CASE("sixpack: the attitude dial banks with the turn and pitches with climb") {
