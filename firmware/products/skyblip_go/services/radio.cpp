@@ -183,7 +183,7 @@ void RadioService::arm_dwell(const timing::SlotPlan& slot, uint32_t now_ms) {
             protocol::kAdslSyncWord, reinterpret_cast<const uint8_t*>(&outgoing_.Version),
             protocol::kAdslFrameBytes, outgoing_chips_));
         plan.tx_at_us = tx_at_us;
-        plan.lbt = !a.force;
+        plan.lbt = kListenBeforeTalk && !a.force;
         plan.lbt_threshold_dbm = noise_.threshold_dbm(lbt_retry_);
         plan.backoff_min_ms = timing::Transmitter::kBackoffMinMs;
         plan.backoff_max_ms = timing::Transmitter::kBackoffMaxMs;

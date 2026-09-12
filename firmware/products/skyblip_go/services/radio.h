@@ -10,6 +10,13 @@
 
 namespace skyblip::go {
 
+// TODO: fc 12sep26 bench diagnostic, drop with branch bench/lbt-off: is LBT why bursts are withheld
+#ifdef SKYBLIP_BENCH_NO_LBT
+constexpr bool kListenBeforeTalk = false;
+#else
+constexpr bool kListenBeforeTalk = true;
+#endif
+
 // Slot POLICY only: which band to listen on, from when to when, and at which
 // instant of the direct slot own-ship goes on air. The dwell is executed
 // against absolute deadlines by hal::Rf, whose implementation owns the hardware
