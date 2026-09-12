@@ -172,6 +172,30 @@ TEST_CASE("epd: the first present after begin() is a full refresh, whatever was 
     CHECK_FALSE(f.last_full);
 }
 
+// The simulator draws this: a partial that changed no pixel is invisible on glass.
+TEST_CASE("epd: the panel says which refresh is in flight, and for how long") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+    CHECK_FALSE(d.refreshing());
+
+    d.present(fb, hal::Refresh::Full, 0);
+    CHECK(d.refreshing());
+    CHECK(d.refresh_mode() == hal::Refresh::Full);
+    settle(d, 0);
+    CHECK_FALSE(d.refreshing());
+
+    d.present(fb, hal::Refresh::Fast, 5000);
+    CHECK(d.refreshing());
+    CHECK(d.refresh_mode() == hal::Refresh::Fast);
+    CHECK_FALSE(d.ready(5000 + parts::Ssd1681::kReadyAfterFastMs - 1));
+    CHECK(d.refreshing());
+    CHECK(d.ready(5000 + parts::Ssd1681::kReadyAfterFastMs));
+    CHECK_FALSE(d.refreshing());
+}
+
 TEST_CASE("epd: present() rewrites the previous-image bank so the panel diffs the truth") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);

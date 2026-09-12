@@ -41,6 +41,11 @@ class Ssd1681 : public hal::Display {
     bool requires_idle_park() const override { return rails_on_ && !refreshing_; }
     void set_backlight(bool on) override;
 
+    bool refreshing() const { return refreshing_; }
+    hal::Refresh refresh_mode() const {
+        return fast_refresh_ ? hal::Refresh::Fast : hal::Refresh::Full;
+    }
+
     // INFO: fc 01aug25 GDEH0154D67 settles in ~460 ms fast / ~2.5 s full (GxEPD2-measured)
     static constexpr uint32_t kReadyAfterFastMs = 300;
     static constexpr uint32_t kReadyAfterFullMs = 1500;

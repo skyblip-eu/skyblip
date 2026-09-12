@@ -61,6 +61,9 @@ class Simulator {
     bool panel_powered() { return product_.screen().powered(); }
     bool backlight() { return platform_.chips().epd.backlight; }
     int present_count() { return platform_.chips().epd.present_count; }
+    bool panel_refreshing() { return panel_driver().refreshing(); }
+    bool panel_refresh_is_full() { return panel_driver().refresh_mode() == hal::Refresh::Full; }
+    int partials_since_wash() { return product_.screen().fasts_since_full(); }
     // What the buzzer is doing at this instant: 0 in the gaps of a pattern too,
     // because a pattern is what an alarm sounds like.
     uint8_t alarm_level() { return platform_.annunciator().level(); }
@@ -70,6 +73,8 @@ class Simulator {
     uint16_t vibro_ms() { return platform_.annunciator().vibro_ms(); }
 
    private:
+    parts::Ssd1681& panel_driver() { return product_.board().display(); }
+
     platform::host::Platform platform_{};
     Product product_{platform_};
     World world_{platform_};

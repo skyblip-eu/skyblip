@@ -27,6 +27,15 @@
      is what the firmware wrote last - the wordmark. It comes last because it
      also drops the backlight glow, as pulling the rail does. */
   #epd.off { filter:none; box-shadow:0 0 0 6px #f2f2ef, 0 0 0 7px #0000001f; }
+  /* Debug chrome, dev mode only: a real partial refresh is invisible unless it
+     moved a pixel, so the ring is lit for exactly as long as the panel is busy -
+     blue for the ~300 ms partial, amber for the ~1.5 s wash. */
+  body[data-mode="dev"] #epd.refreshing { outline:3px solid var(--accent); outline-offset:7px; }
+  body[data-mode="dev"] #epd.refreshing.wash { outline-color:#ffd591; }
+  #refreshhint { display:none; }
+  body[data-mode="dev"] #refreshhint { display:block; }
+  #refreshhint b { color:var(--accent); font-weight:600; }
+  #refreshhint b.wash { color:#ffd591; }
   .key { position:absolute; padding:0; cursor:pointer; }
   /* P0.11 is a capacitive pad on the TOP edge, at the left: no travel, so it
      reads as a ringed pad rather than a key. */
@@ -126,6 +135,7 @@
         <button onclick="SIM.power()">Power</button>
       </div>
       <div class="hint" id="pagehint">page: -</div>
+      <div class="hint" id="refreshhint">glass: <b id="refreshstate">idle</b><span id="refreshcount"></span></div>
     </div>
 
     <div style="display:flex; flex-direction:column; gap:14px; max-width:420px;">
@@ -254,7 +264,7 @@
   </div>
 
 <script type="module">
-import { load, PAGES, ALARM, DWELL, SHUTDOWN } from './embed.js';
+import { load, PAGES, ALARM, DWELL, SHUTDOWN, REFRESH } from './embed.js';
 
 const SIM = {};
 window.SIM = SIM;
@@ -397,7 +407,13 @@ function drawTape() {
 function draw() {
   f.advance(performance.now() | 0);
   f.paint(canvas);
-  canvas.className = (f.powered() ? '' : 'off ') + (f.blOn() ? 'bl' : '');
+  const refresh = f.refreshing() ? (f.refreshIsFull() ? 2 : 1) : 0;
+  canvas.className = (f.powered() ? '' : 'off ') + (f.blOn() ? 'bl ' : '') +
+      (refresh ? (refresh === 2 ? 'refreshing wash' : 'refreshing') : '');
+  $('refreshstate').textContent = REFRESH[refresh];
+  $('refreshstate').className = refresh === 2 ? 'wash' : '';
+  $('refreshcount').textContent = '  ·  ' + f.presents() + ' refreshes  ·  ' +
+      f.partialsSinceWash() + ' partial since the last wash';
   // Only the left LED is the firmware's. The right one follows the charger,
   // which on this board is USB power minus a full cell.
   $('led_alarm').className = 'led red' + (f.alarm() ? ' on' : '');
