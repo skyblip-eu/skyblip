@@ -202,8 +202,14 @@
 	 * above: a pin map, never a device.
 	 *
 	 * One pin is deliberately not here, because nothing drives it and a node is a
-	 * claim that something might: P0.18, the second button, which LilyGO labels
-	 * reset and wires as an ordinary GPIO. A second is P0.21, which LilyGO's README
+	 * claim that something might: P0.18, the button LilyGO labels reset. It is the
+	 * SoC's nRESET and cannot be read at all: the factory UF2 bootloader is built
+	 * with CONFIG_GPIO_AS_PINRESET (Adafruit_nRF52_Bootloader Makefile:354), so its
+	 * SystemInit writes UICR->PSELRESET = 18 and resets whenever that word is not
+	 * already programmed (nrfx mdk system_nrf52.c:341-355). Erasing the UICR over
+	 * SWD buys one boot. Meshtastic's variants/nrf52840/t-echo/variant.h:63 calls
+	 * it a regular GPIO, and their own bootloader fork sets the same flag
+	 * (Makefile:254); do not copy that. A second is P0.21, which LilyGO's README
 	 * pin table wires to the SX1262's DIO3: the part drives that line itself to
 	 * power its TCXO (hardware/parts/sx1262/sx1262.cpp:89-96), so the SoC end
 	 * stays an input. meshcore's variant.cpp:30-31 drives it high; do not copy that.
