@@ -1,12 +1,18 @@
 # west.yml: the workspace manifest. From a fresh checkout:
 #
 #   west init -l firmware      # (points west at this manifest)
-#   west update                # fetches Zephyr + all default modules
+#   west update                # fetches Zephyr + the modules listed below
 #   west build -b t_echo_plus firmware/products/skyblip_go --sysbuild
 #
-# `import: true` pulls Zephyr's own manifest -> hal_nordic, hal_espressif (for the
-# future skyPost/ESP32-S3 target), mcuboot, cmsis, etc. Pinned to a release for
-# reproducible CI; bump deliberately.
+# The import pulls Zephyr's own manifest, filtered to the modules this tree
+# builds with: unfiltered it is ~80 repositories and several gigabytes of vendor
+# HALs for silicon we do not ship, on every clean workspace and every CI run
+# (measured here: 1.0 GB of sources against 6 GB and climbing). A missing
+# module is a loud CMake failure, so the cost of this list being wrong is a
+# build that stops, not an image that misbehaves. Zephyr is pinned to a release
+# for reproducible CI; bump deliberately.
+#
+# The skyPost/ESP32-S3 target will need hal_espressif added here.
 manifest:
   remotes:
     - name: zephyrproject-rtos
@@ -16,7 +22,23 @@ manifest:
     - name: zephyr
       remote: zephyrproject-rtos
       revision: v4.4.1
-      import: true
+      import:
+        name-allowlist:
+          # Cortex-M core headers. CMSIS 5 (`cmsis`) is the Cortex-A/R one.
+          - cmsis_6
+          # nrfx, the MDK and the 802.15.4 driver: the nRF52840 itself.
+          - hal_nordic
+          # PSA crypto, which the Bluetooth host selects for BT_HOST_CRYPTO and
+          # MCUboot's ECDSA-P256 signature check needs.
+          - mbedtls
+          - tf-psa-crypto
+          # The bootloader sysbuild builds as a second image.
+          - mcuboot
+          # Picolibc from source, for toolchains that do not ship it (the host
+          # compiler on native_sim; the Zephyr SDK has its own).
+          - picolibc
+          # The CBOR codec every MCUmgr group encodes with.
+          - zcbor
 
   self:
     path: firmware
