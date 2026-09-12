@@ -124,15 +124,40 @@ TEST_CASE("product: a long press parks the radio and the panel, then asks for th
     // so it is the first thing told to stop.
     CHECK(rig.product.board().rf().sleeps() == 1);
     CHECK_FALSE(rig.product.screen().powered());
-    CHECK_FALSE(rig.platform.chips().epd.powered);
+    CHECK(rig.platform.chips().epd.last_full);
 
     // Still held: the rails must not go, or a level-sensed wake pin brings the
     // device straight back up.
     rig.hold_button(t, power::kParkMs + 1000);
     CHECK_FALSE(rig.product.ready_to_power_off());
+    // The park frame has had its seconds by now, so the panel is asleep before the rails go.
+    CHECK_FALSE(rig.platform.chips().epd.powered);
 
     rig.hold_button(t, power::kReleaseSettleMs + 200, /*down=*/false);
     CHECK(rig.product.ready_to_power_off());
+}
+
+// Rails cut mid-frame leave the ink half-driven, and in the sun it goes on developing.
+TEST_CASE("product: the rails wait for the park frame, not only for the park window") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.run(0, 1000);
+    t = 1000;
+
+    rig.hold_button(t, power::kLongPressMs + 200);
+    REQUIRE(rig.product.shutdown().phase() == power::ShutdownPhase::Parking);
+    rig.platform.chips().epd.busy_stuck = true;
+
+    rig.hold_button(t, power::kParkMs, /*down=*/false);
+    rig.hold_button(t, power::kReleaseSettleMs + 200, /*down=*/false);
+    CHECK_FALSE(rig.product.ready_to_power_off());
+    CHECK(rig.platform.chips().epd.powered);
+
+    rig.platform.chips().epd.busy_stuck = false;
+    rig.hold_button(t, 200, /*down=*/false);
+    CHECK(rig.product.ready_to_power_off());
+    CHECK_FALSE(rig.platform.chips().epd.powered);
 }
 
 // The unit as flashed paged under the thumb, two seconds before the rails went.

@@ -79,6 +79,7 @@ TEST_CASE("product: powering the panel down leaves the wordmark on it") {
     ui::draw_wordmark(expected, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
 
     rig.product.screen().set_power(false);
+    rig.run(1000, 4000);
     CHECK_FALSE(rig.platform.chips().epd.powered);
     CHECK(rig.platform.chips().epd.last_full);
     CHECK(rig.platform.chips().epd.framebuffer().count_black() == expected.count_black());
@@ -110,6 +111,7 @@ TEST_CASE("product: the pad held through the press leaves the glass blank") {
     rig.run(t, t + power::kLongPressMs + 200);
     t += power::kLongPressMs + 200;
 
+    rig.run(t, t + power::kParkMs);
     CHECK(rig.product.shutdown().reason() == power::ShutdownReason::Stow);
     CHECK_FALSE(rig.platform.chips().epd.powered);
     CHECK(rig.platform.chips().epd.last_full);

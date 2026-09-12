@@ -151,6 +151,7 @@ class Product {
         }
         shutdown_.tick(now_ms, platform_.button_down(), platform_.pad_down());
         drive_shutdown(now_ms);
+        if (shutdown_.going_down()) screen_.settle_park(now_ms);
     }
 
     hal::Capabilities capabilities() const { return board_.capabilities(); }
@@ -171,7 +172,10 @@ class Product {
 
     power::ShutdownSequencer& shutdown() { return shutdown_; }
     const power::ShutdownSequencer& shutdown() const { return shutdown_; }
-    bool ready_to_power_off() const { return shutdown_.ready_to_power_off() && !installing(); }
+    // INFO: fc 12sep26 rails cut mid-frame leave the ink half-driven, and the sun develops it
+    bool ready_to_power_off() const {
+        return shutdown_.ready_to_power_off() && !installing() && !screen_.parking();
+    }
     bool installing() const { return shutdown_.reason() == power::ShutdownReason::Install; }
     bool stowing() const { return shutdown_.reason() == power::ShutdownReason::Stow; }
 

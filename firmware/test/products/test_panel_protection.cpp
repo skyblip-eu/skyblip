@@ -218,8 +218,27 @@ TEST_CASE("screen policy: the white field the glass wears while off is drawn at 
 
     rig.state.power_level = power::PowerLevel::Cutoff;
     rig.screen.set_power(false);
+    rig.run_seconds(t, 3);
     CHECK(rig.chip.present_count == before + 1);
     CHECK(rig.chip.last_full);
+    CHECK_FALSE(rig.chip.powered);
+}
+
+// A command sent over a live BUSY is lost, and the park frame runs for seconds after it is issued.
+TEST_CASE("screen policy: the panel sleeps when the park frame has finished, not when it starts") {
+    Rig rig;
+    uint32_t t = 0;
+    rig.run_seconds(t, 3);
+
+    rig.screen.set_power(false);
+    CHECK(rig.chip.powered);
+    CHECK(rig.epd.refreshing());
+
+    rig.screen.tick(t += 100);
+    CHECK(rig.chip.powered);
+
+    rig.screen.tick(t += 2000);
+    CHECK_FALSE(rig.epd.refreshing());
     CHECK_FALSE(rig.chip.powered);
 }
 

@@ -48,6 +48,7 @@ class ScreenService : public runtime::Service {
     void next_page();
     void set_backlight(bool on);
     void set_power(bool on);
+    void settle_park(uint32_t now_ms);
     void park_for_install();
     void park_for_stow();
     void set_range_m(int32_t m) {
@@ -64,6 +65,7 @@ class ScreenService : public runtime::Service {
     int32_t range_m() const { return range_m_; }
     bool backlight() const { return backlight_; }
     bool powered() const { return powered_; }
+    bool parking() const { return park_pending_; }
     const ui::Framebuffer& framebuffer() const { return fb_; }
     void mark_dirty() { dirty_ = true; }
     int fasts_since_full() const { return fasts_since_full_; }
@@ -112,6 +114,7 @@ class ScreenService : public runtime::Service {
     traffic::LinkRow signal_rows_[ui::kSignalRows]{};
     Page page_{Page::Radar};
     int32_t range_m_{10000};
+    uint32_t last_tick_ms_{0};
     uint32_t last_render_ms_{0};
     uint32_t last_present_ms_{0};
     uint32_t last_full_ms_{0};
@@ -122,6 +125,7 @@ class ScreenService : public runtime::Service {
     bool flash_pending_{false};
     bool flashed_{false};
     bool presented_once_{false};
+    bool park_pending_{false};
     bool backlight_{false};
     bool powered_{true};
 };

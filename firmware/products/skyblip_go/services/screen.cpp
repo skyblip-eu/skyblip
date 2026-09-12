@@ -138,6 +138,7 @@ void ScreenService::resolve(ui::Gesture gesture) {
 }
 
 void ScreenService::tick(uint32_t now_ms) {
+    last_tick_ms_ = now_ms;
     // The chirp that goes with it belongs to the alarm service, which is the
     // one owner of the annunciator. This is the panel's half: a first fix
     // changes every page there is.
@@ -156,6 +157,7 @@ void ScreenService::tick(uint32_t now_ms) {
     }
 
     if (!hal::has(context_.roles.capabilities, hal::Capability::Display)) return;
+    settle_park(now_ms);
     if (!powered_) return;
 
     if (thermal() == Thermal::Hold ||
@@ -278,10 +280,20 @@ void ScreenService::park(ParkFrame frame) {
     // A lit backlight is a rail nobody switched off: the panel sleeps, the LED
     // would not have.
     set_backlight(false);
-    if (may_present_park_frame()) {
-        draw_park_frame(frame);
-        context_.roles.display.present(fb_, hal::Refresh::Full, last_render_ms_);
+    if (!may_present_park_frame()) {
+        context_.roles.display.power_off();
+        return;
     }
+    draw_park_frame(frame);
+    context_.roles.display.present(fb_, hal::Refresh::Full, last_tick_ms_);
+    park_pending_ = true;
+}
+
+// INFO: fc 12sep26 the deep sleep is a command, and a command sent over a live BUSY is lost
+void ScreenService::settle_park(uint32_t now_ms) {
+    if (!park_pending_) return;
+    if (!context_.roles.display.ready(now_ms)) return;
+    park_pending_ = false;
     context_.roles.display.power_off();
 }
 
