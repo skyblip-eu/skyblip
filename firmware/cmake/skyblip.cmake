@@ -23,9 +23,15 @@ endfunction()
 # One product, one board. Called before find_package(Zephyr) so a mismatched
 # pair is refused at configure time rather than diagnosed by the compiler.
 function(skyblip_product_board board)
-  if(DEFINED BOARD AND NOT "${BOARD}" STREQUAL "${board}")
+  # Compared bare: the first configure resolves t_echo_plus to
+  # t_echo_plus/nrf52840 and caches that, and the qualified name is what a
+  # reconfigure of an existing build directory hands back.
+  string(REGEX REPLACE "/.*$" "" requested "${BOARD}")
+  if(DEFINED BOARD AND NOT "${requested}" STREQUAL "${board}")
     message(FATAL_ERROR
       "${PROJECT_NAME}${SKYBLIP_PRODUCT_NAME} is a ${board} product: refusing to build it for ${BOARD}")
   endif()
-  set(BOARD ${board} CACHE STRING "board this product ships on" FORCE)
+  if(NOT DEFINED BOARD)
+    set(BOARD ${board} CACHE STRING "board this product ships on" FORCE)
+  endif()
 endfunction()
