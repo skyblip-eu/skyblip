@@ -53,8 +53,7 @@ TEST_CASE("screen policy: a page change goes through black, not through the full
     CHECK_FALSE(rig.chip.last_full);
 }
 
-// The fix redraws the whole page, and a partial over a whole new page leaves the ink grey.
-TEST_CASE("screen policy: the first fix goes through black, as any other new page does") {
+TEST_CASE("screen policy: a fix arriving is a data change, presented as a partial") {
     Rig rig;
     rig.state.own.fix_valid = false;
     uint32_t t = 0;
@@ -62,15 +61,10 @@ TEST_CASE("screen policy: the first fix goes through black, as any other new pag
     const int before = rig.chip.present_count;
 
     rig.state.own.fix_valid = true;
-    rig.state.own.fix_acquired = true;
     rig.tick(t += 1000);
     CHECK(rig.chip.present_count == before + 1);
-    CHECK(rig.glass_all_black());
-
-    rig.state.own.fix_acquired = false;
-    rig.tick(t += 600);
-    CHECK(rig.chip.present_count == before + 2);
     CHECK_FALSE(rig.glass_all_black());
+    CHECK_FALSE(rig.chip.last_full);
 }
 
 TEST_CASE("screen policy: a page change under an alarm goes straight to the picture") {

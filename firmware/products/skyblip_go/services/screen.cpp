@@ -182,7 +182,6 @@ void ScreenService::resolve(ui::Gesture gesture) {
 
 void ScreenService::tick(uint32_t now_ms) {
     last_tick_ms_ = now_ms;
-    if (context_.state.own.fix_acquired) repaint_through_black();
     handle_input(now_ms);
 
     if (context_.state.alarm_level != last_alarm_) {

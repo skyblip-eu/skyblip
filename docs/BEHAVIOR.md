@@ -1620,6 +1620,7 @@ The refresh policy over the real SSD1681 driver: partials only, and swaps throug
 
 **screen policy**
 
+- a fix arriving is a data change, presented as a partial
 - a minute of changing frames costs partials and no full
 - a page change goes through black, not through the full waveform
 - a page change under an alarm goes straight to the picture
@@ -1629,8 +1630,6 @@ The refresh policy over the real SSD1681 driver: partials only, and swaps throug
 - hours of changing frames never cost a full refresh
   > SoftRF runs this glass on partials alone: the full waveform is power on and power off, no more.
 - presents wait for the panel, none is issued mid-refresh
-- the first fix goes through black, as any other new page does
-  > The fix redraws the whole page, and a partial over a whole new page leaves the ink grey.
 
 ### test/products/test_settings_page.cpp
 
