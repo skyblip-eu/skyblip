@@ -183,14 +183,45 @@ TEST_CASE("radar: everything is centred on the 99|100 point, not on a pixel") {
             if (left < 0) left = x;
             right = x;
         }
-    // column 70: clear of the two ring labels, which erase the line where they sit
+    // column 62: clear of the track label, which erases the ring where it sits
     for (int y = 0; y < 200; y++)
-        if (fb.get_pixel(70, y)) {
+        if (fb.get_pixel(62, y)) {
             if (top < 0) top = y;
             bottom = y;
         }
     CHECK(left == 199 - right);
     CHECK(top == 199 - bottom);
+}
+
+TEST_CASE("radar: the range ring is one unbroken stroke, and the only ring on the glass") {
+    Framebuffer fb;
+    RadarSnapshot snap;  // no fix: the ring and own ship, nothing plotted
+    draw_radar(fb, snap);
+    int thinnest = 200, thickest = 0, inside_ink = 0;
+    for (int y = 60; y <= 140; y++) {
+        int stroke = 0;
+        for (int x = 0; x < 20; x++) stroke += fb.get_pixel(x, y) ? 1 : 0;
+        thinnest = stroke < thinnest ? stroke : thinnest;
+        thickest = stroke > thickest ? stroke : thickest;
+        for (int x = 20; x < 80; x++) inside_ink += fb.get_pixel(x, y) ? 1 : 0;
+    }
+    CHECK(thinnest >= 2);
+    CHECK(thickest <= 4);
+    CHECK(inside_ink == 0);
+
+    // A stroke that steps diagonally reads as speckled glass, holes and all.
+    int speckles = 0;
+    for (int y = 1; y < 199; y++)
+        for (int x = 1; x < 199; x++) {
+            if (!fb.get_pixel(x, y)) continue;
+            const int dx = x < 100 ? 99 - x : x - 100, dy = y < 100 ? 99 - y : y - 100;
+            const int r2 = dx * dx + dy * dy;
+            if (r2 < 80 * 80 || r2 > 95 * 95) continue;
+            const int neighbours = fb.get_pixel(x - 1, y) + fb.get_pixel(x + 1, y) +
+                                   fb.get_pixel(x, y - 1) + fb.get_pixel(x, y + 1);
+            if (neighbours < 2) speckles++;
+        }
+    CHECK(speckles <= 2);  // the two ends where the track label cuts the stroke
 }
 
 TEST_CASE("radar: the plot turns with the track, so what is ahead is up the glass") {
@@ -212,49 +243,28 @@ TEST_CASE("radar: the plot turns with the track, so what is ahead is up the glas
     CHECK_FALSE(beam.get_pixel(99, 99 - 46 + 1 - 2));
 }
 
-TEST_CASE("radar: the cardinal letters say where north went") {
-    const Framebuffer north_up = radar(flying(0));
-    CHECK(reads_in(north_up, "N", 90, 20, 110, 36));
-    CHECK(reads_in(north_up, "S", 90, 170, 110, 190));
-
-    // Flying east swings north onto the left of the glass, and east onto the nose.
-    const Framebuffer east_up = radar(flying(90));
-    CHECK(reads_in(east_up, "N", 5, 90, 25, 110));
-    CHECK(reads_in(east_up, "E", 90, 20, 110, 36));
-    CHECK(reads_in(east_up, "S", 175, 90, 195, 110));
-    CHECK(reads_in(east_up, "W", 90, 170, 110, 190));
-
-    // Without a fix there is no orientation to claim, so no letter claims one.
-    RadarSnapshot no_fix;
-    const Framebuffer searching = radar(no_fix);
-    CHECK_FALSE(reads_in(searching, "N", 90, 20, 110, 36));
-    CHECK_FALSE(reads_in(searching, "S", 90, 170, 110, 190));
-}
-
-TEST_CASE("radar: only the letter a ring label is in the way of steps in") {
-    // Quartering, nothing is in the way: 60 px on both axes is a rose of 85.
-    const Framebuffer quartering = radar(flying(45));
-    CHECK(reads_in(quartering, "N", 36, 35, 45, 46));
-    CHECK(reads_in(quartering, "E", 156, 35, 165, 46));
-    CHECK(reads_in(quartering, "S", 156, 155, 165, 166));
-    CHECK(reads_in(quartering, "W", 36, 155, 45, 166));
-
-    // North up, the track digits push N in and the range label pushes S in.
-    const Framebuffer north_up = radar(flying(0));
-    CHECK(reads_in(north_up, "E", 181, 95, 190, 106));
-    CHECK(reads_in(north_up, "W", 11, 95, 20, 106));
-    CHECK_FALSE(reads_in(north_up, "N", 90, 5, 110, 25));
-}
-
-TEST_CASE("radar: the track reads at the top, and dashes when there is no fix") {
-    CHECK(reads_in(radar(flying(47)), "047", 60, 0, 140, 25, 2));
-    CHECK(reads_in(radar(flying(360)), "000", 60, 0, 140, 25, 2));
+TEST_CASE("radar: the track reads under the plot, and dashes when there is no fix") {
+    CHECK(reads_in(radar(flying(47)), "047", 55, 165, 145, 200, 3));
+    CHECK(reads_in(radar(flying(360)), "000", 55, 165, 145, 200, 3));
 
     RadarSnapshot no_fix;
-    CHECK(reads_in(radar(no_fix), "---", 60, 0, 140, 25, 2));
+    CHECK(reads_in(radar(no_fix), "---", 55, 165, 145, 200, 3));
+
+    // The sector a pilot is flying into carries the plot and nothing else.
+    CHECK_FALSE(reads_in(radar(flying(47)), "047", 40, 0, 160, 90, 3));
 }
 
-TEST_CASE("radar: the footer counts what is on the glass, and the ring says what it is worth") {
+TEST_CASE("radar: the range stands over the satellite count, clear of the plot") {
+    const Framebuffer fb = radar(flying(0));
+    CHECK(reads_in(fb, "4", 0, 160, 30, 182, 2));
+    CHECK(reads_in(fb, "NM", 10, 165, 45, 182));
+
+    RadarSnapshot closer = flying(0);
+    closer.range_nm = 2;
+    CHECK(reads_in(radar(closer), "2", 0, 160, 30, 182, 2));
+}
+
+TEST_CASE("radar: the footer counts what is on the glass, either side of the track") {
     RadarTarget targets[3] = {
         {2000, 0, 0, 1},
         {0, -3000, 0, 1},
@@ -267,30 +277,32 @@ TEST_CASE("radar: the footer counts what is on the glass, and the ring says what
 
     CHECK(reads_in(fb, "9", 0, 175, 30, 200, 2));
     CHECK(reads_in(fb, "SAT", 15, 175, 60, 200));
-    CHECK(reads_in(fb, "2", 170, 175, 200, 200, 2));
+    CHECK(reads_in(fb, "2", 170, 170, 200, 200, 3));
     CHECK(reads_in(fb, "ACT", 140, 175, 190, 200));
-    // The labels sit ON the ring, so reading one is the check that it is cleared.
-    CHECK(reads_in(fb, "4 NM", 60, 175, 140, 200));
+    // The track sits ON the ring, so reading it is the check that it is cleared.
+    CHECK(reads_in(fb, "000", 60, 165, 140, 200, 3));
 
     RadarSnapshot closer = flying(0);
     closer.range_nm = 2;
     closer.sats = 0;
     const Framebuffer near = radar(closer);
-    CHECK(reads_in(near, "2 NM", 60, 175, 140, 200));
     CHECK(reads_in(near, "0", 0, 175, 30, 200, 2));
-    CHECK(reads_in(near, "0", 170, 175, 200, 200, 2));
+    CHECK(reads_in(near, "0", 170, 170, 200, 200, 3));
 }
 
-TEST_CASE("radar: the footer numbers stop where the ring label does, not at the glass edge") {
+TEST_CASE("radar: the footer sits on one baseline, a margin clear of the glass edge") {
     const Framebuffer fb = radar(flying(0));
     int digits_bottom = -1, label_bottom = -1;
-    for (int y = 175; y < 200; y++)
+    for (int y = 170; y < 200; y++)
         for (int x = 0; x < 200; x++)
             if (fb.get_pixel(x, y)) {
                 if (x < 30 || x > 170) digits_bottom = y;
                 if (x > 80 && x < 120) label_bottom = y;
             }
     CHECK(digits_bottom == label_bottom);
+    for (int y = digits_bottom + 1; y < 200; y++)
+        for (int x = 0; x < 200; x++) CHECK_FALSE(fb.get_pixel(x, y));
+    CHECK(199 - digits_bottom >= 4);
 }
 
 TEST_CASE("radar: a device with no fix says so where it reports its satellites") {

@@ -1892,13 +1892,13 @@ The drawing stack end to end, from a pixel to what reaches the glass. The radar 
 
 - a device with no fix says so where it reports its satellites
 - everything is centred on the 99|100 point, not on a pixel
-- only the letter a ring label is in the way of steps in
 - renders rings, own symbol and plots targets
-- the cardinal letters say where north went
-- the footer counts what is on the glass, and the ring says what it is worth
-- the footer numbers stop where the ring label does, not at the glass edge
+- the footer counts what is on the glass, either side of the track
+- the footer sits on one baseline, a margin clear of the glass edge
 - the plot turns with the track, so what is ahead is up the glass
-- the track reads at the top, and dashes when there is no fix
+- the range ring is one unbroken stroke, and the only ring on the glass
+- the range stands over the satellite count, clear of the plot
+- the track reads under the plot, and dashes when there is no fix
 
 **status**
 
