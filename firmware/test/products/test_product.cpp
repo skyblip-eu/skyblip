@@ -59,14 +59,13 @@ TEST_CASE("product: the e-paper refreshes on change, not on cadence") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     rig.run(0, 5000);
-    // The self-test page setup() paints, then the first radar frame, both full.
-    // The sky then stays static, so nothing else reaches the glass.
-    CHECK(rig.platform.chips().epd.present_count == 2);
+    // The first radar frame, full, and then a static sky nothing repaints.
+    CHECK(rig.platform.chips().epd.present_count == 1);
     CHECK(rig.platform.chips().epd.last_full);
 
     rig.push_fix(1000, 1);  // fix arrives: the radar page changes
     rig.run(5000, 8000);
-    CHECK(rig.platform.chips().epd.present_count == 3);
+    CHECK(rig.platform.chips().epd.present_count == 2);
     CHECK_FALSE(rig.platform.chips().epd.last_full);  // differential, no flash
 }
 
@@ -289,21 +288,21 @@ TEST_CASE("product: the first fix is announced once, then own-ship settles befor
     CHECK(int(rig.platform.annunciator().level()) == 0);
 
     rig.push_fix(1000, 1);
-    uint8_t first_note = 0;
+    uint16_t first_note_hz = 0;
     for (uint32_t t = 550; t <= 700; t += 10) {
         rig.platform.clock().set_millis(t);
         rig.product.step(t);
-        if (first_note == 0) first_note = rig.platform.annunciator().level();
+        if (first_note_hz == 0) first_note_hz = rig.platform.annunciator().hz();
     }
     CHECK(rig.product.ownship().first_fix().ever_fixed());
-    CHECK(int(first_note) == int(annunciation::kFirstFixJingle[0].pitch));
+    CHECK(first_note_hz == annunciation::kFirstFixJingle[0].hz);
     // The motor stays out of it: haptics mean traffic that escalated.
     CHECK(rig.platform.annunciator().vibro_ms() == 0);
 
     // It is short and it stops by itself, so nothing has to remember to silence
     // it before the first traffic contact arrives.
     rig.run(750, 3000);
-    CHECK(int(rig.platform.annunciator().level()) == 0);
+    CHECK_FALSE(rig.platform.annunciator().sounding());
 
     // Nothing is worth transmitting yet, and 20 s later it is.
     const gnss::FirstFix& fix = rig.product.ownship().first_fix();
@@ -320,7 +319,7 @@ TEST_CASE("product: the first fix is announced once, then own-ship settles befor
     CHECK_FALSE(fix.settled(3200));
     rig.push_fix(1000, 2);
     rig.run(3250, 3400);
-    CHECK(int(rig.platform.annunciator().level()) == 0);
+    CHECK_FALSE(rig.platform.annunciator().sounding());
     CHECK(fix.settled(fix.fix_since_ms() + gnss::kRefixSettleMs));
 }
 

@@ -45,8 +45,13 @@ class Annunciator : public hal::Annunciator {
     // Opens the tone and leaves it open, per hal/annunciator.h: whoever calls
     // this owes it a silence(). The pattern is core/annunciation's.
     void alarm(uint8_t level, uint8_t volume) override {
-        if (level == 0 || volume == 0) return silence();
-        uint32_t period = PWM_HZ(tone_hz(level));
+        if (level == 0) return silence();
+        tone(static_cast<uint16_t>(step_hz(level)), volume);
+    }
+
+    void tone(uint16_t hz, uint8_t volume) override {
+        if (hz == 0 || volume == 0) return silence();
+        uint32_t period = PWM_HZ(hz);
         pwm_set_dt(&buzzer_, period, period / (5 - (volume > 3 ? 3 : volume)));
     }
 
@@ -82,7 +87,7 @@ class Annunciator : public hal::Annunciator {
     static constexpr uint32_t kLevelStepHz = 400;
     static constexpr uint8_t kMiddleLevel = 2;
 
-    static uint32_t tone_hz(uint8_t level) {
+    static uint32_t step_hz(uint8_t level) {
         return kTransducerResonanceHz + (static_cast<int32_t>(level) - kMiddleLevel) * kLevelStepHz;
     }
 

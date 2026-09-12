@@ -37,7 +37,7 @@ struct Buzzer {
     uint32_t off_since_ms{0};
     int beeps{0};
     static constexpr int kRecorded = 16;
-    uint8_t pitch_of[kRecorded]{};
+    uint16_t hz_of[kRecorded]{};
     uint32_t gap_before[kRecorded]{};
 
     void apply(const Command& command, uint32_t now_ms) {
@@ -50,7 +50,7 @@ struct Buzzer {
                 beep_started_ms = now_ms;
                 last_gap_ms = now_ms - off_since_ms;
                 if (beeps <= kRecorded) {
-                    pitch_of[beeps - 1] = command.tone_level;
+                    hz_of[beeps - 1] = command.tone_hz;
                     gap_before[beeps - 1] = last_gap_ms;
                 }
             }
@@ -265,17 +265,18 @@ TEST_CASE("annunciation: the first fix is six notes, three pitches, and an uneve
     REQUIRE(buzzer.beeps == kFirstFixNoteCount);
     uint32_t tone_ms = 0;
     for (uint8_t i = 0; i < kFirstFixNoteCount; i++) {
-        CHECK(int(buzzer.pitch_of[i]) == int(kFirstFixJingle[i].pitch));
+        CHECK(buzzer.hz_of[i] == kFirstFixJingle[i].hz);
         if (i > 0) CHECK(buzzer.gap_before[i] == kFirstFixJingle[i - 1].gap_ms);
         tone_ms += kFirstFixJingle[i].tone_ms;
     }
     CHECK(buzzer.on_ms == tone_ms);
 
-    // mid mid . mid . low mid . high: the two silent beats are the tune.
+    // E E . E . C E . G: the two silent beats are the tune.
     CHECK(buzzer.gap_before[1] == kFirstFixNextBeatMs);
     CHECK(buzzer.gap_before[2] == kFirstFixSkipBeatMs);
-    CHECK(int(buzzer.pitch_of[3]) == kPitchLow);
-    CHECK(int(buzzer.pitch_of[5]) == kPitchHigh);
+    CHECK(buzzer.hz_of[3] == kNoteC7Hz);
+    CHECK(buzzer.hz_of[3] < buzzer.hz_of[0]);
+    CHECK(buzzer.hz_of[5] == kNoteG7Hz);
     CHECK(first_fix_jingle_ms() < 2000);
 }
 

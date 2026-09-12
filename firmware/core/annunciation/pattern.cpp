@@ -38,8 +38,7 @@ Command Policy::update(const Situation& situation, uint32_t now_ms) {
         release();
     }
 
-    if (situation.first_fix && voice_ != Voice::Traffic)
-        begin(Voice::FirstFix, kFirstFixJingle[0].pitch, now_ms);
+    if (situation.first_fix && voice_ != Voice::Traffic) begin(Voice::FirstFix, 0, now_ms);
 
     advance(now_ms);
     return emit();
@@ -52,7 +51,9 @@ void Policy::begin(Voice voice, uint8_t level, uint32_t now_ms) {
     announced_ms_ = now_ms;
     phase_ms_ = now_ms;
     note_ = 0;
+    tone_hz_ = 0;
     if (voice == Voice::FirstFix) {
+        tone_hz_ = kFirstFixJingle[0].hz;
         said_ = 1;
         phase_on_ = true;
         return;
@@ -76,7 +77,7 @@ void Policy::play_jingle(uint32_t now_ms) {
         phase_ms_ += note.gap_ms;
         note_++;
         said_++;
-        level_ = kFirstFixJingle[note_].pitch;
+        tone_hz_ = kFirstFixJingle[note_].hz;
         phase_on_ = true;
     }
 }
@@ -107,6 +108,7 @@ void Policy::advance(uint32_t now_ms) {
 
 void Policy::release() {
     voice_ = Voice::None;
+    tone_hz_ = 0;
     level_ = 0;
     said_ = 0;
     phase_on_ = false;
@@ -116,9 +118,12 @@ Command Policy::emit() {
     Command command{};
     command.tone_on = voice_ != Voice::None && phase_on_;
     command.tone_level = command.tone_on ? level_ : 0;
-    command.changed = command.tone_on != commanded_on_ || command.tone_level != commanded_level_;
+    command.tone_hz = command.tone_on ? tone_hz_ : 0;
+    command.changed = command.tone_on != commanded_on_ || command.tone_level != commanded_level_ ||
+                      command.tone_hz != commanded_hz_;
     commanded_on_ = command.tone_on;
     commanded_level_ = command.tone_level;
+    commanded_hz_ = command.tone_hz;
     return command;
 }
 

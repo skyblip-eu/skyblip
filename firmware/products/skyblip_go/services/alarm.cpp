@@ -90,7 +90,11 @@ void AlarmService::drive(const annunciation::Situation& situation, uint32_t now_
         context_.roles.annunciator.silence();
         return;
     }
-    context_.roles.annunciator.alarm(command.tone_level, context_.state.settings.alarm_volume);
+    const uint8_t volume = context_.state.settings.alarm_volume;
+    if (command.tone_hz != 0)
+        context_.roles.annunciator.tone(command.tone_hz, volume);
+    else
+        context_.roles.annunciator.alarm(command.tone_level, volume);
 }
 
 }  // namespace skyblip::go

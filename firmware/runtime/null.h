@@ -20,6 +20,7 @@ class NullDisplay : public hal::Display {
 class NullAnnunciator : public hal::Annunciator {
    public:
     void alarm(uint8_t, uint8_t) override {}
+    void tone(uint16_t, uint8_t) override {}
     void vibrate(uint16_t) override {}
     void silence() override {}
 };

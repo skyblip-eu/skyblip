@@ -22,6 +22,7 @@ class Annunciator {
    public:
     virtual ~Annunciator() = default;
     virtual void alarm(uint8_t level, uint8_t volume) = 0;
+    virtual void tone(uint16_t hz, uint8_t volume) = 0;
     virtual void vibrate(uint16_t ms) = 0;
     virtual void silence() = 0;
 };

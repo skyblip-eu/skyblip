@@ -205,15 +205,19 @@ TEST_CASE("product: the first fix plays its tune, and traffic takes the buzzer o
     REQUIRE(sky.simulator.setup() == Status::Ok);
 
     uint32_t started = 0;
-    uint8_t first_pitch = 0;
+    uint16_t first_note_hz = 0;
+    uint16_t lowest_hz = 0xFFFF, highest_hz = 0;
     uint32_t sounding_ms = 0;
     for (uint32_t t = 0; t <= 5000; t += kStepMs) {
         sky.simulator.step(t);
-        if (sky.sounding_level() == 0) continue;
+        if (!sky.buzzer().sounding()) continue;
+        const uint16_t hz = sky.buzzer().hz();
         if (started == 0) {
             started = t;
-            first_pitch = sky.sounding_level();
+            first_note_hz = hz;
         }
+        if (hz < lowest_hz) lowest_hz = hz;
+        if (hz > highest_hz) highest_hz = hz;
         sounding_ms += kStepMs;
     }
     uint32_t tone_ms = 0;
@@ -221,7 +225,9 @@ TEST_CASE("product: the first fix plays its tune, and traffic takes the buzzer o
 
     CHECK(sky.tone_commands() == annunciation::kFirstFixNoteCount);
     CHECK(started > 0);
-    CHECK(int(first_pitch) == int(annunciation::kFirstFixJingle[0].pitch));
+    CHECK(first_note_hz == annunciation::kNoteE7Hz);
+    CHECK(lowest_hz == annunciation::kNoteC7Hz);
+    CHECK(highest_hz == annunciation::kNoteG7Hz);
     CHECK(sounding_ms >= tone_ms - annunciation::kFirstFixNoteCount * kStepMs);
     CHECK(sounding_ms <= tone_ms);
     // No haptics: the motor is reserved for traffic that got worse, so a pilot

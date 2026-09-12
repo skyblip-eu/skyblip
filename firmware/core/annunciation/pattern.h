@@ -56,10 +56,10 @@ constexpr uint8_t kUrgentTrainPulseCount = 6;
 // about a second of quiet a call or a vario can be heard in.
 constexpr uint16_t kUrgentStandingReannounceMs = 2000;
 
-// INFO: fc 12sep26 the piezo is loud only near 4 kHz, so the riff rides the three alarm steps
-constexpr uint8_t kPitchLow = 1;
-constexpr uint8_t kPitchMid = 2;
-constexpr uint8_t kPitchHigh = 3;
+// INFO: fc 12sep26 written C5 E5 G5, played two octaves up: a 4 kHz piezo whispers at 500 Hz
+constexpr uint16_t kNoteC7Hz = 2093;
+constexpr uint16_t kNoteE7Hz = 2637;
+constexpr uint16_t kNoteG7Hz = 3136;
 
 constexpr uint16_t kFirstFixNoteMs = kShortestBlipEarCanPlaceMs;
 constexpr uint16_t kFirstFixBeatMs = 2 * kFirstFixNoteMs;
@@ -68,18 +68,18 @@ constexpr uint16_t kFirstFixSkipBeatMs = kFirstFixNextBeatMs + kFirstFixBeatMs;
 constexpr uint16_t kFirstFixHeldNoteMs = kFirstFixBeatMs + kFirstFixNextBeatMs;
 
 struct Note {
-    uint8_t pitch;
+    uint16_t hz;
     uint16_t tone_ms;
     uint16_t gap_ms;
 };
 
 constexpr Note kFirstFixJingle[] = {
-    {kPitchMid, kFirstFixNoteMs, kFirstFixNextBeatMs},
-    {kPitchMid, kFirstFixNoteMs, kFirstFixSkipBeatMs},
-    {kPitchMid, kFirstFixNoteMs, kFirstFixSkipBeatMs},
-    {kPitchLow, kFirstFixNoteMs, kFirstFixNextBeatMs},
-    {kPitchMid, kFirstFixNoteMs, kFirstFixSkipBeatMs},
-    {kPitchHigh, kFirstFixHeldNoteMs, 0},
+    {kNoteE7Hz, kFirstFixNoteMs, kFirstFixNextBeatMs},
+    {kNoteE7Hz, kFirstFixNoteMs, kFirstFixSkipBeatMs},
+    {kNoteE7Hz, kFirstFixNoteMs, kFirstFixSkipBeatMs},
+    {kNoteC7Hz, kFirstFixNoteMs, kFirstFixNextBeatMs},
+    {kNoteE7Hz, kFirstFixNoteMs, kFirstFixSkipBeatMs},
+    {kNoteG7Hz, kFirstFixHeldNoteMs, 0},
 };
 constexpr uint8_t kFirstFixNoteCount = sizeof(kFirstFixJingle) / sizeof(kFirstFixJingle[0]);
 
@@ -132,6 +132,7 @@ struct Situation {
 struct Command {
     bool tone_on{false};
     uint8_t tone_level{0};
+    uint16_t tone_hz{0};
     bool changed{false};
 };
 
@@ -155,6 +156,8 @@ class Policy {
 
     Pattern pattern_{};
     Voice voice_{Voice::None};
+    uint16_t tone_hz_{0};
+    uint16_t commanded_hz_{0};
     uint8_t level_{0};
     uint8_t said_{0};
     uint8_t note_{0};

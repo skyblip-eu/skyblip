@@ -23,7 +23,17 @@ class Annunciator : public hal::Annunciator {
    public:
     void alarm(uint8_t level, uint8_t volume) override {
         level_ = level;
+        hz_ = 0;
         volume_ = volume;
+        sounding_ = level != 0;
+        tone_commands_++;
+    }
+
+    void tone(uint16_t hz, uint8_t volume) override {
+        level_ = 0;
+        hz_ = hz;
+        volume_ = volume;
+        sounding_ = hz != 0;
         tone_commands_++;
     }
 
@@ -41,6 +51,8 @@ class Annunciator : public hal::Annunciator {
 
     void silence() override {
         level_ = 0;
+        hz_ = 0;
+        sounding_ = false;
         silences_++;
     }
 
@@ -64,6 +76,8 @@ class Annunciator : public hal::Annunciator {
     void attach_haptic(hal::Haptic& haptic) { haptic_ = &haptic; }
 
     uint8_t level() const { return level_; }
+    uint16_t hz() const { return hz_; }
+    bool sounding() const { return sounding_; }
     uint8_t volume() const { return volume_; }
     uint16_t vibro_ms() const { return vibro_ms_; }
 
@@ -78,6 +92,8 @@ class Annunciator : public hal::Annunciator {
 
    private:
     uint8_t level_{0}, volume_{0};
+    uint16_t hz_{0};
+    bool sounding_{false};
     uint16_t vibro_ms_{0};
     uint32_t tone_commands_{0}, silences_{0}, vibro_pulses_{0};
     PinMotor pin_motor_{};
