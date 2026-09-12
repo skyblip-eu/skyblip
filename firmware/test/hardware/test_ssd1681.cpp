@@ -16,6 +16,16 @@ namespace {
 
 parts::Ssd1681 make(models::Ssd1681& f) { return parts::Ssd1681(f, f, f.dc, f.rst, f.busy); }
 
+parts::Ssd1681 make_turned(models::Ssd1681& f) {
+    return parts::Ssd1681(f, f, f.dc, f.rst, f.busy, -1, parts::GlassRotation::Deg270);
+}
+
+// One pixel of panel RAM, addressed as the controller does: a source on a gate line, black at 0.
+bool ram_black(const models::Ssd1681& f, int source, int gate) {
+    const size_t byte = size_t(gate) * ui::Framebuffer::kStride + size_t(source >> 3);
+    return byte < f.ram.size() && (f.ram[byte] & (0x80 >> (source & 7))) == 0;
+}
+
 // Drives the present to ready cycle to completion, as the screen service would
 // across ticks.
 void settle(parts::Ssd1681& d, uint32_t issued_ms) {
@@ -86,6 +96,63 @@ TEST_CASE("epd: a black pixel flips the corresponding RAM bit to 0") {
 
     // First RAM byte now has at least one cleared bit (was 0xFF all-white).
     CHECK(f.ram[0] != 0xFF);
+}
+
+TEST_CASE("epd: an unturned glass takes framebuffer rows as gate lines") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+
+    ui::Framebuffer fb;
+    fb.clear(true);
+    fb.set_pixel(0, 0, true);
+    fb.set_pixel(199, 0, true);
+    fb.set_pixel(3, 8, true);
+    d.present(fb, hal::Refresh::Full, 0);
+
+    REQUIRE(f.ram.size() == ui::Framebuffer::kBytes);
+    CHECK(ram_black(f, 0, 0));
+    CHECK(ram_black(f, 199, 0));
+    CHECK(ram_black(f, 3, 8));
+    CHECK_FALSE(ram_black(f, 0, 199));
+}
+
+// The Plus mounts the glass a quarter turn off the scan: unturned here, the device reads sideways.
+TEST_CASE("epd: a glass turned 270 degrees takes framebuffer columns as gate lines") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make_turned(f);
+    d.begin();
+
+    ui::Framebuffer fb;
+    fb.clear(true);
+    fb.set_pixel(0, 0, true);
+    fb.set_pixel(199, 0, true);
+    fb.set_pixel(3, 8, true);
+    d.present(fb, hal::Refresh::Full, 0);
+
+    REQUIRE(f.ram.size() == ui::Framebuffer::kBytes);
+    // (x, y) lands on source y of gate line 199 - x.
+    CHECK(ram_black(f, 0, 199));
+    CHECK(ram_black(f, 0, 0));
+    CHECK(ram_black(f, 8, 196));
+    CHECK_FALSE(ram_black(f, 199, 0));
+}
+
+TEST_CASE("epd: a turned glass writes the same count of black pixels it was handed") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make_turned(f);
+    d.begin();
+
+    ui::Framebuffer fb;
+    fb.clear(true);
+    for (int i = 0; i < 200; i++) fb.set_pixel(i, i / 2, true);
+    d.present(fb, hal::Refresh::Full, 0);
+
+    int black = 0;
+    for (int gate = 0; gate < ui::Framebuffer::kH; gate++)
+        for (int source = 0; source < ui::Framebuffer::kW; source++)
+            if (ram_black(f, source, gate)) black++;
+    CHECK(black == fb.count_black());
 }
 
 TEST_CASE("epd: the first present after begin() is a full refresh, whatever was asked") {

@@ -8,10 +8,20 @@
 
 namespace skyblip::parts {
 
+// INFO: fc 12sep26 the SSD1681 mirrors (0x01, 0x11) but cannot transpose, so the driver turns
+enum class GlassRotation : uint8_t { Deg0, Deg270 };
+
 class Ssd1681 : public hal::Display {
    public:
-    Ssd1681(io::Spi& spi, io::Gpio& gpio, int dc, int rst, int busy, int backlight = -1)
-        : spi_(spi), gpio_(gpio), dc_(dc), rst_(rst), busy_(busy), backlight_(backlight) {}
+    Ssd1681(io::Spi& spi, io::Gpio& gpio, int dc, int rst, int busy, int backlight = -1,
+            GlassRotation rotation = GlassRotation::Deg0)
+        : spi_(spi),
+          gpio_(gpio),
+          dc_(dc),
+          rst_(rst),
+          busy_(busy),
+          backlight_(backlight),
+          rotation_(rotation) {}
 
     void begin();
 
@@ -44,6 +54,7 @@ class Ssd1681 : public hal::Display {
     void cmd(uint8_t c);
     void data(uint8_t d);
     void write_bank(uint8_t command, const uint8_t* fb_bytes);
+    uint8_t ram_byte(const uint8_t* fb_bytes, int gate, int column) const;
     void set_window(int x0, int y0, int x1, int y1);
     void set_cursor(int x, int y);
     bool wait_busy(uint32_t max_spins = 200000);
@@ -51,6 +62,7 @@ class Ssd1681 : public hal::Display {
     io::Spi& spi_;
     io::Gpio& gpio_;
     int dc_, rst_, busy_, backlight_;
+    GlassRotation rotation_;
     // INFO: fc 01aug25 the glass image, rewritten into bank 0x26 each present so
     // fast refreshes diff against the truth across deep sleep and panel lots
     uint8_t shadow_[ui::Framebuffer::kBytes]{};

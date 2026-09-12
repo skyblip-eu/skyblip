@@ -166,9 +166,23 @@ void Ssd1681::write_bank(uint8_t command, const uint8_t* fb_bytes) {
     set_cursor(0, 0);
     cmd(command);
     // INFO: fc 01aug25 panel RAM is 1=white, the framebuffer 1=black
-    for (size_t i = 0; i < ui::Framebuffer::kBytes; i++) {
-        data(static_cast<uint8_t>(~fb_bytes[i]));
+    for (int gate = 0; gate < kH; gate++) {
+        for (int column = 0; column < ui::Framebuffer::kStride; column++) {
+            data(static_cast<uint8_t>(~ram_byte(fb_bytes, gate, column)));
+        }
     }
+}
+
+uint8_t Ssd1681::ram_byte(const uint8_t* fb_bytes, int gate, int column) const {
+    if (rotation_ == GlassRotation::Deg0) return fb_bytes[gate * ui::Framebuffer::kStride + column];
+    const int x = kW - 1 - gate;
+    uint8_t bits = 0;
+    for (int source = 0; source < 8; source++) {
+        const int y = column * 8 + source;
+        if (fb_bytes[y * ui::Framebuffer::kStride + (x >> 3)] & (0x80 >> (x & 7)))
+            bits |= static_cast<uint8_t>(0x80 >> source);
+    }
+    return bits;
 }
 
 void Ssd1681::set_window(int x0, int y0, int x1, int y1) {

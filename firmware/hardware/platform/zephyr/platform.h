@@ -13,6 +13,7 @@
 
 #include "hal/capabilities.h"
 #include "hardware/parts/ssd1681/panel.h"
+#include "hardware/parts/ssd1681/ssd1681.h"
 #include "hardware/platform/zephyr/annunciator.h"
 #include "hardware/platform/zephyr/baro.h"
 #include "hardware/platform/zephyr/battery.h"
@@ -104,6 +105,9 @@ class Platform {
 
     // TODO: fc 12sep26 read P0.11 on a bench, the polarity is SoftRF's alone (fcatuhe/skyblip#60)
     bool pad_down() { return gpio_pin_get_dt(&pad_) == 1; }
+
+    // INFO: fc 12sep26 the Plus mounts the glass a quarter turn off the scan (SoftRF EPD.cpp:84)
+    parts::GlassRotation glass_rotation() const { return parts::GlassRotation::Deg270; }
 
     // The 21 bytes the board port clocked out of the panel, or false if it could
     // not take them at all.

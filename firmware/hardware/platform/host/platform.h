@@ -6,6 +6,7 @@
 #include "hal/die_temperature.h"
 #include "hardware/parts/bme280/model.h"
 #include "hardware/parts/ssd1681/panel.h"
+#include "hardware/parts/ssd1681/ssd1681.h"
 #include "hardware/platform/host/annunciator.h"
 #include "hardware/platform/host/clock.h"
 #include "hardware/platform/host/flash_region.h"
@@ -174,6 +175,8 @@ class Platform {
     host::SystemPower& system_power() { return system_power_; }
     bool button_down() { return gpio_.button_down; }
     bool pad_down() { return gpio_.pad_down; }
+
+    parts::GlassRotation glass_rotation() const { return parts::GlassRotation::Deg0; }
 
     // The panel fingerprint, as the silicon platform's board port takes it: 11
     // bytes of register 0x2D then 10 of 0x2E. The virtual glass carries which lot
