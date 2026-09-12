@@ -379,6 +379,8 @@ void ScreenService::render() {
             ui::RadarSnapshot snap;
             snap.have_fix = own.fix_valid;
             snap.range_m = range_m_;
+            snap.track_deg = to_degrees(Cordic9(own.track_c9)).v;
+            snap.sats = own.sats;
             snap.max_alarm = context_.state.alarm_level;
             snap.coverage = context_.state.clock.utc_valid;
             int n = 0;

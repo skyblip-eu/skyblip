@@ -17,6 +17,8 @@ struct RadarTarget {
 struct RadarSnapshot {
     bool have_fix{false};
     int32_t range_m{10000};
+    uint16_t track_deg{0};
+    uint8_t sats{0};
     int n_targets{0};
     const RadarTarget* targets{nullptr};
     uint8_t max_alarm{0};

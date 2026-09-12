@@ -2,6 +2,16 @@
 
 One file per page, each one a pure function from a snapshot struct to pixels. A page reads nothing, owns nothing and decides nothing: `go::ScreenService` fills the snapshot and the page draws it, which is what lets every page be tested without a device, a bus or a clock.
 
+## radar
+
+Heading up, not north up. The own ship is drawn nose-up and cannot turn, so the picture turns instead: a target is plotted by how far ahead of the nose and how far right of it it lies, which is the bearing a pilot then looks along. North is wherever the letters say it went.
+
+The digits at the top are GNSS track and carry no label. There is no magnetometer on the board, and `HDG` would claim one, so the page says a number and lets the cardinal letters give it its meaning. They ride an inner radius rather than the outer ring, because the ring's top and bottom are taken by the two labels.
+
+Those two labels sit ON the outer ring with the line cleared under them: the track at the top, what the ring is worth at the bottom. The ring is the scale, so the number belongs on it rather than beside it, and a digit read through a black stroke is not read at all.
+
+The footer counts the picture, not the receiver. Left is the aircraft actually plotted, so a target beyond the ring is not in it. Right is the satellites behind them, which is what separates an empty sky from a device that has lost the sky. `signal` is where everything heard is listed.
+
 ## radio_log
 
 The station log, newest at the top, `radio::Log::kCapacity` rows and no more: what scrolls off the bottom is gone, because the page is a tape of what is happening now rather than a history.
@@ -35,7 +45,6 @@ The card reads `TRK`, not `HDG`. It is GNSS course over ground, referenced to tr
 
 | Page | What it answers |
 |---|---|
-| `radar` | where the traffic is, relative to the nose |
 | `sixpack` | what own-ship is doing: speed, altitude, vertical speed, track, turn |
 | `status` | what the sensors say: fix, position, pressure, battery, UTC |
 | `signal` | every emitter heard, nearest first, with the e.r.p. its level implies |
