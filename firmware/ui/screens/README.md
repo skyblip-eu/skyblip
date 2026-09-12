@@ -37,7 +37,9 @@ The GNSS line is on this page for the same reason the log is: a radio that hears
 
 ## sixpack
 
-Six dials over the GNSS-derived own-ship state, each with its own number under it: ground speed, attitude, altimeter, turn coordinator, track, vertical speed. The snapshot arrives in knots, feet and feet per minute, because the bank and flight-path geometry is worked in them.
+Six dials over the GNSS-derived own-ship state, each with its own number: ground speed, attitude, altimeter, turn coordinator, track, vertical speed. The snapshot arrives in knots, feet and feet per minute, because the bank and flight-path geometry is worked in them.
+
+The page reads outward from the middle. The six faces are a block: 66 px between centres in both axes, so the same 3 px of glass between two dials side by side and between the two rows, so the panel reads as one instrument rather than as two shelves. Each row's numbers and labels are stacked off its outer edge: number first at double size, label above or below it in the small font. Nothing is written between the rows, which is what pays for both the larger faces and that spacing, and the number a pilot glances at is then the biggest thing on the panel rather than a line of 5x7 text wedged under a needle.
 
 `settings::units` decides the speed dial and nothing else here. Altitude stays in feet and vertical speed in feet per minute on both settings: a level is cleared in feet and a climb rate is flown to in feet per minute wherever the aeroplane is, and a pilot who reads km/h on the speed dial still reads feet on the altimeter. The status page has room for two columns and prints the aeronautical figure and the SI one side by side; a dial has one needle, so the one place a habit has to be asked for is the speed.
 

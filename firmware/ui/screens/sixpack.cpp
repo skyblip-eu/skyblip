@@ -8,11 +8,12 @@ namespace skyblip::ui {
 
 namespace {
 
-constexpr int kR = 29;
+constexpr int kR = 31;
 constexpr int kCx[3] = {34, 100, 166};
-constexpr int kCy[2] = {56, 138};
-constexpr int kTitleDy = -(kR + 10);
-constexpr int kValueDy = kR + 4;
+constexpr int kCy[2] = {67, 133};
+constexpr int kValueScale = 2;
+constexpr int kValueGap = 7;
+constexpr int kTitleGap = 4;
 constexpr int kTickLen = 4;
 constexpr int kTicks = 12;
 constexpr int kAltTicks = 10;  // one mark per 100 ft, so the hands line up with them
@@ -64,22 +65,32 @@ int16_t c16(int32_t deg) {
     return static_cast<int16_t>((d * kTurn) / 360);
 }
 
+int value_y(int row) {
+    return row == 0 ? kCy[0] - kR - kValueGap - kGlyphH * kValueScale : kCy[1] + kR + kValueGap;
+}
+
+int title_y(int row) {
+    return row == 0 ? value_y(0) - kTitleGap - kGlyphH
+                    : value_y(1) + kGlyphH * kValueScale + kTitleGap;
+}
+
 void text_center(Framebuffer& fb, int cx, int y, const char* s, int scale = 1) {
     int n = 0;
     while (s[n]) n++;
     fb.draw_text(cx - (n * kCharW * scale) / 2, y, s, true, scale);
 }
 
-void value_center(Framebuffer& fb, int cx, int y, bool have, int32_t v, bool no_plus,
-                  uint8_t min_digits = 1, uint8_t decimals = 0) {
+void value_center(Framebuffer& fb, int cx, int row, bool have, int32_t v, bool no_plus,
+                  uint8_t min_digits = 1) {
+    const int y = value_y(row);
     if (!have) {
-        text_center(fb, cx, y, "---");
+        text_center(fb, cx, y, "---", kValueScale);
         return;
     }
     char buf[12];
-    int n = fmt_int(buf, v, min_digits, decimals, no_plus);
+    int n = fmt_int(buf, v, min_digits, 0, no_plus);
     buf[n] = 0;
-    text_center(fb, cx, y, buf);
+    text_center(fb, cx, y, buf, kValueScale);
 }
 
 // Marks are stepped along the true radius in half-pixels rather than drawn as a
@@ -92,10 +103,11 @@ void tick(Framebuffer& fb, int cx, int cy, int16_t a, int len = kTickLen) {
     }
 }
 
-void dial(Framebuffer& fb, int cx, int cy, const char* title, int ticks = kTicks) {
+void dial(Framebuffer& fb, int cx, int row, const char* title, int ticks = kTicks) {
+    const int cy = kCy[row];
     fb.circle(cx, cy, kR, true);
     for (int i = 0; i < ticks; i++) tick(fb, cx, cy, c16(i * (360 / ticks)));
-    text_center(fb, cx, cy + kTitleDy, title);
+    text_center(fb, cx, title_y(row), title);
 }
 
 void needle(Framebuffer& fb, int cx, int cy, int32_t deg, int len, bool thick = false) {
@@ -189,17 +201,17 @@ void draw_sixpack(Framebuffer& fb, const SixPackSnapshot& s) {
     const int32_t speed = metric ? (kt * 1852) / 1000 : kt;
     const int32_t speed_full = metric ? kAsiFullScaleKmh : kAsiFullScaleKt;
 
-    dial(fb, kCx[0], kCy[0], metric ? "GS KM/H" : "GS KT");
+    dial(fb, kCx[0], 0, metric ? "GS KM/H" : "GS KT");
     if (s.have_data)
         needle(fb, kCx[0], kCy[0], (clampi(speed, 0, speed_full) * kAsiSpanDeg) / speed_full,
                kNeedle);
-    value_center(fb, kCx[0], kCy[0] + kValueDy, s.have_data, speed, true);
+    value_center(fb, kCx[0], 0, s.have_data, speed, true);
 
-    dial(fb, kCx[1], kCy[0], "ATT");
+    dial(fb, kCx[1], 0, "ATT");
     if (s.have_data) attitude(fb, kCx[1], kCy[0], pitch, bank);
-    value_center(fb, kCx[1], kCy[0] + kValueDy, s.have_data, pitch, false);
+    value_center(fb, kCx[1], 0, s.have_data, pitch, false);
 
-    dial(fb, kCx[2], kCy[0], "ALT FT", kAltTicks);
+    dial(fb, kCx[2], 0, "ALT FT", kAltTicks);
     if (s.have_data) {
         const int32_t on_scale = s.alt_ft < 0 ? 0 : s.alt_ft;
         needle(fb, kCx[2], kCy[0], ((on_scale % kAltThousandsPerTurn) * 360) / kAltThousandsPerTurn,
@@ -208,24 +220,24 @@ void draw_sixpack(Framebuffer& fb, const SixPackSnapshot& s) {
         needle(fb, kCx[2], kCy[0], ((on_scale % kAltHundredsPerTurn) * 360) / kAltHundredsPerTurn,
                kNeedle);
     }
-    value_center(fb, kCx[2], kCy[0] + kValueDy, s.have_data, s.alt_ft, true);
+    value_center(fb, kCx[2], 0, s.have_data, s.alt_ft, true);
 
-    dial(fb, kCx[0], kCy[1], "TURN");
+    dial(fb, kCx[0], 1, "TURN");
     if (s.have_data) turn_coordinator(fb, kCx[0], kCy[1], bank);
-    value_center(fb, kCx[0], kCy[1] + kValueDy, s.have_data, s.turn_dps, false);
+    value_center(fb, kCx[0], 1, s.have_data, s.turn_dps, false);
 
     const int32_t track = s.track_deg % 360;
-    dial(fb, kCx[1], kCy[1], "TRK", s.have_data ? 0 : kTicks);
+    dial(fb, kCx[1], 1, "TRK", s.have_data ? 0 : kTicks);
     if (s.have_data) heading_card(fb, kCx[1], kCy[1], track);
-    value_center(fb, kCx[1], kCy[1] + kValueDy, s.have_data, track, true, 3);
+    value_center(fb, kCx[1], 1, s.have_data, track, true, 3);
 
-    dial(fb, kCx[2], kCy[1], "VS FPM");
+    dial(fb, kCx[2], 1, "VS FPM");
     if (s.have_data)
         needle(fb, kCx[2], kCy[1],
                kVsiZeroDeg + (clampi(s.vs_fpm, -kVsiFullScaleFpm, kVsiFullScaleFpm) * kVsiSpanDeg) /
                                  kVsiFullScaleFpm,
                kNeedle);
-    value_center(fb, kCx[2], kCy[1] + kValueDy, s.have_data, s.vs_fpm, false);
+    value_center(fb, kCx[2], 1, s.have_data, s.vs_fpm, false);
 }
 
 }  // namespace skyblip::ui

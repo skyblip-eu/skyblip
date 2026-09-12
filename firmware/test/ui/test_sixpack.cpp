@@ -14,7 +14,11 @@ namespace {
 struct Tile {
     int cx, cy;
 };
-const Tile kTiles[6] = {{34, 56}, {100, 56}, {166, 56}, {34, 138}, {100, 138}, {166, 138}};
+const Tile kTiles[6] = {{34, 67}, {100, 67}, {166, 67}, {34, 133}, {100, 133}, {166, 133}};
+
+// The number sits outside the glass: above the top row, below the bottom one.
+const int kValueScale = 2;
+int value_y(const Tile& t) { return t.cy < 100 ? t.cy - 31 - 7 - 7 * kValueScale : t.cy + 31 + 7; }
 
 int black_in(const Framebuffer& fb, Tile t, int r) {
     int n = 0;
@@ -125,14 +129,14 @@ TEST_CASE("sixpack: the unit setting decides the speed dial, and only the speed 
     // The number under a dial is the converted one, drawn where the page draws
     // it: 90 kt reads 166, and it is not the same ink as 90.
     auto value_matches = [](const Framebuffer& fb, Tile t, const char* text) {
-        const int value_y = t.cy + 33;
+        const int y0 = value_y(t);
         Framebuffer expected;
         expected.clear(true);
         int n = 0;
         while (text[n]) n++;
-        expected.draw_text(t.cx - (n * 6) / 2, value_y, text, true, 1);
-        for (int y = value_y; y < value_y + 7; y++)
-            for (int x = t.cx - 24; x <= t.cx + 24; x++)
+        expected.draw_text(t.cx - (n * 6 * kValueScale) / 2, y0, text, true, kValueScale);
+        for (int y = y0; y < y0 + 7 * kValueScale; y++)
+            for (int x = t.cx - 32; x <= t.cx + 32; x++)
                 if (fb.get_pixel(x, y) != expected.get_pixel(x, y)) return false;
         return true;
     };
