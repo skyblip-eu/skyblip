@@ -91,18 +91,21 @@ void ScreenService::sync_editor(uint32_t now_ms) {
     editor_.leave();
 }
 
+void ScreenService::repaint_through_black() {
+    dirty_ = true;
+    flash_pending_ = true;
+}
+
 void ScreenService::dismiss_self_test(uint32_t now_ms) {
     showing_self_test_ = false;
     editor_.enter(now_ms);
-    dirty_ = true;
-    flash_pending_ = true;
+    repaint_through_black();
 }
 
 void ScreenService::enter_settings(uint32_t now_ms) {
     mode_ = Mode::Settings;
     sync_editor(now_ms);
-    dirty_ = true;
-    flash_pending_ = true;
+    repaint_through_black();
 }
 
 void ScreenService::leave_settings() {
@@ -110,8 +113,7 @@ void ScreenService::leave_settings() {
     showing_self_test_ = false;
     editor_.leave();
     page_ = traffic_page();
-    dirty_ = true;
-    flash_pending_ = true;
+    repaint_through_black();
 }
 
 void ScreenService::step_editor(uint32_t now_ms) {
@@ -158,16 +160,12 @@ void ScreenService::resolve(ui::Gesture gesture) {
     prompt_ = comms::Pending::None;
     gesture_.disarm();
     prompt_on_glass_ = false;
-    dirty_ = true;
-    flash_pending_ = true;
+    repaint_through_black();
 }
 
 void ScreenService::tick(uint32_t now_ms) {
     last_tick_ms_ = now_ms;
-    // The chirp that goes with it belongs to the alarm service, which is the
-    // one owner of the annunciator. This is the panel's half: a first fix
-    // changes every page there is.
-    if (context_.state.own.fix_acquired) dirty_ = true;
+    if (context_.state.own.fix_acquired) repaint_through_black();
     handle_input(now_ms);
 
     if (context_.state.alarm_level != last_alarm_) {
@@ -274,8 +272,7 @@ void ScreenService::next_page() {
             break;
         }
     }
-    dirty_ = true;
-    flash_pending_ = true;
+    repaint_through_black();
 }
 
 void ScreenService::set_backlight(bool on) {
@@ -288,6 +285,7 @@ void ScreenService::set_power(bool on) {
     want_full_ = true;
     powered_ = on;
     if (on) {
+        park_ = ParkStep::None;
         context_.roles.display.power_on();
         return;
     }
@@ -300,20 +298,21 @@ void ScreenService::park(ParkFrame frame) {
     // A lit backlight is a rail nobody switched off: the panel sleeps, the LED
     // would not have.
     set_backlight(false);
-    if (!may_present_park_frame()) {
-        context_.roles.display.power_off();
-        return;
-    }
-    draw_park_frame(frame);
-    context_.roles.display.present(fb_, hal::Refresh::Full, last_tick_ms_);
-    park_pending_ = true;
+    park_frame_ = frame;
+    park_ = may_present_park_frame() ? ParkStep::Frame : ParkStep::Sleep;
 }
 
-// INFO: fc 12sep26 the deep sleep is a command, and a command sent over a live BUSY is lost
+// INFO: fc 12sep26 both steps are commands, and a command sent over a live BUSY is lost
 void ScreenService::settle_park(uint32_t now_ms) {
-    if (!park_pending_) return;
+    if (park_ == ParkStep::None) return;
     if (!context_.roles.display.ready(now_ms)) return;
-    park_pending_ = false;
+    if (park_ == ParkStep::Frame) {
+        park_ = ParkStep::Sleep;
+        draw_park_frame(park_frame_);
+        context_.roles.display.present(fb_, hal::Refresh::Full, now_ms);
+        return;
+    }
+    park_ = ParkStep::None;
     context_.roles.display.power_off();
 }
 

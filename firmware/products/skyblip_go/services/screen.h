@@ -72,13 +72,14 @@ class ScreenService : public runtime::Service {
     int32_t range_m() const { return range_m_; }
     bool backlight() const { return backlight_; }
     bool powered() const { return powered_; }
-    bool parking() const { return park_pending_; }
+    bool parking() const { return park_ != ParkStep::None; }
     const ui::Framebuffer& framebuffer() const { return fb_; }
     void mark_dirty() { dirty_ = true; }
     int fasts_since_full() const { return fasts_since_full_; }
 
    private:
     void render();
+    void repaint_through_black();
     void draw_prompt();
     void draw_settings_page();
     void dismiss_self_test(uint32_t now_ms);
@@ -94,6 +95,7 @@ class ScreenService : public runtime::Service {
     bool decide_full(uint32_t now_ms) const;
     bool may_present_park_frame() const;
     enum class ParkFrame : uint8_t { Wordmark, Installing, Blank };
+    enum class ParkStep : uint8_t { None, Frame, Sleep };
     void park(ParkFrame frame);
     void draw_park_frame(ParkFrame frame);
     void note_presented(hal::Refresh mode, uint32_t now_ms);
@@ -138,7 +140,8 @@ class ScreenService : public runtime::Service {
     bool flashed_{false};
     bool presented_once_{false};
     bool showing_self_test_{false};
-    bool park_pending_{false};
+    ParkStep park_{ParkStep::None};
+    ParkFrame park_frame_{ParkFrame::Wordmark};
     bool backlight_{false};
     bool powered_{true};
 };

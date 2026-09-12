@@ -50,10 +50,7 @@ const uint8_t* Ssd1681::previous_bank(const ui::Framebuffer& fb, bool full) cons
 }
 
 void Ssd1681::present(const ui::Framebuffer& fb, hal::Refresh mode, uint32_t now_ms) {
-    if (refreshing_) {  // only the shutdown path presents into a running refresh
-        wait_busy();
-        finish_refresh();
-    }
+    if (refreshing_) abort_refresh();
     if (asleep_) {
         init_panel();
         asleep_ = false;
@@ -95,9 +92,18 @@ bool Ssd1681::ready(uint32_t now_ms) {
 }
 
 void Ssd1681::power_off() {
+    if (refreshing_) abort_refresh();
     if (!wait_busy()) glass_known_ = false;
-    if (refreshing_) finish_refresh();
     if (!asleep_) enter_sleep();
+}
+
+// INFO: fc 13sep26 RES# is the only abort the glass has, and only a full waveform undoes the ink
+void Ssd1681::abort_refresh() {
+    refreshing_ = false;
+    if (wait_busy()) return;
+    init_panel();
+    asleep_ = false;
+    glass_known_ = false;
 }
 
 void Ssd1681::set_backlight(bool on) {

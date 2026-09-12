@@ -78,7 +78,7 @@ TEST_CASE("product: powering the panel down leaves the wordmark on it") {
     ui::draw_wordmark(expected, ui::Framebuffer::kW / 2, ui::Framebuffer::kH / 2);
 
     rig.product.screen().set_power(false);
-    rig.run(1000, 4000);
+    rig.run(1000, 7000);
     CHECK_FALSE(rig.platform.chips().epd.powered);
     CHECK(rig.platform.chips().epd.last_full);
     CHECK(rig.platform.chips().epd.framebuffer().count_black() == expected.count_black());

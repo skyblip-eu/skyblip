@@ -111,12 +111,12 @@ TEST_CASE("screen policy: freezing point itself is warm enough for the fast wave
 TEST_CASE("screen policy: going hot mid-refresh does not abandon the frame on the glass") {
     Rig rig;
     uint32_t t = 0;
-    rig.screen.tick(t += 1000);
+    rig.tick(t += 1000);
     REQUIRE(rig.chip.present_count == 1);
 
     rig.die_temperature(go::ScreenService::kHoldAboveDeciCelsius + 1);
-    rig.screen.tick(t += 100);
-    rig.screen.tick(t += 2000);
+    rig.tick(t += 100);
+    rig.tick(t += 2000);
     CHECK(rig.chip.present_count == 1);
     CHECK_FALSE(rig.chip.rails_on);
 }
@@ -218,7 +218,7 @@ TEST_CASE("screen policy: the white field the glass wears while off is drawn at 
 
     rig.state.power_level = power::PowerLevel::Cutoff;
     rig.screen.set_power(false);
-    rig.run_seconds(t, 3);
+    rig.run_seconds(t, 6);
     CHECK(rig.chip.present_count == before + 1);
     CHECK(rig.chip.last_full);
     CHECK_FALSE(rig.chip.powered);
@@ -228,17 +228,36 @@ TEST_CASE("screen policy: the white field the glass wears while off is drawn at 
 TEST_CASE("screen policy: the panel sleeps when the park frame has finished, not when it starts") {
     Rig rig;
     uint32_t t = 0;
-    rig.run_seconds(t, 3);
+    rig.run_seconds(t, 5);
 
     rig.screen.set_power(false);
+    rig.tick(t += 100);
     CHECK(rig.chip.powered);
     CHECK(rig.epd.refreshing());
 
-    rig.screen.tick(t += 100);
+    rig.tick(t += 1000);
     CHECK(rig.chip.powered);
 
-    rig.screen.tick(t += 2000);
+    rig.tick(t += 2000);
     CHECK_FALSE(rig.epd.refreshing());
+    CHECK_FALSE(rig.chip.powered);
+}
+
+// The ink the sun develops: a park frame written over a waveform that was still driving the glass.
+TEST_CASE("screen policy: a park mid-refresh waits for the glass, it does not talk over it") {
+    Rig rig;
+    uint32_t t = 0;
+    rig.churn(t, 5);
+    rig.state.clock.utc_valid = !rig.state.clock.utc_valid;
+    rig.tick(t += 1000);
+    const int before = rig.chip.present_count;
+    REQUIRE(rig.epd.refreshing());
+
+    rig.screen.set_power(false);
+    rig.run_seconds(t, 6);
+    CHECK(rig.chip.commands_while_busy == 0);
+    CHECK(rig.chip.present_count == before + 1);
+    CHECK(rig.chip.last_full);
     CHECK_FALSE(rig.chip.powered);
 }
 
@@ -246,11 +265,12 @@ TEST_CASE("screen policy: the panel sleeps when the park frame has finished, not
 TEST_CASE("screen policy: a supply warning parks the panel without a park frame") {
     Rig rig;
     uint32_t t = 0;
-    rig.run_seconds(t, 3);
+    rig.run_seconds(t, 5);
     const int before = rig.chip.present_count;
 
     rig.state.supply_warned = true;
     rig.screen.set_power(false);
+    rig.tick(t += 100);
     CHECK(rig.chip.present_count == before);
     CHECK_FALSE(rig.chip.powered);
 }

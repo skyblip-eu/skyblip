@@ -59,16 +59,36 @@ TEST_CASE("screen policy: a page change goes through black, not through the full
     const int before = rig.chip.present_count;
 
     rig.screen.next_page();
-    rig.screen.tick(t += 1000);
+    rig.tick(t += 1000);
     CHECK(rig.chip.present_count == before + 1);
     CHECK_FALSE(rig.chip.last_full);
     CHECK(rig.glass_all_black());
 
     // The page behind it does not wait out the one-a-second floor.
-    rig.screen.tick(t += 400);
+    rig.tick(t += 600);
     CHECK(rig.chip.present_count == before + 2);
     CHECK_FALSE(rig.glass_all_black());
     CHECK_FALSE(rig.chip.last_full);
+}
+
+// The fix redraws the whole page, and a partial over a whole new page leaves the ink grey.
+TEST_CASE("screen policy: the first fix goes through black, as any other new page does") {
+    Rig rig;
+    rig.state.own.fix_valid = false;
+    uint32_t t = 0;
+    rig.run_seconds(t, 3);
+    const int before = rig.chip.present_count;
+
+    rig.state.own.fix_valid = true;
+    rig.state.own.fix_acquired = true;
+    rig.tick(t += 1000);
+    CHECK(rig.chip.present_count == before + 1);
+    CHECK(rig.glass_all_black());
+
+    rig.state.own.fix_acquired = false;
+    rig.tick(t += 600);
+    CHECK(rig.chip.present_count == before + 2);
+    CHECK_FALSE(rig.glass_all_black());
 }
 
 TEST_CASE("screen policy: a page change under an alarm goes straight to the picture") {
@@ -78,7 +98,7 @@ TEST_CASE("screen policy: a page change under an alarm goes straight to the pict
 
     rig.alarm(2);
     rig.screen.next_page();
-    rig.screen.tick(t += 1000);
+    rig.tick(t += 1000);
     CHECK_FALSE(rig.glass_all_black());
     CHECK_FALSE(rig.chip.last_full);
 }
@@ -111,14 +131,14 @@ TEST_CASE("screen policy: converging traffic takes the settings mode back off th
 TEST_CASE("screen policy: presents wait for the panel, none is issued mid-refresh") {
     Rig rig;
     uint32_t t = 0;
-    rig.screen.tick(t += 1000);  // boot full: panel busy ~1.5 s
+    rig.tick(t += 1000);  // boot full: the glass is busy 2.5 s
     const int count = rig.chip.present_count;
 
     rig.state.clock.utc_valid = true;  // a visible change, right away
     rig.screen.mark_dirty();
-    rig.screen.tick(t += 100);  // 1.1 s: full not settled yet
+    rig.tick(t += 100);  // 1.1 s: full not settled yet
     CHECK(rig.chip.present_count == count);
 
-    rig.screen.tick(t += 1500);  // settled: the pending change lands
+    rig.tick(t += 2700);  // settled: the pending change lands
     CHECK(rig.chip.present_count == count + 1);
 }

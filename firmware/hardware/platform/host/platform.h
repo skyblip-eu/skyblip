@@ -129,6 +129,7 @@ class Platform {
     // A host board can be fitted with less than everything, which is how the
     // degraded paths get exercised without a soldering iron.
     explicit Platform(hal::Capabilities fitted = kFullyFitted) : fitted_(fitted) {
+        chips_.epd.attach_clock(clock_);
         baro_.present = hal::has(fitted, hal::Capability::Baro);
         battery_.present = hal::has(fitted, hal::Capability::Battery);
         log_flash_.set_present(hal::has(fitted, hal::Capability::Storage));

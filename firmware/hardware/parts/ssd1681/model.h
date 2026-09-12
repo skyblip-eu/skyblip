@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "hal/clock.h"
 #include "hardware/io/io.h"
 #include "hardware/parts/ssd1681/panel.h"
 #include "ui/framebuffer.h"
@@ -15,6 +16,17 @@ class Ssd1681 : public io::Spi, public io::Gpio {
    public:
     int dc{0}, rst{1}, busy{2}, backlight_pin{3};
 
+    // INFO: fc 13sep26 GxEPD2_154_D67.h: partial_refresh_time 500, full_refresh_time 2600
+    static constexpr uint32_t kFastBusyMs = 500;
+    static constexpr uint32_t kFullBusyMs = 2600;
+
+    void attach_clock(const hal::Clock& clock) { clock_ = &clock; }
+
+    bool refreshing() const {
+        if (clock_ == nullptr || refresh_span_ms_ == 0) return false;
+        return clock_->millis() - refresh_since_ms_ < refresh_span_ms_;
+    }
+
     void set(int pin, bool level) override {
         if (pin == dc) dc_high_ = level;
         if (pin == backlight_pin) backlight = level;
@@ -23,6 +35,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
                 reset_pulses++;
                 powered = true;
                 rails_on = false;
+                refresh_span_ms_ = 0;
             }
             rst_level_ = level;
         }
@@ -30,7 +43,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
     bool get(int pin) override {
         if (pin != busy) return false;
         if (!rst_level_) reads_while_in_reset++;
-        return busy_stuck;
+        return busy_stuck || refreshing();
     }
     void mode_output(int) override {}
     void mode_input(int, bool) override {}
@@ -41,6 +54,8 @@ class Ssd1681 : public io::Spi, public io::Gpio {
             uint8_t b = tx ? tx[i] : 0;
             if (rx) rx[i] = 0;
             if (!dc_high_) {
+                // INFO: fc 13sep26 a command over a live BUSY aborts the waveform mid-pixel
+                if (refreshing()) commands_while_busy++;
                 cmds.push_back(b);
                 if (b == kWriteRam) ram.clear();
                 if (b == kWriteRamPrevious) ram_previous.clear();
@@ -54,6 +69,10 @@ class Ssd1681 : public io::Spi, public io::Gpio {
                         powered && (sequence_ & kEnableAnalog) && !(sequence_ & kDisableAnalog);
                     if (sequence_ & kDisplay) {
                         present_count++;
+                        if (clock_ != nullptr) {
+                            refresh_since_ms_ = clock_->millis();
+                            refresh_span_ms_ = last_full ? kFullBusyMs : kFastBusyMs;
+                        }
                         // In deep sleep the panel's charge pump is off: it latches
                         // nothing, and keeps the last image it did latch.
                         if (powered) rasterise();
@@ -111,6 +130,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
     uint32_t reads_while_in_reset{0};
     int present_count{0};
     int deep_sleeps{0};
+    int commands_while_busy{0};
     bool busy_stuck{false};
     bool powered{true};
     bool rails_on{false};
@@ -136,6 +156,9 @@ class Ssd1681 : public io::Spi, public io::Gpio {
         for (size_t i = 0; i < ui::Framebuffer::kBytes; i++) out[i] = static_cast<uint8_t>(~ram[i]);
     }
 
+    const hal::Clock* clock_{nullptr};
+    uint32_t refresh_since_ms_{0};
+    uint32_t refresh_span_ms_{0};
     ui::Framebuffer panel_{};
     uint8_t sequence_{0};
     bool dc_high_{false};

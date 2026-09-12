@@ -63,10 +63,10 @@ TEST_CASE("product: the e-paper refreshes on change, not on cadence") {
     CHECK(rig.platform.chips().epd.present_count == 1);
     CHECK(rig.platform.chips().epd.last_full);
 
-    rig.push_fix(1000, 1);  // fix arrives: the radar page changes
+    rig.push_fix(1000, 1);  // fix arrives: the radar page changes, through black
     rig.run(5000, 8000);
-    CHECK(rig.platform.chips().epd.present_count == 2);
-    CHECK_FALSE(rig.platform.chips().epd.last_full);  // differential, no flash
+    CHECK(rig.platform.chips().epd.present_count == 3);
+    CHECK_FALSE(rig.platform.chips().epd.last_full);  // differential, no wash
 }
 
 TEST_CASE("product: persisted settings are loaded on setup") {

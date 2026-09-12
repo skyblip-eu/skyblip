@@ -29,6 +29,7 @@ struct Rig {
     go::ScreenService screen{context};
 
     Rig() {
+        chip.attach_clock(clock);
         roles.capabilities = hal::Capability::Display;
         // With a fix the radar page draws rings and the range label, so churn()
         // below produces real pixel changes.
@@ -36,12 +37,15 @@ struct Rig {
         epd.begin();
     }
 
+    // The pass a service loop makes: the world's clock, then the service on it.
+    void tick(uint32_t now_ms) {
+        clock.set_millis(now_ms);
+        screen.tick(now_ms);
+    }
+
     // One service tick per second, the render cadence.
     void run_seconds(uint32_t& t, int seconds) {
-        for (int i = 0; i < seconds; i++) {
-            t += 1000;
-            screen.tick(t);
-        }
+        for (int i = 0; i < seconds; i++) tick(t += 1000);
     }
 
     // Forces a visible change every second: the coverage indicator character
@@ -53,8 +57,7 @@ struct Rig {
     void churn_at(uint32_t& t, uint32_t step_ms, int times) {
         for (int i = 0; i < times; i++) {
             state.clock.utc_valid = !state.clock.utc_valid;
-            t += step_ms;
-            screen.tick(t);
+            tick(t += step_ms);
         }
     }
 

@@ -162,15 +162,15 @@ TEST_CASE("product: a confirmed apply parks the device and paints the glass befo
     CHECK(rig.product.installing());
     CHECK(rig.product.board().rf().sleeps() == 1);
     CHECK_FALSE(rig.product.screen().powered());
-    CHECK(glass_reads(rig.product.screen().framebuffer(), ui::kInstallingLeftX,
-                      ui::kInstallingTitleY, ui::kInstallingTitle, 2));
     CHECK_FALSE(config(rig).install_requested());
 
     // the panel is still clocking its refresh, and nothing is on record yet
     CHECK(rig.platform.dfu().triggered == 0);
     CHECK_FALSE(attempt_recorded(rig));
 
-    rig.run(t, t + power::kParkMs + power::kReleaseSettleMs + 500);
+    rig.run(t, t + power::kParkMs + power::kReleaseSettleMs + 5000);
+    CHECK(glass_reads(rig.platform.chips().epd.framebuffer(), ui::kInstallingLeftX,
+                      ui::kInstallingTitleY, ui::kInstallingTitle, 2));
     CHECK(rig.platform.dfu().triggered == 1);
     CHECK_FALSE(rig.product.ready_to_power_off());
     CHECK(attempt_recorded(rig));

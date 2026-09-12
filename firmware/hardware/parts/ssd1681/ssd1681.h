@@ -48,11 +48,13 @@ class Ssd1681 : public hal::Display {
     // INFO: fc 01aug25 D67 settles ~460 ms fast / ~2.5 s full (GxEPD2) | 12sep26 +140 ms power-down
     static constexpr uint32_t kReadyAfterFastMs = 300;
     static constexpr uint32_t kReadyAfterFullMs = 1500;
-    static constexpr uint32_t kBusyTimeoutMs = 5000;
+    // INFO: fc 13sep26 GxEPD2 gives the D67 10 s: the cold waveform is slow, and this bounds a hang
+    static constexpr uint32_t kBusyTimeoutMs = 10000;
 
    private:
     void init_panel();
     void hold_reset();
+    void abort_refresh();
     void finish_refresh();
     void enter_sleep();
     const uint8_t* previous_bank(const ui::Framebuffer& fb, bool full) const;
