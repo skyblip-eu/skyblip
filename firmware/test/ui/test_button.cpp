@@ -10,18 +10,44 @@
 
 using namespace skyblip;
 
-TEST_CASE("button: a stable press emits exactly one event") {
+TEST_CASE("button: a press is reported when the thumb comes off, not when it lands") {
     ui::Button b;
     uint32_t t = 0;
     CHECK_FALSE(b.update(false, t));
 
-    // Press, then hold well past the debounce window.
-    CHECK_FALSE(b.update(true, t));  // first sample only starts the timer
     int events = 0;
-    for (t = 10; t <= 500; t += 10)
+    for (t = 0; t <= 500; t += 10)
         if (b.update(true, t)) events++;
-    CHECK(events == 1);
+    CHECK(events == 0);
     CHECK(b.down());
+
+    for (; t <= 700; t += 10)
+        if (b.update(false, t)) events++;
+    CHECK(events == 1);
+    CHECK_FALSE(b.down());
+}
+
+// A flashed unit paged under the thumb, two seconds before the rails went.
+TEST_CASE("button: a press held into the power-off hold pages nothing, then or on release") {
+    ui::Button b;
+    uint32_t t = 0;
+    int events = 0;
+    for (; t <= power::kLongPressMs + 500; t += 10)
+        if (b.update(true, t)) events++;
+    CHECK(events == 0);
+
+    for (; t <= power::kLongPressMs + 1000; t += 10)
+        if (b.update(false, t)) events++;
+    CHECK(events == 0);
+
+    ui::Button quick;
+    t = 0;
+    events = 0;
+    for (; t < power::kLongPressMs - 100; t += 10)
+        if (quick.update(true, t)) events++;
+    for (; t <= power::kLongPressMs + 200; t += 10)
+        if (quick.update(false, t)) events++;
+    CHECK(events == 1);  // just short of the hold is still a page press
 }
 
 TEST_CASE("button: contact bounce does not produce extra events") {
@@ -37,6 +63,9 @@ TEST_CASE("button: contact bounce does not produce extra events") {
     CHECK(events == 0);  // nothing was stable long enough to count
     for (; t <= 200; t += 5)
         if (b.update(true, t)) events++;
+    CHECK(events == 0);
+    for (; t <= 400; t += 5)
+        if (b.update(false, t)) events++;
     CHECK(events == 1);
 }
 
@@ -50,12 +79,15 @@ TEST_CASE("button: release then press again is a second event") {
     int events = 0;
     for (; t <= 300; t += 10)
         if (b.update(false, t)) events++;
-    CHECK(events == 0);  // a release is never reported as a press
+    CHECK(events == 1);
     CHECK_FALSE(b.down());
 
     for (; t <= 600; t += 10)
         if (b.update(true, t)) events++;
-    CHECK(events == 1);
+    CHECK(events == 1);  // the second press has not been let go of yet
+    for (; t <= 900; t += 10)
+        if (b.update(false, t)) events++;
+    CHECK(events == 2);
 }
 
 TEST_CASE("gesture: two presses inside the window authorise, one press refuses") {
@@ -103,16 +135,19 @@ TEST_CASE("gesture: the authorising window sits between a page press and the pow
     CHECK(ui::ConfirmGesture::kDoublePressMs > ui::Button::kDebounceMs);
     CHECK(ui::ConfirmGesture::kDoublePressMs < power::kLongPressMs);
 
-    // A hold is one debounced edge, so it can only ever be the refusing press.
+    // A hold produces no press at all, so it can neither page nor answer a prompt.
     ui::Button b;
     ui::ConfirmGesture g;
     g.arm(0);
     int edges = 0;
-    for (uint32_t t = 0; t <= power::kLongPressMs; t += 10)
+    uint32_t t = 0;
+    for (; t <= power::kLongPressMs + 200; t += 10)
         if (b.update(true, t)) edges++;
-    CHECK(edges == 1);
-    CHECK(g.press(50) == ui::Gesture::None);
-    CHECK(g.tick(power::kLongPressMs) == ui::Gesture::Cancel);
+    for (; t <= power::kLongPressMs + 500; t += 10)
+        if (b.update(false, t)) edges++;
+    CHECK(edges == 0);
+    CHECK(g.tick(power::kLongPressMs) == ui::Gesture::None);
+    CHECK(g.armed());
 }
 
 TEST_CASE("button: a glitch shorter than the window is ignored entirely") {

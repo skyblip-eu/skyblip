@@ -10,6 +10,8 @@
 
 #include <cstdint>
 
+#include "core/power/shutdown.h"
+
 namespace skyblip::ui {
 
 class Button {
@@ -17,8 +19,7 @@ class Button {
     // A contact settles well inside this. A human cannot press twice within it.
     static constexpr uint32_t kDebounceMs = 30;
 
-    // Feed one sample. Returns true exactly once per debounced press, on the
-    // edge where the level has been stable for kDebounceMs.
+    // INFO: fc 12sep26 SoftRF pages off kEventClicked, a release (lyusupov nRF52.cpp:4781-4795)
     bool update(bool down, uint32_t now_ms) {
         if (down != candidate_) {
             candidate_ = down;
@@ -28,15 +29,24 @@ class Button {
         if (down == stable_) return false;
         if (now_ms - since_ms_ < kDebounceMs) return false;
         stable_ = down;
-        return down;  // report the press edge, not the release
+        if (down) {
+            down_since_ms_ = since_ms_;
+            return false;
+        }
+        return released_before_the_hold();
     }
 
     bool down() const { return stable_; }
 
    private:
+    bool released_before_the_hold() const {
+        return since_ms_ - down_since_ms_ < power::kLongPressMs;
+    }
+
     bool candidate_{false};
     bool stable_{false};
     uint32_t since_ms_{0};
+    uint32_t down_since_ms_{0};
 };
 
 }  // namespace skyblip::ui

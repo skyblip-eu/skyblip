@@ -8,6 +8,7 @@
 // press that authorises a firmware upload, and the hold that switches the
 // device off.
 #include "core/settings/settings.h"
+#include "core/timing/durable_write.h"
 #include "doctest/doctest.h"
 #include "test/support/product_rig.h"
 #include "ui/input/gesture.h"
@@ -84,6 +85,13 @@ void again(Rig& rig, uint32_t& t) {
     rig.press(t);
     rig.run(t, t + 200);
     t += 200;
+}
+
+// The blob goes to flash kSettleMs after the last tap, in the next free window.
+void run_past_the_write_settle(Rig& rig, uint32_t& t) {
+    const uint32_t ms = timing::DurableWriteWindow::kSettleMs + 1000;
+    rig.run(t, t + ms);
+    t += ms;
 }
 
 void focus_on(Rig& rig, uint32_t& t, ui::SettingsRow row) {
@@ -180,8 +188,7 @@ TEST_CASE("product: the aircraft type set on the panel is the one that goes on t
     rig.press(t);
     rig.press(t);
     again(rig, t);
-    rig.run(t, t + 500);
-    t += 500;
+    run_past_the_write_settle(rig, t);
     CHECK(rig.state().settings.aircraft_type == 6);
 
     settings::Settings stored{};
@@ -380,8 +387,7 @@ TEST_CASE("product: the volume can be turned up in the air, where a phone is ref
     rig.press(t);
     rig.press(t);
     again(rig, t);
-    rig.run(t, t + 500);
-    t += 500;
+    run_past_the_write_settle(rig, t);
     CHECK(rig.state().settings.alarm_volume == 5);
 
     settings::Settings stored{};

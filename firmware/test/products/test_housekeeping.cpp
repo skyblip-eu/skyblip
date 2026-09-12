@@ -135,6 +135,23 @@ TEST_CASE("product: a long press parks the radio and the panel, then asks for th
     CHECK(rig.product.ready_to_power_off());
 }
 
+// The unit as flashed paged under the thumb, two seconds before the rails went.
+TEST_CASE("product: the hold that switches the device off does not page first") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 0;
+    rig.run(0, 1000);
+    t = 1000;
+    const go::Page page = rig.product.screen().page();
+
+    rig.hold_button(t, power::kLongPressMs + 200);
+    CHECK(rig.product.shutdown().reason() == power::ShutdownReason::LongPress);
+    CHECK(rig.product.screen().page() == page);
+
+    rig.hold_button(t, 300, /*down=*/false);
+    CHECK(rig.product.screen().page() == page);
+}
+
 // D4 over the link: the same road, from a phone instead of a thumb.
 
 TEST_CASE("product: a confirmed power_off over the link parks the device like a long press") {
