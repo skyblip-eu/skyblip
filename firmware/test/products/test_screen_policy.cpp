@@ -1,4 +1,4 @@
-// The refresh policy over the real SSD1681 driver: present on change alone, partials by default, one wash an hour, page swaps through black.
+// The refresh policy over the real SSD1681 driver: partials, a wash an hour, swaps through black.
 #include "test/support/screen_rig.h"
 
 TEST_CASE("screen policy: a static frame is never re-presented") {
@@ -23,7 +23,7 @@ TEST_CASE("screen policy: a minute of changing frames costs partials and no wash
     CHECK(rig.screen.fasts_since_full() >= 60);
 }
 
-// SoftRF runs this glass on partials alone: the hourly wash is the vendor's rule, not ghosting we saw.
+// SoftRF runs this glass on partials alone: the hourly wash is a vendor rule, not ghosting we saw.
 TEST_CASE("screen policy: an hour of partials is settled by one wash") {
     Rig rig;
     uint32_t t = 0;

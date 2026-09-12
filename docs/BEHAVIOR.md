@@ -1045,7 +1045,7 @@ SSD1681 e-paper driver tests against models/ssd1681.h. Verifies the init sequenc
 - a hung BUSY line times out, re-initialises, and forces the next full
 - a panel that never released BUSY loses its shadow, so the next refresh is full
 - a partial leaves the rails up, and the sleep path drops them before deep sleep
-  > SoftRF disables powerOff after a partial on this glass; our partial must not drop the rails either.
+  > SoftRF disables powerOff after a partial on this glass, so our partial may not drop the rails.
 - a present after deep sleep wakes the panel with a reset pulse
 - a signature nobody has recorded is unknown, not a guess
 - a turned glass writes the same count of black pixels it was handed
@@ -1062,7 +1062,7 @@ SSD1681 e-paper driver tests against models/ssd1681.h. Verifies the init sequenc
 - present() rewrites the previous-image bank so the panel diffs the truth
 - present() writes a full framebuffer with correct black/white polarity
 - the border follows the waveform on a wash and is held at VCOM on a partial
-  > Waveshare and ESPHome both move VBD off the transition LUT for partials; at 0x05 the border greys.
+  > Waveshare and ESPHome move VBD off the transition LUT for partials; at 0x05 the border greys.
 - the first present after begin() is a full refresh, whatever was asked
 - the five signatures shipped in T-Echos are told apart
 - the identity is a name the self-test page can print
@@ -1594,7 +1594,7 @@ The committed scenarios are regression fixtures: the same files the browser and 
 
 ### test/products/test_screen_policy.cpp
 
-The refresh policy over the real SSD1681 driver: present on change alone, partials by default, one wash an hour, page swaps through black.
+The refresh policy over the real SSD1681 driver: partials, a wash an hour, swaps through black.
 
 **screen policy**
 
@@ -1603,7 +1603,7 @@ The refresh policy over the real SSD1681 driver: present on change alone, partia
 - a page change under an alarm goes straight to the picture
 - a static frame is never re-presented
 - an hour of partials is settled by one wash
-  > SoftRF runs this glass on partials alone: the hourly wash is the vendor's rule, not ghosting we saw.
+  > SoftRF runs this glass on partials alone: the hourly wash is a vendor rule, not ghosting we saw.
 - converging traffic takes the settings page back off the glass
   > The settings page is the one page that keeps the button to itself, so it is the one page that has to be able to give it back without being asked.
 - presents wait for the panel, none is issued mid-refresh

@@ -41,9 +41,8 @@ void ScreenService::handle_input(uint32_t now_ms) {
         // panel fitted there is nothing to read and presence is all there is.
         const bool readable =
             prompt_on_glass_ || !hal::has(context_.roles.capabilities, hal::Capability::Display);
-        const bool quiet =
-            settled_for_a_double_press(now_ms, prompt_since_ms_) &&
-            (!pressed_once_ || settled_for_a_double_press(now_ms, last_press_ms_));
+        const bool quiet = settled_for_a_double_press(now_ms, prompt_since_ms_) &&
+                           (!pressed_once_ || settled_for_a_double_press(now_ms, last_press_ms_));
         if (readable && quiet) gesture_.arm(now_ms);
     }
 
@@ -212,7 +211,7 @@ ScreenService::Thermal ScreenService::thermal() const {
     return Thermal::Refresh;
 }
 
-// INFO: fc 09mar26 SoftRF runs the same glass on partials alone, so the wash is a vendor rule, not ours
+// INFO: fc 09mar26 SoftRF runs this glass on partials alone: the wash is a vendor rule, not ours
 bool ScreenService::decide_full(uint32_t now_ms) const {
     if (!presented_once_) return true;
     if (want_full_) return true;

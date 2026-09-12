@@ -220,7 +220,7 @@ TEST_CASE("epd: a full refresh puts the new frame in both banks, not the old one
     CHECK(f.ram_previous == f.ram);
 }
 
-// Waveshare and ESPHome both move VBD off the transition LUT for partials; at 0x05 the border greys.
+// Waveshare and ESPHome move VBD off the transition LUT for partials; at 0x05 the border greys.
 TEST_CASE("epd: the border follows the waveform on a wash and is held at VCOM on a partial") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);
@@ -237,7 +237,7 @@ TEST_CASE("epd: the border follows the waveform on a wash and is held at VCOM on
     CHECK(f.border == 0x80);
 }
 
-// SoftRF disables powerOff after a partial on this glass; our partial must not drop the rails either.
+// SoftRF disables powerOff after a partial on this glass, so our partial may not drop the rails.
 TEST_CASE("epd: a partial leaves the rails up, and the sleep path drops them before deep sleep") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);
