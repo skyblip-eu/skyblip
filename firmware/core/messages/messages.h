@@ -8,6 +8,16 @@ namespace skyblip::messages {
 
 enum class Source : uint8_t { AdslDirect, AdslUplink, Alptas, Own };
 
+constexpr char source_letter(Source source) {
+    switch (source) {
+        case Source::AdslDirect: return 'A';
+        case Source::AdslUplink: return 'U';
+        case Source::Alptas: return 'F';
+        case Source::Own: return 'O';
+    }
+    return '?';
+}
+
 struct AircraftObs {
     uint32_t addr;
     uint8_t addr_table;

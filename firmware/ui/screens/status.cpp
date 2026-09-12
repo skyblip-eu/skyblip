@@ -169,18 +169,11 @@ void draw_status(Framebuffer& fb, const StatusSnapshot& s) {
     // three is a 2D one whatever the receiver calls it.
     const char* mode = !s.fix_valid ? "--" : (s.sats >= 4 ? "3D" : "2D");
 
-    // hh:mm:ss, the seconds-of-day from that fix.
     n = fmt_string(buf, " ");
-    if (s.utc_valid) {
-        uint32_t sod = s.utc % 86400u;
-        n += fmt_uint(buf + n, sod / 3600u, 2);
-        n += fmt_string(buf + n, ":");
-        n += fmt_uint(buf + n, (sod / 60u) % 60u, 2);
-        n += fmt_string(buf + n, ":");
-        n += fmt_uint(buf + n, sod % 60u, 2);
-    } else {
+    if (s.utc_valid)
+        n += fmt_seconds_of_day(buf + n, s.utc);
+    else
         n += fmt_string(buf + n, "--:--:--");
-    }
     buf[n] = 0;
     text_row(fb, y, "FIX", sats, " SAT", "UTC", buf);
     fb.draw_text(kValueX, y, mode, true, 1);

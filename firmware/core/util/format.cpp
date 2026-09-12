@@ -67,6 +67,16 @@ int fmt_dm(char* out, int32_t coord_1e7, int deg_digits) {
 }
 }
 
+int fmt_seconds_of_day(char* out, uint32_t seconds) {
+    const uint32_t sod = seconds % 86400u;
+    int n = fmt_uint(out, sod / 3600u, 2);
+    n += fmt_string(out + n, ":");
+    n += fmt_uint(out + n, (sod / 60u) % 60u, 2);
+    n += fmt_string(out + n, ":");
+    n += fmt_uint(out + n, sod % 60u, 2);
+    return n;
+}
+
 int fmt_nmea_lat(char* out, int32_t lat_1e7) {
     int n = fmt_dm(out, lat_1e7, 2);
     out[n++] = ',';

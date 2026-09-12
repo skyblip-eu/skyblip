@@ -7,6 +7,7 @@
 #include "ui/input/gesture.h"
 #include "ui/screens/confirm.h"
 #include "ui/screens/radar.h"
+#include "ui/screens/radio_log.h"
 #include "ui/screens/settings.h"
 #include "ui/screens/signal.h"
 #include "ui/screens/sixpack.h"
@@ -14,10 +15,7 @@
 
 namespace skyblip::go {
 
-// Settings is last and, unlike the four before it, is not in settings.page_mask:
-// it is where the mask is changed, so a mask that hid it would be a mask nobody
-// could undo without a phone.
-enum class Page : uint8_t { Radar, SixPack, Status, Signal, Settings, kCount };
+enum class Page : uint8_t { Radar, SixPack, Status, Signal, RadioLog, Settings, kCount };
 
 class ScreenService : public runtime::Service {
    public:

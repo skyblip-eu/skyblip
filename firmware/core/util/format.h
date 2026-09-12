@@ -20,6 +20,8 @@ int fmt_uint(char* out, uint32_t value, uint8_t min_digits = 1, uint8_t dec_poin
 int fmt_int(char* out, int32_t value, uint8_t min_digits = 1, uint8_t dec_point = 0,
             bool no_plus = false);
 
+int fmt_seconds_of_day(char* out, uint32_t seconds);
+
 int fmt_nmea_lat(char* out, int32_t lat_1e7);
 int fmt_nmea_lon(char* out, int32_t lon_1e7);
 

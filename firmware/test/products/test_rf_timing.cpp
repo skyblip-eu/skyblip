@@ -80,6 +80,32 @@ struct Peer {
 
 }  // namespace
 
+// The page a bench reads instead of guessing from two counters that only ever climb.
+TEST_CASE("rf: what happened on air reaches the station log, sent and heard alike") {
+    simulator::Simulator h;
+    REQUIRE(h.setup() == Status::Ok);
+    h.world().set_fix(true);
+    h.world().set_speed_kt(50);
+    h.world().add_aircraft(1200, 300, 50, 30, 90, 600, 0);
+    run_on(h, past_settling(h), 6000);
+
+    const radio::Log& log = h.product().state().radio_log;
+    REQUIRE(log.count() > 0);
+    bool sent = false, heard = false;
+    for (int i = 0; i < log.count(); i++) {
+        const radio::Entry& entry = log.newest(i);
+        if (entry.event == radio::Event::Transmitted) sent = true;
+        if (entry.event != radio::Event::Received) continue;
+        heard = true;
+        CHECK(entry.addr != 0);
+        CHECK(entry.source == messages::Source::AdslDirect);
+        CHECK(entry.rssi_valid);
+        CHECK(entry.utc);
+    }
+    CHECK(sent);
+    CHECK(heard);
+}
+
 // Two devices on a bench, both transmitting, neither ever hearing the other.
 TEST_CASE("rf: a burst own-ship put on air is one another skyBlip frames") {
     simulator::Simulator h;

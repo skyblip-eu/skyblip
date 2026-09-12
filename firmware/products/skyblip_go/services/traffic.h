@@ -3,6 +3,7 @@
 
 #include "core/protocol/adsl_uplink.h"
 #include "core/protocol/air.h"
+#include "core/radio/log.h"
 #include "products/skyblip_go/features.h"
 #include "runtime/service.h"
 
@@ -27,6 +28,8 @@ class TrafficService : public runtime::Service {
    private:
     void on_frame(const messages::RfEvent& event, uint32_t now_ms);
     void on_uplink(const messages::RfEvent& event, uint32_t now_ms);
+    void log(const messages::RfEvent& event, uint32_t now_ms, radio::Event outcome,
+             const messages::AircraftObs* obs = nullptr);
     static bool decode_adsl(protocol::Frame& frame, uint32_t utc, messages::AircraftObs& obs);
     bool decode_alptas(const protocol::Frame& frame, uint32_t utc,
                        messages::AircraftObs& obs) const;

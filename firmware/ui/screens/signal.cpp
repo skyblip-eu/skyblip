@@ -23,15 +23,6 @@ constexpr int kAltEnd = kColumn(19);
 constexpr int kRssiEnd = kColumn(25);
 constexpr int kErpEnd = kColumn(31);
 
-char source_letter(messages::Source s) {
-    switch (s) {
-        case messages::Source::AdslDirect: return 'A';
-        case messages::Source::Alptas: return 'F';
-        case messages::Source::AdslUplink: return 'U';
-        default: return '?';
-    }
-}
-
 void right_aligned(Framebuffer& fb, int x_end, int y, const char* text, int len) {
     fb.draw_text(x_end - len * kCellW, y, text, true, 1);
 }
@@ -71,7 +62,7 @@ void draw_header(Framebuffer& fb, const SignalSnapshot& snap) {
 void draw_row(Framebuffer& fb, int y, const traffic::LinkRow& row) {
     char buf[16];
 
-    buf[0] = source_letter(row.source);
+    buf[0] = messages::source_letter(row.source);
     buf[1] = 0;
     fb.draw_text(kSourceX, y, buf, true, 1);
 

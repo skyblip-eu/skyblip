@@ -70,7 +70,7 @@ constexpr uint32_t kQnhMaxPa = 105000;
 
 constexpr uint8_t kMaxAlarmVolume = 5;
 
-constexpr uint8_t kPageMaskAll = 0x0F;
+constexpr uint8_t kPageMaskAll = 0x1F;
 constexpr uint8_t kPageMaskTrafficStatus = 0x05;
 constexpr uint8_t kPageMaskTrafficOnly = 0x01;
 

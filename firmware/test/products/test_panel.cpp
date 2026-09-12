@@ -41,6 +41,8 @@ TEST_CASE("product: a button press switches page and the layout swap lands full"
     CHECK(rig.product.screen().page() == go::Page::Status);
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Signal);
+    rig.press(t);
+    CHECK(rig.product.screen().page() == go::Page::RadioLog);
 
     // Every page is on the rotation by default, and the settings page closes
     // it. From there the button belongs to the rows rather than to the

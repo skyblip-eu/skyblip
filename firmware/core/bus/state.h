@@ -6,6 +6,7 @@
 #include "core/power/battery.h"
 #include "core/power/charging.h"
 #include "core/power/cutoff.h"
+#include "core/radio/log.h"
 #include "core/settings/settings.h"
 #include "core/timing/channel.h"
 #include "core/timing/durable_write.h"
@@ -29,6 +30,7 @@ struct State {
     // the PPS half, products/skyblip_go/services/radio.cpp of the dwell half.
     timing::SlotTimingStats timing_stats{};
     traffic::TrafficTable traffic{};
+    radio::Log radio_log{};
     power::BatteryState battery{};
     // What the cutoff monitor made of the same samples the gauge saw. Whoever
     // draws a low cell reads this rather than comparing millivolts again: the

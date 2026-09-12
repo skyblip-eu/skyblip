@@ -20,10 +20,20 @@ void TrafficService::tick(uint32_t now_ms) {
         switch (event.type) {
             case messages::RfEventType::RxDone: on_frame(event, now_ms); break;
             case messages::RfEventType::CrcError:
-            case messages::RfEventType::Missed: context_.state.rx_bad++; break;
+                context_.state.rx_bad++;
+                log(event, now_ms, radio::Event::Unframed);
+                break;
+            // TODO: fc 15sep26 rx_bad is the wrong counter for a transmit failure (skyblip#61)
+            case messages::RfEventType::Missed:
+                context_.state.rx_bad++;
+                log(event, now_ms, radio::Event::Lost);
+                break;
             // A busy band is not a fault: it is the state the media access
             // rules exist for, and the transmit policy has to see it.
-            case messages::RfEventType::TxBusy: context_.state.tx_busy++; break;
+            case messages::RfEventType::TxBusy:
+                context_.state.tx_busy++;
+                log(event, now_ms, radio::Event::Withheld);
+                break;
             // The executor's own timestamp, carried alongside the counter it
             // already bumps: RadioService owns the deadline this closes
             // against, and reads it from here rather than a second drain of
@@ -31,10 +41,29 @@ void TrafficService::tick(uint32_t now_ms) {
             case messages::RfEventType::TxDone:
                 context_.state.tx_ok++;
                 context_.state.last_tx_done_at_us = event.at_us;
+                log(event, now_ms, radio::Event::Transmitted);
                 break;
         }
     }
     context_.state.traffic.age_out(context_.state.traffic_now(now_ms));
+}
+
+void TrafficService::log(const messages::RfEvent& event, uint32_t now_ms, radio::Event outcome,
+                         const messages::AircraftObs* obs) {
+    radio::Entry entry{};
+    entry.event = outcome;
+    entry.band = event.band;
+    entry.at_s = context_.state.traffic_now(now_ms);
+    entry.utc = context_.state.own.utc_valid;
+    if (event.type == messages::RfEventType::RxDone) {
+        entry.rssi_dbm = event.rssi_dbm;
+        entry.rssi_valid = true;
+    }
+    if (obs != nullptr) {
+        entry.source = obs->source;
+        entry.addr = obs->addr;
+    }
+    context_.state.radio_log.record(entry);
 }
 
 void TrafficService::on_frame(const messages::RfEvent& event, uint32_t now_ms) {
@@ -47,6 +76,7 @@ void TrafficService::on_frame(const messages::RfEvent& event, uint32_t now_ms) {
     }
     if (system == protocol::System::Unknown) {
         context_.state.rx_bad++;
+        log(event, now_ms, radio::Event::Unframed);
         return;
     }
 
@@ -56,6 +86,7 @@ void TrafficService::on_frame(const messages::RfEvent& event, uint32_t now_ms) {
     const bool decoded = alptas ? decode_alptas(frame, utc, obs) : decode_adsl(frame, utc, obs);
     if (!decoded) {
         context_.state.rx_bad++;
+        log(event, now_ms, radio::Event::Unframed);
         return;
     }
 
@@ -63,6 +94,7 @@ void TrafficService::on_frame(const messages::RfEvent& event, uint32_t now_ms) {
     obs.rssi_dbm = event.rssi_dbm;
     context_.state.traffic.update(obs, utc);
     context_.state.rx_ok++;
+    log(event, now_ms, radio::Event::Received, &obs);
 }
 
 // One frame from the ground, up to thirteen aircraft in it (§C.4's higher rate
@@ -80,6 +112,7 @@ void TrafficService::on_uplink(const messages::RfEvent& event, uint32_t now_ms) 
     if (uplink_codec_.decode(event.data.data(), relayed, protocol::AdslUplink::kMaxTargets,
                              stats) != Status::Ok) {
         context_.state.uplink_bad++;
+        log(event, now_ms, radio::Event::Unframed);
         return;
     }
 
@@ -88,6 +121,10 @@ void TrafficService::on_uplink(const messages::RfEvent& event, uint32_t now_ms) 
     // much. Stamping it with the second it arrived in is the only honest
     // reading, and core/traffic/table.h is what stops that recency from
     // outranking a direct reception of the same aircraft.
+    messages::AircraftObs relay{};
+    relay.source = messages::Source::AdslUplink;
+    log(event, now_ms, radio::Event::Received, &relay);
+
     const uint32_t utc = context_.state.traffic_now(now_ms);
     for (int i = 0; i < stats.targets; i++) {
         messages::AircraftObs& obs = relayed[i];

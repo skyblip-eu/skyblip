@@ -89,7 +89,7 @@ TEST_CASE("screen policy: converging traffic takes the settings page back off th
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
-    for (int i = 0; i < 4; i++) rig.screen.next_page();
+    for (int i = 0; i < static_cast<int>(go::Page::Settings); i++) rig.screen.next_page();
     REQUIRE(rig.screen.page() == go::Page::Settings);
     rig.run_seconds(t, 2);
     REQUIRE(rig.screen.editor().active());
