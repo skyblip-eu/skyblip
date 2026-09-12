@@ -62,12 +62,12 @@ void render(simulator::Simulator& s) {
     const bus::State& st = s.product().state();
     const messages::OwnState& o = st.own;
     const char* glass = !s.panel_refreshing()       ? "idle"
-                        : s.panel_refresh_is_full() ? "WASH"
+                        : s.panel_refresh_is_full() ? "FULL"
                                                     : "partial";
-    std::printf(" mode:%-8s page:%-6s backlight:%-3s glass:%-7s (%d, %d since wash)\n",
+    std::printf(" mode:%-8s page:%-6s backlight:%-3s glass:%-7s (%d presents)\n",
                 kModes[static_cast<int>(s.mode())],
                 kPages[static_cast<int>(s.product().screen().page())], s.backlight() ? "ON" : "off",
-                glass, s.present_count(), s.partials_since_wash());
+                glass, s.present_count());
     std::printf("  fix:%-6s sats:%2u  pos:%.5f,%.5f\n", o.fix_valid ? "3D" : "none", o.sats,
                 o.lat_1e7 / 1e7, o.lon_1e7 / 1e7);
     std::printf("  alt:%5dm  spd:%5.1fm/s  trk:%03u  vs:%+.1fm/s\n", o.alt_m, o.speed_q / 4.0,
@@ -92,7 +92,8 @@ void render(simulator::Simulator& s) {
         air.format(i, line, sizeof(line));
         std::printf("   %s\n", line);
     }
-    std::printf(" device: [p]age [t]ouch pad [b]acklight [o]n/off   sensors: [f]ix [n]o-pps\n");
+    std::printf(
+        " device: [p]age [m]enu [t]ouch pad [b]acklight [o]n/off   sensors: [f]ix [n]o-pps\n");
     std::printf(
         " alt a/z  speed s/x  track d/c   traffic: [g]+1 [j]+ALP-TAS [h]threat [k]clear  [q]uit\n");
     std::fflush(stdout);
@@ -125,7 +126,8 @@ int main(int argc, char** argv) {
         while (read(STDIN_FILENO, &c, 1) == 1) {
             switch (c) {
                 case 'q': running = false; break;
-                case 'p': s.world().press_button(); break;
+                case 'p': s.world().tap_pad(); break;
+                case 'm': s.world().press_button(); break;
                 case 't':
                     pad = !pad;
                     s.world().hold_pad(pad);

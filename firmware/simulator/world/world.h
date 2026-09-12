@@ -88,7 +88,8 @@ class World {
     void set_external_power(bool on) { platform_.battery().external_power = on; }
     void press_button() { press_pending_ = true; }
     void hold_button(bool down) { holding_ = down; }
-    void hold_pad(bool down) { platform_.board_gpio().pad_down = down; }
+    void tap_pad() { tap_pending_ = true; }
+    void hold_pad(bool down) { pad_held_ = down; }
 
     // The pilot's phone walking up and walking away. It drives the platform's own
     // comms::LinkSession, which is the object Zephyr's connection callbacks drive
@@ -104,6 +105,7 @@ class World {
 
    private:
     void service_button(uint32_t now_ms);
+    void service_pad(uint32_t now_ms);
     void set_origin();
     double own_north_m() const;
     double own_east_m() const;
@@ -139,6 +141,7 @@ class World {
     uint32_t last_baro_ms_{0};
     uint32_t airmass_qnh_pa_{flight::kIsaSeaLevelPa};
     uint32_t press_since_ms_{0};
+    uint32_t tap_since_ms_{0};
     int32_t origin_lat_1e7_{0};
     int32_t origin_lon_1e7_{0};
     bool origin_set_{false};
@@ -149,6 +152,9 @@ class World {
     bool press_pending_{false};
     bool pressing_{false};
     bool holding_{false};
+    bool tap_pending_{false};
+    bool tapping_{false};
+    bool pad_held_{false};
     char failure_[96]{0};
 };
 

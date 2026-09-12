@@ -61,6 +61,16 @@ struct Rig {
         press(t);
     }
 
+    // The pad the pilot pages with. The page lands on the release.
+    void tap_pad(uint32_t& t) {
+        platform.board_gpio().pad_down = true;
+        run(t, t + 200);
+        t += 200;
+        platform.board_gpio().pad_down = false;
+        run(t, t + 100);
+        t += 100;
+    }
+
     // One solution from the receiver. core/flight decides what it means and
     // publishes the ADS-L code; nothing here tells the companion link anything.
     void push_fix(uint16_t speed_q, int32_t alt_msl_m) {
@@ -175,6 +185,8 @@ TEST_CASE("product: the hold that switches the device off does not page first") 
 
     rig.hold_button(t, 300, /*down=*/false);
     CHECK(rig.product.screen().page() == page);
+    // Nor does it open the settings on the way out: a hold is never a press.
+    CHECK(rig.product.screen().mode() == go::Mode::Traffic);
 }
 
 // D4 over the link: the same road, from a phone instead of a thumb.
@@ -241,11 +253,11 @@ TEST_CASE("product: an unconfirmed power_off over the link turns nothing off") {
     CHECK_FALSE(flying.product.shutdown().going_down());
 }
 
-TEST_CASE("product: a page press is not a power-off") {
+TEST_CASE("product: a page tap is not a power-off") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     uint32_t t = 0;
-    rig.press(t);
+    rig.tap_pad(t);
     rig.run(t, t + 2000);
     CHECK(rig.product.screen().page() == go::Page::SixPack);
     CHECK_FALSE(rig.product.shutdown().going_down());
@@ -387,42 +399,40 @@ TEST_CASE("product: the gate opens on the ground the fix stream proved, not on a
 }
 
 // The case the whole gesture was chosen for.
-TEST_CASE("product: a page press does not authorise a firmware upload") {
+TEST_CASE("product: paging does not authorise a firmware upload") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     uint32_t t = 0;
     rig.on_ground(t);
 
-    // A pilot pages through the screens. Nothing is pending, so this is paging
-    // and only paging.
-    rig.press(t);
-    rig.run(t, t + 200);
-    t += 200;
+    // A pilot pages through the screens, on a device with nothing pending.
+    rig.tap_pad(t);
     REQUIRE(rig.product.screen().page() == go::Page::SixPack);
 
-    // Long enough for the question to have reached the glass: a press only
-    // counts towards an answer once the prompt is on the panel and the thumb
-    // has stopped, so a page press made before either is simply dropped.
+    // Long enough for the question to have reached the glass.
     rig.send("{\"cmd\":\"dfu\"}");
     rig.run(t, t + 3000);
     t += 3000;
     REQUIRE(rig.config().pending() == comms::Pending::Dfu);
 
-    // ... and pages again, exactly as before, on a device that is now asking
-    // for permission to be overwritten.
+    // The prompt owns the glass: the pad neither turns the page nor answers it.
+    rig.tap_pad(t);
+    rig.run(t, t + ui::ConfirmGesture::kDoublePressMs + 200);
+    t += ui::ConfirmGesture::kDoublePressMs + 200;
+    CHECK_FALSE(rig.config().upload_allowed());
+    CHECK(rig.config().pending() == comms::Pending::Dfu);
+    CHECK(rig.product.screen().page() == go::Page::SixPack);
+
+    // The button at a prompt is the answer, and one press alone refuses.
     rig.press(t);
     rig.run(t, t + ui::ConfirmGesture::kDoublePressMs + 200);
     t += ui::ConfirmGesture::kDoublePressMs + 200;
-
     CHECK_FALSE(rig.config().upload_allowed());
     CHECK(rig.config().pending() == comms::Pending::None);
-    // The press was spent refusing, not paging: one press cannot mean two
-    // things, and the page it would have turned to is still not showing.
-    CHECK(rig.product.screen().page() == go::Page::SixPack);
+    CHECK(rig.product.screen().mode() == go::Mode::Traffic);
 
-    // With the prompt gone, the same press pages again.
-    rig.press(t);
-    rig.run(t, t + 200);
+    // With the prompt gone, the same tap pages again.
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
 }
 
@@ -503,8 +513,7 @@ TEST_CASE("product: a prompt nobody answers expires, and the device is not power
 
     // And the panel is back on the page the pilot left it on.
     CHECK(rig.product.screen().page() == go::Page::Radar);
-    rig.press(t);
-    rig.run(t, t + 200);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::SixPack);
 }
 

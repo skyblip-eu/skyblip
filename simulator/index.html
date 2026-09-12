@@ -29,13 +29,13 @@
   #epd.off { filter:none; box-shadow:0 0 0 6px #f2f2ef, 0 0 0 7px #0000001f; }
   /* Debug chrome, dev mode only: a real partial refresh is invisible unless it
      moved a pixel, so the ring is lit for exactly as long as the panel is busy -
-     blue for the ~300 ms partial, amber for the ~1.5 s wash. */
+     blue for the ~300 ms partial, amber for the ~1.5 s full. */
   body[data-mode="dev"] #epd.refreshing { outline:3px solid var(--accent); outline-offset:7px; }
-  body[data-mode="dev"] #epd.refreshing.wash { outline-color:#ffd591; }
+  body[data-mode="dev"] #epd.refreshing.full { outline-color:#ffd591; }
   #refreshhint { display:none; }
   body[data-mode="dev"] #refreshhint { display:block; }
   #refreshhint b { color:var(--accent); font-weight:600; }
-  #refreshhint b.wash { color:#ffd591; }
+  #refreshhint b.full { color:#ffd591; }
   .key { position:absolute; padding:0; cursor:pointer; }
   /* P0.11 is a capacitive pad on the TOP edge, at the left: no travel, so it
      reads as a ringed pad rather than a key. */
@@ -112,12 +112,12 @@
     <div class="device">
       <div class="case">
         <canvas id="epd" width="200" height="200"></canvas>
-        <button class="key touch" title="capacitive pad on the top edge, P0.11: hold it 2 s alone to open the settings, or through a 2 s press to switch off with a blank panel"
+        <button class="key touch" title="capacitive pad on the top edge, P0.11: tap it to page through the traffic screens or to walk the settings rows, hold it 1 s to come back to the radar, or hold it through a 2 s press to switch off with a blank panel"
                 onpointerdown="SIM.pad(1)" onpointerup="SIM.pad(0)"
                 onpointerleave="SIM.pad(0)"></button>
         <button class="key side reset" title="RESET (button 1), P0.18 = nRESET: reboot"
                 onclick="SIM.reset()"></button>
-        <button class="key side prog" title="button 2, P1.10: a press pages through the traffic screens, a hold of 2 s switches off"
+        <button class="key side prog" title="button 2, P1.10: a press opens the settings and changes the focused row once inside, a hold of 2 s switches off"
                 onpointerdown="SIM.hold(1)" onpointerup="SIM.hold(0)"
                 onpointerleave="SIM.hold(0)"></button>
         <div class="leds">
@@ -126,9 +126,9 @@
         </div>
       </div>
       <div class="keymap">
-        <div><b>top pad</b></div><div><code>P0.11</code></div><div>held through a hold: off, blank glass</div>
+        <div><b>top pad</b></div><div><code>P0.11</code></div><div>tap: page or next row · hold 1 s: radar · held through a hold: off, blank glass</div>
         <div><b>left top</b></div><div><code>P0.18</code></div><div>reset (nRESET)</div>
-        <div><b>left bottom</b></div><div><code>P1.10</code></div><div>press: page · hold: off</div>
+        <div><b>left bottom</b></div><div><code>P1.10</code></div><div>press: settings, then change the row · hold: off</div>
       </div>
       <div class="row">
         <button onclick="SIM.backlight()">Backlight</button>
@@ -206,8 +206,8 @@
           </select>
         </div>
         <div class="ctl" style="margin-top:10px;"><label>Range</label>
-          <input type="range" id="rng" min="1000" max="20000" step="1000" value="10000" oninput="SIM.range(this.value)">
-          <output id="rng_o">10 km</output></div>
+          <input type="range" id="rng" min="1" max="10" step="1" value="4" oninput="SIM.range(this.value)">
+          <output id="rng_o">4 NM</output></div>
         <div class="hint">Each aircraft is encoded as a real frame of its own system and
           decoded by the firmware's receive path: ADS-L scrambled + CRC'd, ALP-TAS
           encrypted the way the 2024 protocol does. Both are Manchester bursts on the
@@ -294,7 +294,7 @@ SIM.climb = v => { f.setClimb(+v); $('clb_o').textContent = (v/10).toFixed(1) + 
 const HPA_E1_TO_PA = 10;
 SIM.airmass = v => { f.setAirmass(v * HPA_E1_TO_PA); $('air_o').textContent = (v/10).toFixed(1) + ' hPa'; };
 SIM.qnh = v => { f.setQnh(v * HPA_E1_TO_PA); $('qnh_o').textContent = (v/10).toFixed(1) + ' hPa'; };
-SIM.range = v => { f.setRange(+v); $('rng_o').textContent = (v/1000) + ' km'; };
+SIM.range = v => { f.setRange(+v); $('rng_o').textContent = v + ' NM'; };
 SIM.battery = v => { f.setBatteryMv(+v); $('bat_o').textContent = (v/1000).toFixed(2) + ' V'; };
 SIM.toggleExternalPower = () => { ext = !ext; f.setExternalPower(ext ? 1 : 0);
                                   $('extbtn').textContent = 'USB power: ' + (ext ? 'ON' : 'OFF'); };
@@ -409,11 +409,10 @@ function draw() {
   f.paint(canvas);
   const refresh = f.refreshing() ? (f.refreshIsFull() ? 2 : 1) : 0;
   canvas.className = (f.powered() ? '' : 'off ') + (f.blOn() ? 'bl ' : '') +
-      (refresh ? (refresh === 2 ? 'refreshing wash' : 'refreshing') : '');
+      (refresh ? (refresh === 2 ? 'refreshing full' : 'refreshing') : '');
   $('refreshstate').textContent = REFRESH[refresh];
-  $('refreshstate').className = refresh === 2 ? 'wash' : '';
-  $('refreshcount').textContent = '  ·  ' + f.presents() + ' refreshes  ·  ' +
-      f.partialsSinceWash() + ' partial since the last wash';
+  $('refreshstate').className = refresh === 2 ? 'full' : '';
+  $('refreshcount').textContent = '  ·  ' + f.presents() + ' refreshes';
   // Only the left LED is the firmware's. The right one follows the charger,
   // which on this board is USB power minus a full cell.
   $('led_alarm').className = 'led red' + (f.alarm() ? ' on' : '');

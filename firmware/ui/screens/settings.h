@@ -1,23 +1,3 @@
-// The settings page: the panel half of "a pilot with no phone can change the
-// things that matter". It is a list of rows a thumb walks and a small editor
-// that decides what a press means, both pure: the page takes a snapshot and the
-// editor takes the values in and hands new values back, so the service owns the
-// state and this file owns the meaning.
-//
-// One button already says three things (a press pages, two presses inside
-// ConfirmGesture::kDoublePressMs authorise a standing prompt, a hold past
-// power::kLongPressMs switches the device off) and this page must not take any
-// of them away. So it borrows the shape rather than the meaning: on this page a
-// press is held for the same double-press window before it is acted on, one
-// press moves the focus down a row, two inside the window act on the focused
-// row, and further presses inside the window act again so a value can be
-// stepped by tapping. A hold is never a tap, so the way out of the device is
-// untouched, and an authorisation prompt takes the button away from this page
-// entirely before the gesture that answers it can be armed.
-//
-// A pilot cannot get stuck here: the rows only ever advance, the last one is
-// the way back to the traffic page, and a page nobody has pressed for
-// kIdleReturnMs shows the traffic again on its own.
 #ifndef SKYBLIP_UI_SCREENS_SETTINGS_H
 #define SKYBLIP_UI_SCREENS_SETTINGS_H
 
@@ -25,7 +5,6 @@
 
 #include "core/settings/settings.h"
 #include "ui/framebuffer.h"
-#include "ui/input/gesture.h"
 
 namespace skyblip::ui {
 
@@ -98,7 +77,7 @@ constexpr int kSettingsRowsTop = 24;
 constexpr int kSettingsRowHeight = 18;
 constexpr int kSettingsTextInset = 5;
 constexpr int kSettingsHintY = 190;
-constexpr const char* kSettingsHintText = "PRESS MOVES  TWICE CHANGES";
+constexpr const char* kSettingsHintText = "PAD MOVES  PRESS CHANGES";
 
 constexpr int settings_row_top(SettingsRow row) {
     return kSettingsRowsTop + static_cast<int>(row) * kSettingsRowHeight;
@@ -127,9 +106,8 @@ class SettingsEditor {
     bool active() const { return active_; }
     SettingsRow focus() const { return focus_; }
 
-    // One debounced press edge. Nothing happens here: what it meant is only
-    // known once the pairing window has passed or a second press has arrived.
-    void press(uint32_t now_ms);
+    void change(uint32_t now_ms);
+    void next_row(uint32_t now_ms);
 
     // Once per service step. Returns Changed with next filled in when a value
     // was accepted, Moved when the focus moved, Leave when the page is done
@@ -140,14 +118,12 @@ class SettingsEditor {
     SettingsAction act(const SettingsValues& current, SettingsValues& next);
     SettingsAction advance();
 
+    enum class Pending : uint8_t { None, Act, Advance };
+
     SettingsRow focus_{SettingsRow::Identity};
-    uint32_t press_ms_{0};
-    uint32_t act_ms_{0};
     uint32_t idle_since_ms_{0};
+    Pending pending_{Pending::None};
     bool active_{false};
-    bool waiting_{false};
-    bool acting_{false};
-    bool repeating_{false};
 };
 
 }  // namespace skyblip::ui

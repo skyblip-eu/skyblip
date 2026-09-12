@@ -43,7 +43,7 @@ bool reads_in(const Framebuffer& fb, const char* text, int x0, int y0, int x1, i
 RadarSnapshot flying(uint16_t track_deg) {
     RadarSnapshot snap;
     snap.have_fix = true;
-    snap.range_m = 10000;
+    snap.range_nm = kDefaultRangeNm;
     snap.track_deg = track_deg;
     snap.sats = 9;
     return snap;
@@ -109,7 +109,7 @@ TEST_CASE("radar: renders rings, own symbol and plots targets") {
         RadarTarget pair[2] = {{0, 4000, 0, 1}, {0, -4000, 0, 1}};
         RadarSnapshot s2;
         s2.have_fix = true;
-        s2.range_m = 10000;
+        s2.range_nm = 5;
         s2.n_targets = 2;
         s2.targets = pair;
         Framebuffer f2;
@@ -129,11 +129,10 @@ TEST_CASE("radar: renders rings, own symbol and plots targets") {
     }
     RadarSnapshot snap;
     snap.have_fix = true;
-    snap.range_m = 10000;
+    snap.range_nm = 5;
     snap.n_targets = 2;
     snap.targets = targets;
     snap.max_alarm = 3;
-    snap.coverage = true;
     draw_radar(fb, snap);
     CHECK(fb.count_black() > 100);
 
@@ -148,11 +147,9 @@ TEST_CASE("radar: renders rings, own symbol and plots targets") {
 TEST_CASE("radar: everything is centred on the 99|100 point, not on a pixel") {
     // 200x200 is an EVEN grid: there is no middle pixel. The centre is the point
     // where pixels 99 and 100 meet on both axes, so anything "on" the centre is
-    // a PAIR of pixels. Drawn with no alarm so nothing else marks the edges.
+    // a PAIR of pixels. No alarm and no fix, so only rings and ship mark the edges.
     Framebuffer fb;
     RadarSnapshot snap;
-    snap.have_fix = true;
-    snap.range_m = 10000;
     draw_radar(fb, snap);
     // the own ship straddles the centre: its fuselage is a pair of columns
     CHECK(fb.get_pixel(99, 99));
@@ -197,41 +194,56 @@ TEST_CASE("radar: everything is centred on the 99|100 point, not on a pixel") {
 }
 
 TEST_CASE("radar: the plot turns with the track, so what is ahead is up the glass") {
-    RadarTarget east[1] = {{0, 4000, 0, 1}};
+    RadarTarget east[1] = {{0, 2 * kMetresPerNm, 0, 1}};
     RadarSnapshot flying_east = flying(90);
     flying_east.n_targets = 1;
     flying_east.targets = east;
     const Framebuffer ahead = radar(flying_east);
 
-    // 4 km on a 10 km ring is 36 px, and the nose is the top of the glass.
-    CHECK(ahead.get_pixel(99, 99 - 36 + 1 - 2));
-    CHECK(ahead.get_pixel(100, 99 - 36 + 1 - 2));
-    CHECK_FALSE(ahead.get_pixel(100 + 36 + 2, 100));
+    // 2 NM on the 4 NM ring is 46 px, and the nose is the top of the glass.
+    CHECK(ahead.get_pixel(99, 99 - 46 + 1 - 2));
+    CHECK(ahead.get_pixel(100, 99 - 46 + 1 - 2));
+    CHECK_FALSE(ahead.get_pixel(100 + 46 + 2, 100));
 
     RadarSnapshot flying_north = flying_east;
     flying_north.track_deg = 0;
     const Framebuffer beam = radar(flying_north);
-    CHECK(beam.get_pixel(100 + 36 + 2, 100));
-    CHECK_FALSE(beam.get_pixel(99, 99 - 36 + 1 - 2));
+    CHECK(beam.get_pixel(100 + 46 + 2, 100));
+    CHECK_FALSE(beam.get_pixel(99, 99 - 46 + 1 - 2));
 }
 
 TEST_CASE("radar: the cardinal letters say where north went") {
     const Framebuffer north_up = radar(flying(0));
-    CHECK(reads_in(north_up, "N", 80, 20, 120, 40));
-    CHECK(reads_in(north_up, "S", 80, 160, 120, 180));
+    CHECK(reads_in(north_up, "N", 90, 20, 110, 36));
+    CHECK(reads_in(north_up, "S", 90, 170, 110, 190));
 
     // Flying east swings north onto the left of the glass, and east onto the nose.
     const Framebuffer east_up = radar(flying(90));
-    CHECK(reads_in(east_up, "N", 10, 90, 50, 110));
-    CHECK(reads_in(east_up, "E", 80, 20, 120, 40));
-    CHECK(reads_in(east_up, "S", 150, 90, 190, 110));
-    CHECK(reads_in(east_up, "W", 80, 160, 120, 190));
+    CHECK(reads_in(east_up, "N", 5, 90, 25, 110));
+    CHECK(reads_in(east_up, "E", 90, 20, 110, 36));
+    CHECK(reads_in(east_up, "S", 175, 90, 195, 110));
+    CHECK(reads_in(east_up, "W", 90, 170, 110, 190));
 
     // Without a fix there is no orientation to claim, so no letter claims one.
     RadarSnapshot no_fix;
     const Framebuffer searching = radar(no_fix);
-    CHECK_FALSE(reads_in(searching, "N", 80, 20, 120, 40));
-    CHECK_FALSE(reads_in(searching, "S", 80, 160, 120, 180));
+    CHECK_FALSE(reads_in(searching, "N", 90, 20, 110, 36));
+    CHECK_FALSE(reads_in(searching, "S", 90, 170, 110, 190));
+}
+
+TEST_CASE("radar: only the letter a ring label is in the way of steps in") {
+    // Quartering, nothing is in the way: 60 px on both axes is a rose of 85.
+    const Framebuffer quartering = radar(flying(45));
+    CHECK(reads_in(quartering, "N", 36, 35, 45, 46));
+    CHECK(reads_in(quartering, "E", 156, 35, 165, 46));
+    CHECK(reads_in(quartering, "S", 156, 155, 165, 166));
+    CHECK(reads_in(quartering, "W", 36, 155, 45, 166));
+
+    // North up, the track digits push N in and the range label pushes S in.
+    const Framebuffer north_up = radar(flying(0));
+    CHECK(reads_in(north_up, "E", 181, 95, 190, 106));
+    CHECK(reads_in(north_up, "W", 11, 95, 20, 106));
+    CHECK_FALSE(reads_in(north_up, "N", 90, 5, 110, 25));
 }
 
 TEST_CASE("radar: the track reads at the top, and dashes when there is no fix") {
@@ -253,18 +265,44 @@ TEST_CASE("radar: the footer counts what is on the glass, and the ring says what
     snap.targets = targets;
     const Framebuffer fb = radar(snap);
 
-    CHECK(reads_in(fb, "2 AC", 0, 180, 60, 200));
-    CHECK(reads_in(fb, "9 SAT", 140, 180, 200, 200));
+    CHECK(reads_in(fb, "9", 0, 175, 30, 200, 2));
+    CHECK(reads_in(fb, "SAT", 15, 175, 60, 200));
+    CHECK(reads_in(fb, "2", 170, 175, 200, 200, 2));
+    CHECK(reads_in(fb, "ACT", 140, 175, 190, 200));
     // The labels sit ON the ring, so reading one is the check that it is cleared.
-    CHECK(reads_in(fb, "10.0 KM", 60, 180, 140, 200));
+    CHECK(reads_in(fb, "4 NM", 60, 175, 140, 200));
 
     RadarSnapshot closer = flying(0);
-    closer.range_m = 5000;
+    closer.range_nm = 2;
     closer.sats = 0;
     const Framebuffer near = radar(closer);
-    CHECK(reads_in(near, "5.0 KM", 60, 180, 140, 200));
-    CHECK(reads_in(near, "0 AC", 0, 180, 60, 200));
-    CHECK(reads_in(near, "0 SAT", 140, 180, 200, 200));
+    CHECK(reads_in(near, "2 NM", 60, 175, 140, 200));
+    CHECK(reads_in(near, "0", 0, 175, 30, 200, 2));
+    CHECK(reads_in(near, "0", 170, 175, 200, 200, 2));
+}
+
+TEST_CASE("radar: the footer numbers stop where the ring label does, not at the glass edge") {
+    const Framebuffer fb = radar(flying(0));
+    int digits_bottom = -1, label_bottom = -1;
+    for (int y = 175; y < 200; y++)
+        for (int x = 0; x < 200; x++)
+            if (fb.get_pixel(x, y)) {
+                if (x < 30 || x > 170) digits_bottom = y;
+                if (x > 80 && x < 120) label_bottom = y;
+            }
+    CHECK(digits_bottom == label_bottom);
+}
+
+TEST_CASE("radar: a device with no fix says so where it reports its satellites") {
+    RadarSnapshot searching;
+    searching.sats = 4;
+    const Framebuffer fb = radar(searching);
+
+    CHECK(reads_in(fb, "4", 0, 175, 30, 200, 2));
+    CHECK(reads_in(fb, "NO FIX", 15, 175, 80, 200));
+    CHECK_FALSE(reads_in(fb, "SAT", 0, 175, 80, 200));
+    // The picture itself stays empty rather than carrying a second message.
+    CHECK_FALSE(reads_in(fb, "NO FIX", 20, 20, 180, 175));
 }
 
 TEST_CASE("status: every value reads in the aeronautical unit first, then SI") {

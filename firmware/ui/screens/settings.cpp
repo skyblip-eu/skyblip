@@ -136,59 +136,36 @@ void draw_settings(Framebuffer& fb, const SettingsSnapshot& s) {
 
 void SettingsEditor::enter(uint32_t now_ms) {
     focus_ = SettingsRow::Identity;
-    press_ms_ = now_ms;
-    act_ms_ = now_ms;
     idle_since_ms_ = now_ms;
     active_ = true;
-    waiting_ = false;
-    acting_ = false;
-    repeating_ = false;
+    pending_ = Pending::None;
 }
 
 void SettingsEditor::leave() {
     focus_ = SettingsRow::Identity;
     active_ = false;
-    waiting_ = false;
-    acting_ = false;
-    repeating_ = false;
+    pending_ = Pending::None;
 }
 
-// INFO: cf 02aug26 The pairing window is the confirmation gesture's own, so the
-// two things a thumb can say keep the same rhythm wherever it says them, and
-// nothing here can be produced by the hold that powers the device down.
-void SettingsEditor::press(uint32_t now_ms) {
+void SettingsEditor::change(uint32_t now_ms) {
     if (!active_) return;
     idle_since_ms_ = now_ms;
+    pending_ = Pending::Act;
+}
 
-    if (repeating_ && now_ms - act_ms_ < ConfirmGesture::kDoublePressMs) {
-        acting_ = true;
-        act_ms_ = now_ms;
-        return;
-    }
-    if (waiting_ && now_ms - press_ms_ < ConfirmGesture::kDoublePressMs) {
-        waiting_ = false;
-        acting_ = true;
-        act_ms_ = now_ms;
-        return;
-    }
-    waiting_ = true;
-    repeating_ = false;
-    press_ms_ = now_ms;
+void SettingsEditor::next_row(uint32_t now_ms) {
+    if (!active_) return;
+    idle_since_ms_ = now_ms;
+    pending_ = Pending::Advance;
 }
 
 SettingsAction SettingsEditor::tick(uint32_t now_ms, const SettingsValues& current,
                                     SettingsValues& next) {
     if (!active_) return SettingsAction::None;
-    if (acting_) {
-        acting_ = false;
-        repeating_ = true;
-        return act(current, next);
-    }
-    if (waiting_ && now_ms - press_ms_ >= ConfirmGesture::kDoublePressMs) {
-        waiting_ = false;
-        repeating_ = false;
-        return advance();
-    }
+    const Pending pending = pending_;
+    pending_ = Pending::None;
+    if (pending == Pending::Act) return act(current, next);
+    if (pending == Pending::Advance) return advance();
     if (now_ms - idle_since_ms_ >= kIdleReturnMs) {
         leave();
         return SettingsAction::Leave;

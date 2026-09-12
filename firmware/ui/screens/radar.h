@@ -7,6 +7,9 @@
 
 namespace skyblip::ui {
 
+constexpr int32_t kMetresPerNm = 1852;
+constexpr int32_t kDefaultRangeNm = 4;
+
 struct RadarTarget {
     int32_t north_m;
     int32_t east_m;
@@ -16,13 +19,12 @@ struct RadarTarget {
 
 struct RadarSnapshot {
     bool have_fix{false};
-    int32_t range_m{10000};
+    int32_t range_nm{kDefaultRangeNm};
     uint16_t track_deg{0};
     uint8_t sats{0};
     int n_targets{0};
     const RadarTarget* targets{nullptr};
     uint8_t max_alarm{0};
-    bool coverage{false};
 };
 
 void draw_radar(Framebuffer& fb, const RadarSnapshot& snap);

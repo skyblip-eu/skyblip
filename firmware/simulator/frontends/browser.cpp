@@ -32,7 +32,7 @@ KEEPALIVE void simulator_backlight(int on) {
     g_simulator.product().screen().set_backlight(on != 0);
 }
 KEEPALIVE void simulator_power(int on) { g_simulator.product().screen().set_power(on != 0); }
-KEEPALIVE void simulator_set_range(int m) { g_simulator.product().screen().set_range_m(m); }
+KEEPALIVE void simulator_set_range(int nm) { g_simulator.product().screen().set_range_nm(nm); }
 
 KEEPALIVE void simulator_set_fix(int on) { g_simulator.world().set_fix(on != 0); }
 KEEPALIVE void simulator_set_pps(int on) { g_simulator.world().set_pps_locked(on != 0); }
@@ -96,7 +96,6 @@ KEEPALIVE int simulator_panel_refresh_is_full() {
     return g_simulator.panel_refresh_is_full() ? 1 : 0;
 }
 KEEPALIVE int simulator_present_count() { return g_simulator.present_count(); }
-KEEPALIVE int simulator_partials_since_wash() { return g_simulator.partials_since_wash(); }
 
 KEEPALIVE int simulator_backlight_on() { return g_simulator.backlight() ? 1 : 0; }
 KEEPALIVE int simulator_powered() { return g_simulator.panel_powered() ? 1 : 0; }

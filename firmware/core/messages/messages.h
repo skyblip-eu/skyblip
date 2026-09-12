@@ -169,6 +169,7 @@ struct ButtonEvent {
 
 constexpr uint8_t kButtonPressed = 0;
 constexpr uint8_t kPadHeld = 1;
+constexpr uint8_t kPadTapped = 2;
 
 // The cell's terminal voltage, and whether something is feeding the charger.
 // What that pair means is core/power's problem, not the board's.

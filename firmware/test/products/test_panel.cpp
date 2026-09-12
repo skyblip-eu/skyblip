@@ -1,5 +1,5 @@
 // What reaches the glass, driven through the whole product rather than through a
-// screen in isolation: the pages a button walks, the self test that names the
+// screen in isolation: the pages the pad walks, the self test that names the
 // part which did not answer, the unit a pilot reads an instrument in, and the
 // image an e-paper wears once its rails are down. A page that is right in a
 // widget test and never presented is a page nobody sees.
@@ -24,45 +24,66 @@ class HeldDie : public hal::DieTemperature {
 
 }  // namespace
 
-TEST_CASE("product: a button press switches page and the layout swap lands full") {
+TEST_CASE("product: a pad tap switches page and the layout swap lands full") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     CHECK(rig.product.screen().page() == go::Page::Radar);
 
     uint32_t t = 100;
-    rig.press(t);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::SixPack);
-    CHECK(rig.platform.chips().epd.last_full);  // the first page on the glass is a full wash
-    CHECK(rig.product.screen().fasts_since_full() == 0);
+    CHECK(rig.platform.chips().epd.last_full);  // the first page on the glass is the full one
     rig.run(t, t + 4000);
     t += 4000;
 
-    rig.press(t);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
-    rig.press(t);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::Signal);
-    rig.press(t);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::RadioLog);
 
     // The rotation is the traffic pages alone, and it wraps.
-    rig.press(t);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::Radar);
     CHECK(rig.product.screen().mode() == go::Mode::Traffic);
 }
 
-TEST_CASE("product: page_mask disables pages so the button skips them") {
+// Counting taps back to the traffic picture is what nobody does with traffic converging.
+TEST_CASE("product: a long touch comes back to the radar from wherever the pilot is") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 100;
+    rig.tap_pad(t);
+    rig.tap_pad(t);
+    REQUIRE(rig.product.screen().page() == go::Page::Status);
+
+    rig.hold_pad(t);
+    CHECK(rig.product.screen().page() == go::Page::Radar);
+    CHECK(rig.product.screen().mode() == go::Mode::Traffic);
+
+    // And out of the settings mode, which the pad did not take the pilot into.
+    rig.press(t);
+    REQUIRE(rig.product.screen().mode() == go::Mode::Settings);
+    rig.hold_pad(t);
+    CHECK(rig.product.screen().mode() == go::Mode::Traffic);
+    CHECK(rig.product.screen().page() == go::Page::Radar);
+    CHECK_FALSE(rig.product.screen().editor().active());
+}
+
+TEST_CASE("product: page_mask disables pages so the pad skips them") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     rig.state().settings.page_mask = 0x05;  // radar + status only
     uint32_t t = 100;
-    rig.press(t);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
 
-    rig.press(t);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::Radar);
 
     // The mask cannot hide the settings mode: it is where the mask is changed.
-    rig.hold_pad(t);
+    rig.press(t);
     CHECK(rig.product.screen().mode() == go::Mode::Settings);
 }
 
@@ -203,7 +224,7 @@ TEST_CASE("product: the unit setting changes the instrument page a pilot reads")
         REQUIRE(rig.setup() == Status::Ok);
         rig.state().settings.units = units;
         uint32_t t = 100;
-        rig.press(t);  // radar -> six-pack
+        rig.tap_pad(t);  // radar -> six-pack
         rig.run(t, t + 3000);
         REQUIRE(rig.product.screen().page() == go::Page::SixPack);
         return rig.product.screen().framebuffer().count_black();
@@ -228,8 +249,8 @@ TEST_CASE("product: the status page carries the device's name and a cell that is
         for (int i = 0; callsign[i] != 0 && i < 9; i++)
             rig.state().settings.callsign[i] = callsign[i];
         uint32_t t = 100;
-        rig.press(t);  // radar -> six-pack
-        rig.press(t);  // -> status
+        rig.tap_pad(t);  // radar -> six-pack
+        rig.tap_pad(t);  // -> status
         // Long enough for the cutoff monitor to have made its mind up: it wants
         // three consecutive samples before it calls a cell low, and the page
         // draws what it decided rather than deciding again.
@@ -260,8 +281,8 @@ TEST_CASE("product: the status page marks a low cell when the monitor says so, n
     REQUIRE(rig.setup() == Status::Ok);
     rig.platform.battery().millivolts = 3450;
     uint32_t t = 100;
-    rig.press(t);  // radar -> six-pack
-    rig.press(t);  // -> status
+    rig.tap_pad(t);  // radar -> six-pack
+    rig.tap_pad(t);  // -> status
     REQUIRE(rig.product.screen().page() == go::Page::Status);
 
     // Two samples under the warning is not yet a low cell: a transmit burst
@@ -293,8 +314,8 @@ TEST_CASE("product: the status page marks a cell charging too hot to be charged"
         rig.platform.battery().millivolts = 4000;
         rig.platform.battery().external_power = true;
         uint32_t t = 100;
-        rig.press(t);
-        rig.press(t);
+        rig.tap_pad(t);
+        rig.tap_pad(t);
         rig.run(t, t + 8000);
         REQUIRE(rig.product.screen().page() == go::Page::Status);
         REQUIRE(rig.state().battery.charging);

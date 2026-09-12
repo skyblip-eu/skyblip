@@ -25,19 +25,25 @@ constexpr int kFar = Framebuffer::kW / 2;
 constexpr int kCx = kFar;  // only for centring text, which has no such nicety
 constexpr int kOuterR = 92;
 constexpr int kRingEdge = kOuterR - 1;
-constexpr int kNoFixY = 150;
 constexpr int kMarginX = 4;
 constexpr int kGlyphW = 5;
 constexpr int kGlyphH = 7;
 constexpr int kCellW = 6;
 constexpr int kLabelPad = 2;
+constexpr int kRingLabelPad = 2 * kLabelPad;
 constexpr int kAlarmBarH = 3;
 constexpr int kHeadingScale = 2;
-constexpr int kHeadingCy = kAlarmBarH + kLabelPad + kGlyphH;
-constexpr int kHeadingLabelBottom = kHeadingCy + (kGlyphH * kHeadingScale) / 2 + kLabelPad;
-constexpr int kCardinalR = kFar - kHeadingLabelBottom - kLabelPad - kGlyphH / 2;
+constexpr int kHeadingCy = kAlarmBarH + kRingLabelPad + kGlyphH;
+constexpr int kHeadingLabelBottom = kHeadingCy + (kGlyphH * kHeadingScale) / 2 + kRingLabelPad;
 constexpr int kFooterCy = kFar + kRingEdge;
 constexpr int kFooterY = kFooterCy - kGlyphH / 2;
+constexpr int kRangeLabelTop = kFooterCy - kGlyphH / 2 - kRingLabelPad;
+constexpr int kRingLabelHalfW = (3 * kCellW * kHeadingScale - kHeadingScale) / 2 + kRingLabelPad;
+constexpr int kCardinalOuterR = kOuterR - kGlyphH;
+constexpr int kCardinalInnerR = kFar - kHeadingLabelBottom - kLabelPad - kGlyphH / 2;
+constexpr int kCountScale = kHeadingScale;
+constexpr int kCountY = kFooterY + kGlyphH - kGlyphH * kCountScale;
+constexpr int kCountGap = 3;
 constexpr int32_t kQ14One = 16384;
 constexpr int32_t kTurn16 = 65536;
 
@@ -98,22 +104,42 @@ void text_center(Framebuffer& fb, int cx, int y, const char* s, int scale = 1) {
     fb.draw_text(cx - text_width(s, scale) / 2, y, s, true, scale);
 }
 
+void clear_behind(Framebuffer& fb, int x, int y, int w, int h, int pad) {
+    fb.rect(x - pad, y - pad, w + 2 * pad, h + 2 * pad, false, true);
+}
+
 void ring_label(Framebuffer& fb, int cy, const char* s, int scale) {
     const int w = text_width(s, scale), h = kGlyphH * scale;
-    fb.rect(kCx - w / 2 - kLabelPad, cy - h / 2 - kLabelPad, w + 2 * kLabelPad, h + 2 * kLabelPad,
-            false, true);
+    clear_behind(fb, kCx - w / 2, cy - h / 2, w, h, kRingLabelPad);
     text_center(fb, kCx, cy - h / 2, s, scale);
 }
 
+const struct Cardinal {
+    char letter;
+    int32_t north, east;
+} kCardinals[4] = {{'N', 1, 0}, {'E', 0, 1}, {'S', -1, 0}, {'W', 0, -1}};
+
+bool clears_ring_labels(int cx, int cy) {
+    if (cx + kGlyphW / 2 + kLabelPad < kCx - kRingLabelHalfW ||
+        cx - kGlyphW / 2 - kLabelPad > kCx + kRingLabelHalfW)
+        return true;
+    return cy - kGlyphH / 2 > kHeadingLabelBottom && cy + kGlyphH / 2 < kRangeLabelTop;
+}
+
+HeadingUp cardinal_place(const Cardinal& p, int16_t track) {
+    for (int r = kCardinalOuterR; r > kCardinalInnerR; r--) {
+        const HeadingUp at = heading_up(p.north * r, p.east * r, track);
+        if (clears_ring_labels(px_of(at.right), py_of(at.ahead))) return at;
+    }
+    return heading_up(p.north * kCardinalInnerR, p.east * kCardinalInnerR, track);
+}
+
 void cardinals(Framebuffer& fb, int16_t track) {
-    static const struct {
-        char letter;
-        int32_t north, east;
-    } kPoints[4] = {{'N', 1, 0}, {'E', 0, 1}, {'S', -1, 0}, {'W', 0, -1}};
-    for (const auto& p : kPoints) {
-        const HeadingUp at = heading_up(p.north * kCardinalR, p.east * kCardinalR, track);
-        fb.draw_char(px_of(at.right) - kGlyphW / 2, py_of(at.ahead) - kGlyphH / 2, p.letter, true,
-                     1);
+    for (const auto& p : kCardinals) {
+        const HeadingUp at = cardinal_place(p, track);
+        const int x = px_of(at.right) - kGlyphW / 2, y = py_of(at.ahead) - kGlyphH / 2;
+        clear_behind(fb, x, y, kGlyphW, kGlyphH, kLabelPad);
+        fb.draw_char(x, y, p.letter, true, 1);
     }
 }
 
@@ -124,29 +150,32 @@ void heading_label(Framebuffer& fb, const RadarSnapshot& snap) {
     ring_label(fb, kHeadingCy, buf, kHeadingScale);
 }
 
-void range_label(Framebuffer& fb, int32_t range_m) {
+void range_label(Framebuffer& fb, int32_t range_nm) {
     char buf[12];
-    int n = fmt_uint(buf, static_cast<uint32_t>((range_m + 50) / 100), 1, 1);
-    n += fmt_string(buf + n, " KM");
+    int n = fmt_uint(buf, static_cast<uint32_t>(range_nm));
+    n += fmt_string(buf + n, " NM");
     buf[n] = 0;
     ring_label(fb, kFooterCy, buf, 1);
 }
 
-void counts(Framebuffer& fb, uint8_t sats, int in_view) {
-    char buf[12];
-    int n = fmt_uint(buf, static_cast<uint32_t>(in_view));
-    n += fmt_string(buf + n, " AC");
-    buf[n] = 0;
-    fb.draw_text(kMarginX, kFooterY, buf, true, 1);
+void satellites(Framebuffer& fb, uint8_t sats, bool have_fix) {
+    char buf[4];
+    buf[fmt_uint(buf, sats)] = 0;
+    fb.draw_text(kMarginX, kCountY, buf, true, kCountScale);
+    fb.draw_text(kMarginX + text_width(buf, kCountScale) + kCountGap, kFooterY,
+                 have_fix ? "SAT" : "NO FIX", true, 1);
+}
 
-    n = fmt_uint(buf, sats);
-    n += fmt_string(buf + n, " SAT");
-    buf[n] = 0;
-    fb.draw_text(Framebuffer::kW - kMarginX - text_width(buf, 1), kFooterY, buf, true, 1);
+void aircraft(Framebuffer& fb, int in_view) {
+    char buf[4];
+    buf[fmt_uint(buf, static_cast<uint32_t>(in_view))] = 0;
+    const int x = Framebuffer::kW - kMarginX - text_width(buf, kCountScale);
+    fb.draw_text(x, kCountY, buf, true, kCountScale);
+    fb.draw_text(x - kCountGap - text_width("ACT", 1), kFooterY, "ACT", true, 1);
 }
 
 int plot(Framebuffer& fb, const RadarSnapshot& snap, int16_t track) {
-    const int64_t range = snap.range_m > 0 ? snap.range_m : 1;
+    const int64_t range = (snap.range_nm > 0 ? snap.range_nm : 1) * kMetresPerNm;
     int in_view = 0;
     for (int i = 0; i < snap.n_targets; i++) {
         const RadarTarget& t = snap.targets[i];
@@ -179,17 +208,12 @@ void draw_radar(Framebuffer& fb, const RadarSnapshot& snap) {
 
     draw_skyship(fb, kFar, kNear);
 
-    fb.draw_text(2, 2, snap.coverage ? "U" : "-", true, 1);
-
-    int in_view = 0;
-    if (snap.have_fix)
-        in_view = plot(fb, snap, track);
-    else
-        text_center(fb, kCx, kNoFixY, "NO FIX");
+    const int in_view = snap.have_fix ? plot(fb, snap, track) : 0;
 
     heading_label(fb, snap);
-    range_label(fb, snap.range_m);
-    counts(fb, snap.sats, in_view);
+    range_label(fb, snap.range_nm);
+    satellites(fb, snap.sats, snap.have_fix);
+    aircraft(fb, in_view);
 
     if (snap.max_alarm >= 3) fb.rect(0, 0, Framebuffer::kW, kAlarmBarH, true, true);
 }

@@ -34,6 +34,7 @@ void World::step(uint32_t now_ms, const bus::State& state) {
     }
 
     service_button(now_ms);
+    service_pad(now_ms);
     service_aircraft(now_ms, state.own);
     apply_events(now_ms, state);
 
@@ -59,6 +60,15 @@ void World::service_button(uint32_t now_ms) {
     // that models a button with arithmetic nobody may copy is worse than useless.
     platform_.board_gpio().button_down =
         holding_ || (pressing_ && now_ms - press_since_ms_ < kPressMs);
+}
+
+void World::service_pad(uint32_t now_ms) {
+    if (tap_pending_) {
+        tap_pending_ = false;
+        tap_since_ms_ = now_ms;
+        tapping_ = true;
+    }
+    platform_.board_gpio().pad_down = pad_held_ || (tapping_ && now_ms - tap_since_ms_ < kPressMs);
 }
 
 // INFO: fc 03aug26 An aircraft is placed where the pilot would point at it - so

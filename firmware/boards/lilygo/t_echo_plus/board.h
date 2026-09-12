@@ -14,7 +14,7 @@
 #include "runtime/null.h"
 #include "runtime/tasks.h"
 #include "ui/input/button.h"
-#include "ui/input/pad_hold.h"
+#include "ui/input/pad.h"
 
 namespace skyblip::boards {
 
@@ -155,8 +155,16 @@ class TEchoPlus {
         const bool button_down = platform_.button_down();
         if (button_.update(button_down, now_ms))
             bus_.input.push(messages::ButtonEvent{messages::kButtonPressed});
-        if (pad_hold_.update(platform_.pad_down(), button_down, now_ms))
-            bus_.input.push(messages::ButtonEvent{messages::kPadHeld});
+        switch (pad_.update(platform_.pad_down(), button_down, now_ms)) {
+            case ui::PadEvent::Tap:
+                bus_.input.push(messages::ButtonEvent{messages::kPadTapped});
+                break;
+            case ui::PadEvent::Hold:
+                bus_.input.push(messages::ButtonEvent{messages::kPadHeld});
+                break;
+            case ui::PadEvent::None:
+            default: break;
+        }
 
         const uint64_t now_us = platform_.clock().micros();
         state.clock.pps_locked = platform_.pps().locked();
@@ -239,7 +247,7 @@ class TEchoPlus {
     typename P::Rf rf_;
     hal::Inventory inventory_{};
     ui::Button button_{};
-    ui::PadHold pad_hold_{};
+    ui::Pad pad_{};
     runtime::NullRoles null_{};
     hal::Capabilities capabilities_;
     uint32_t last_baro_ms_{0};

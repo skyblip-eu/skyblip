@@ -55,36 +55,26 @@ void airborne(Rig& rig, uint32_t& t) {
 }
 
 void open_settings(Rig& rig, uint32_t& t) {
-    rig.hold_pad(t);
+    rig.press(t);
     REQUIRE(rig.product.screen().mode() == go::Mode::Settings);
     settle(rig, t);
     REQUIRE(rig.product.screen().showing_self_test());
-    rig.press(t);
+    rig.tap_pad(t);
     settle(rig, t);
 }
 
-// One press, left alone: the focus moves down a row.
+// A tap of the pad: the focus moves down a row.
 void move(Rig& rig, uint32_t& t) {
-    rig.press(t);
+    rig.tap_pad(t);
     settle(rig, t);
 }
 
-// Two presses inside the window: the focused row is acted on, once. The settle
-// afterwards ends the burst, so the next press starts a new gesture.
+// A press of the button: the focused row is acted on, once, and the focus stays on it.
 void change(Rig& rig, uint32_t& t) {
     rig.press(t);
-    rig.press(t);
     rig.run(t, t + 200);
     t += 200;
     settle(rig, t);
-}
-
-// One more press at the same rhythm, straight after a change: another step of
-// the same field, which is what makes a subscale settable with a thumb.
-void again(Rig& rig, uint32_t& t) {
-    rig.press(t);
-    rig.run(t, t + 200);
-    t += 200;
 }
 
 // The blob goes to flash kSettleMs after the last tap, in the next free window.
@@ -130,31 +120,33 @@ ui::Framebuffer expected_page(Rig& rig) {
 
 }  // namespace
 
-TEST_CASE("product: the pad held on any traffic page opens the settings mode") {
+TEST_CASE("product: a press on any traffic page opens the settings mode") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     uint32_t t = 100;
-    rig.press(t);
+    rig.tap_pad(t);
     REQUIRE(rig.product.screen().page() == go::Page::SixPack);
 
-    rig.hold_pad(t);
+    rig.press(t);
     CHECK(rig.product.screen().mode() == go::Mode::Settings);
     CHECK(rig.product.screen().editor().active());
 
-    // A touch shorter than the hold is not a gesture, so it changes nothing.
-    focus_on(rig, t, ui::SettingsRow::Leave);
+    // On the rows the pad still navigates: it walks them one at a time.
+    rig.tap_pad(t);
+    settle(rig, t);
+    REQUIRE(rig.product.screen().editor().focus() == ui::SettingsRow::Identity);
     move(rig, t);
-    REQUIRE(rig.product.screen().mode() == go::Mode::Traffic);
-    rig.platform.board_gpio().pad_down = true;
-    rig.run(t, t + 300);
-    t += 300;
-    rig.platform.board_gpio().pad_down = false;
-    rig.run(t, t + 200);
-    t += 200;
+    CHECK(rig.product.screen().editor().focus() == ui::SettingsRow::AircraftType);
+
+    // The button on the Leave row hands the glass back.
+    focus_on(rig, t, ui::SettingsRow::Leave);
+    change(rig, t);
     CHECK(rig.product.screen().mode() == go::Mode::Traffic);
+    CHECK(rig.product.screen().page() == go::Page::Radar);
+    CHECK_FALSE(rig.product.screen().editor().active());
 }
 
-// The pad's two gestures are one hold apart, and this one takes the device off.
+// The pad's gestures are one hold apart from the stow, and this one takes the device off.
 TEST_CASE("product: a hold the button joins switches the device off, it opens nothing") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
@@ -176,7 +168,7 @@ TEST_CASE("product: the settings mode opens on the self test and a press walks i
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     uint32_t t = 100;
-    rig.hold_pad(t);
+    rig.press(t);
     REQUIRE(rig.product.screen().mode() == go::Mode::Settings);
     settle(rig, t);
     rig.run(t, t + 4000);
@@ -254,9 +246,8 @@ TEST_CASE("product: the aircraft type set on the panel is the one that goes on t
 
     open_settings(rig, t);
     focus_on(rig, t, ui::SettingsRow::AircraftType);
-    rig.press(t);
-    rig.press(t);
-    again(rig, t);
+    change(rig, t);
+    change(rig, t);
     run_past_the_write_settle(rig, t);
     CHECK(rig.state().settings.aircraft_type == 6);
 
@@ -281,8 +272,7 @@ TEST_CASE("product: walking the rows without changing one writes nothing at all"
     open_settings(rig, t);
     for (int i = 0; i < ui::kSettingsRowCount; i++) move(rig, t);
 
-    // Off the last row and back to the traffic picture, which is where the
-    // button pages again.
+    // Off the last row and back to the traffic picture the pad pages through.
     CHECK(rig.product.screen().page() == go::Page::Radar);
     CHECK_FALSE(rig.product.screen().editor().active());
     CHECK(rig.state().settings.aircraft_type == before.aircraft_type);
@@ -294,7 +284,7 @@ TEST_CASE("product: walking the rows without changing one writes nothing at all"
     settings::Settings stored{};
     CHECK_FALSE(stored_settings(rig, stored));
 
-    rig.press(t);
+    rig.tap_pad(t);
     CHECK(rig.product.screen().page() == go::Page::SixPack);
 }
 
@@ -340,7 +330,7 @@ TEST_CASE("product: an invalid setting is never written by the page that could n
     open_settings(rig, t);
     focus_on(rig, t, ui::SettingsRow::Volume);
     change(rig, t);
-    again(rig, t);
+    change(rig, t);
     rig.run(t, t + 500);
 
     CHECK(rig.state().settings.alarm_volume == 3);
@@ -420,9 +410,7 @@ TEST_CASE("product: a long press in the middle of an edit still switches the dev
     CHECK(rig.product.shutdown().phase() == power::ShutdownPhase::Parking);
     CHECK_FALSE(rig.product.screen().powered());
 
-    // A hold is one press edge and then nothing, so the page read it as "next
-    // row" and the value the pilot was standing on is untouched. There is no
-    // pending edit to lose, because there is never a pending edit.
+    // A hold makes no press edge at all, so the row the pilot was standing on is untouched.
     CHECK(rig.state().settings.alarm_volume == volume);
     settings::Settings stored{};
     CHECK_FALSE(stored_settings(rig, stored));
@@ -448,9 +436,8 @@ TEST_CASE("product: the volume can be turned up in the air, where a phone is ref
     // in the air.
     open_settings(rig, t);
     focus_on(rig, t, ui::SettingsRow::Volume);
-    rig.press(t);
-    rig.press(t);
-    again(rig, t);
+    change(rig, t);
+    change(rig, t);
     run_past_the_write_settle(rig, t);
     CHECK(rig.state().settings.alarm_volume == 5);
 
@@ -460,11 +447,11 @@ TEST_CASE("product: the volume can be turned up in the air, where a phone is ref
 }
 
 // A full refresh flashes the panel for about 2.5 s, so a menu swap goes through black instead.
-TEST_CASE("product: the page transitions through black, and no keypress washes the glass") {
+TEST_CASE("product: the page transitions through black, and no keypress asks for a full") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     uint32_t t = 100;
-    rig.run(t, t + 3000);  // the boot frame is the wash, and it is the last one
+    rig.run(t, t + 3000);  // the boot frame is the full one, and it is the last
     t += 3000;
     REQUIRE(rig.platform.chips().epd.last_full);
 
@@ -472,12 +459,11 @@ TEST_CASE("product: the page transitions through black, and no keypress washes t
     rig.run(t, t + 4000);
     t += 4000;
     CHECK_FALSE(rig.platform.chips().epd.last_full);
-    const int after_entry = rig.product.screen().fasts_since_full();
-    CHECK(after_entry >= 2);  // the black frame, then the page
+    CHECK(rig.platform.chips().epd.present_count >= 3);  // boot, the black frame, then the page
 
     focus_on(rig, t, ui::SettingsRow::Volume);
     change(rig, t);
-    again(rig, t);
+    change(rig, t);
     rig.run(t, t + 2000);
     t += 2000;
     CHECK_FALSE(rig.platform.chips().epd.last_full);

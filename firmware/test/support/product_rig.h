@@ -10,7 +10,7 @@
 #include "core/flight/atmosphere.h"
 #include "hardware/platform/host/platform.h"
 #include "products/skyblip_go/product.h"
-#include "ui/input/pad_hold.h"
+#include "ui/input/pad.h"
 
 namespace skyblip {
 
@@ -136,11 +136,16 @@ struct Rig {
         press(t);
     }
 
-    // The way into the settings mode: the pad held on its own, button up.
-    void hold_pad(uint32_t& t) {
+    // The pad tapped: the page gesture, and it lands on the release.
+    void tap_pad(uint32_t& t) { touch_pad(t, 200); }
+
+    // The pad held on its own, button up: the way back to the radar.
+    void hold_pad(uint32_t& t) { touch_pad(t, ui::Pad::kHoldMs + 200); }
+
+    void touch_pad(uint32_t& t, uint32_t ms) {
         platform.board_gpio().pad_down = true;
-        run(t, t + ui::PadHold::kHoldMs + 200);
-        t += ui::PadHold::kHoldMs + 200;
+        run(t, t + ms);
+        t += ms;
         platform.board_gpio().pad_down = false;
         run(t, t + 100);
         t += 100;

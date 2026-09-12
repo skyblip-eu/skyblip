@@ -131,25 +131,17 @@ TEST_CASE("flash window: a thumb stepping the volume on the panel writes flash o
     uint32_t t = 0;
     stand_on_the_ground(rig, t);
 
-    rig.hold_pad(t);
+    rig.press(t);
     REQUIRE(rig.product.screen().mode() == go::Mode::Settings);
-    rig.press(t);  // off the self test, onto the rows
-    rig.run(t, t + ui::ConfirmGesture::kDoublePressMs + 200);
-    t += ui::ConfirmGesture::kDoublePressMs + 200;
+    rig.tap_pad(t);  // off the self test, onto the rows
 
-    // Down to the volume row: a lone press moves the focus.
-    while (rig.product.screen().editor().focus() != ui::SettingsRow::Volume) {
-        rig.press(t);
-        rig.run(t, t + ui::ConfirmGesture::kDoublePressMs + 100);
-        t += ui::ConfirmGesture::kDoublePressMs + 100;
-    }
+    // Down to the volume row: a tap of the pad moves the focus.
+    while (rig.product.screen().editor().focus() != ui::SettingsRow::Volume) rig.tap_pad(t);
 
     const uint32_t before = writes(rig);
     const uint8_t started_at = rig.state().settings.alarm_volume;
-    // Two presses act on the row, and every further press inside the window acts
-    // again: this is what stepping a value looks like to the editor. Six taps walk
-    // the volume through all six of its values, which is five accepted changes.
-    for (int tap = 0; tap < 6; tap++) {
+    // Five presses walk the volume off where it started, which is five accepted changes.
+    for (int press = 0; press < 5; press++) {
         rig.press(t);
         rig.run(t, t + 120);
         t += 120;

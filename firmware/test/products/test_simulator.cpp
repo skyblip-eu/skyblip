@@ -16,10 +16,19 @@ void run(simulator::Simulator& h, uint32_t from, uint32_t to) {
     for (uint32_t t = from; t <= to; t += simulator::Simulator::kStepMs) h.step(t);
 }
 
-// A press has to outlast ui::Button's debounce window, so it is held across
-// steps exactly as a thumb would hold it.
+// A press has to outlast ui::Button's debounce window, held across steps as a thumb would.
 uint32_t press(simulator::Simulator& h, uint32_t t) {
     h.world().press_button();
+    for (int i = 0; i < 5; i++) {
+        h.step(t);
+        t += 40;
+    }
+    return t;
+}
+
+// A touch has to outlast ui::Pad's settle and end well inside its hold.
+uint32_t page(simulator::Simulator& h, uint32_t t) {
+    h.world().tap_pad();
     for (int i = 0; i < 5; i++) {
         h.step(t);
         t += 40;
@@ -124,7 +133,7 @@ TEST_CASE("simulator: every page renders ink to the panel") {
         run(h, t, t + 1000);
         t += 1000;
         CHECK(h.panel().count_black() > 20);  // something was drawn
-        t = press(h, t);
+        t = page(h, t);
     }
     CHECK(h.present_count() > 0);
 }
@@ -137,7 +146,7 @@ TEST_CASE("simulator: a modelled turn deflects the six-pack turn coordinator") {
     h.world().set_track_deg(0);
     run(h, 0, 2000);
     uint32_t page_t = 2000;
-    page_t = press(h, page_t);  // radar -> 6-pack
+    page_t = page(h, page_t);  // radar -> 6-pack
     run(h, page_t, page_t + 2000);
     REQUIRE(h.product().screen().page() == go::Page::SixPack);
     const ui::Framebuffer level = h.panel();

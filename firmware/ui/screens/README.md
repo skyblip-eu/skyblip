@@ -6,11 +6,13 @@ One file per page, each one a pure function from a snapshot struct to pixels. A 
 
 Heading up, not north up. The own ship is drawn nose-up and cannot turn, so the picture turns instead: a target is plotted by how far ahead of the nose and how far right of it it lies, which is the bearing a pilot then looks along. North is wherever the letters say it went.
 
-The digits at the top are GNSS track and carry no label. There is no magnetometer on the board, and `HDG` would claim one, so the page says a number and lets the cardinal letters give it its meaning. They ride an inner radius rather than the outer ring, because the ring's top and bottom are taken by the two labels.
+The digits at the top are GNSS track and carry no label. There is no magnetometer on the board, and `HDG` would claim one, so the page says a number and lets the cardinal letters give it its meaning. The letters ride just inside the outer ring, each on a patch of cleared glass so a target under one does not eat it, and a letter that a ring label is in the way of steps in along its own bearing until it clears. Only that letter moves: the bearing is the direction of the letter from the ship, not its distance, so stepping one in costs nothing, and pulling the other three in with it would cost the rose its radius for no reason.
 
 Those two labels sit ON the outer ring with the line cleared under them: the track at the top, what the ring is worth at the bottom. The ring is the scale, so the number belongs on it rather than beside it, and a digit read through a black stroke is not read at all.
 
-The footer counts the picture, not the receiver. Left is the aircraft actually plotted, so a target beyond the ring is not in it. Right is the satellites behind them, which is what separates an empty sky from a device that has lost the sky. `signal` is where everything heard is listed.
+The ring is four nautical miles, and the range is carried in whole miles rather than in metres: the label is then the setting itself, and no rounding stands between what a pilot picked and what the glass says. Miles because that is what a pilot's other instruments and the airspace around them are marked in, and four because at the speeds this device is flown at a head-on conflict entering the ring is around two minutes away. Metres are the plot's business, one multiplication further in.
+
+The footer counts the picture, not the receiver. Both numbers are as big as the track, and both sit on the range label's baseline rather than on the glass edge, because a number at the very bottom of a round window reads as an afterthought. Left is the satellites, the receiver's own state, and it reads `NO FIX` in place of `SAT` when there is no position, which is the one message the page owes a pilot staring at an empty plot. Right is the aircraft actually plotted, so a target beyond the ring is not in it. `SAT` and `ACT` stay in the small font, set beside their number: the count is what is read, the word only says what it counted. `signal` is where everything heard is listed.
 
 ## radio_log
 
@@ -41,6 +43,14 @@ Six dials over the GNSS-derived own-ship state, each with its own number under i
 
 The card reads `TRK`, not `HDG`. It is GNSS course over ground, referenced to true north: there is no magnetometer on the board, and no magnetic variation model to turn true into magnetic, so labelling it a heading would claim a sensor and a datum the device does not have. In a crosswind it differs from the heading the compass shows, which is the pilot's to reconcile.
 
+## settings
+
+The panel half of "a pilot with no phone can change the things that matter". It is a list of rows a thumb walks and a small editor that decides what a press means, both pure: the page takes a snapshot, the editor takes the values in and hands new values back, so the service owns the state and the file owns the meaning.
+
+The two contacts mean here what they mean everywhere else: a tap of the pad moves the focus down a row, a press of the button acts on the row the focus is on, and every further press steps the same field again, which is what makes a subscale settable with a thumb. No timing to get right, so nothing here can be produced by accident out of the hold that switches the device off, and a standing prompt takes the button away from this page entirely before the gesture that answers it can be armed.
+
+A pilot cannot get stuck here: the rows only ever advance and the tap past the last one leaves, the button on the `Leave` row leaves, a long touch of the pad goes back to the radar, and a page nobody has touched for `kIdleReturnMs` shows the traffic again on its own.
+
 ## The others
 
 | Page | What it answers |
@@ -51,4 +61,4 @@ The card reads `TRK`, not `HDG`. It is GNSS course over ground, referenced to tr
 | `settings` | the values a pilot can change without a phone |
 | `boot`, `confirm`, `installing` | the three moments that are not pages: coming up, being asked, being written |
 
-`go::Page` lists them in the order the button walks. Settings is last and, alone among them, has no bit in `settings.page_mask`: it is where the mask is changed, so a mask that hid it would be one nobody could undo without a phone.
+`go::Page` lists them in the order the pad walks, and a long touch of the pad goes back to `Radar` from any of them. Settings is not on that walk at all: it is a mode the button opens, and alone among the pages it has no bit in `settings.page_mask`, because that is where the mask is changed and a mask that hid it would be one nobody could undo without a phone.
