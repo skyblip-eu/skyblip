@@ -64,14 +64,14 @@ TEST_CASE("comms: set on the ground stages, needs confirmation, then applies") {
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
 
-    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":1}"));
+    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":4}"));
     CHECK(cs.pending() == Pending::Set);
     CHECK(link.last().bytes.find("confirm") != std::string::npos);
-    CHECK(int(s.aircraft_type) == 4);  // not yet applied
+    CHECK(int(s.aircraft_type) == 1);  // not yet applied
 
     cs.confirm();
     CHECK(cs.pending() == Pending::None);
-    CHECK(int(s.aircraft_type) == 1);  // applied
+    CHECK(int(s.aircraft_type) == 4);  // applied
     CHECK(cs.settings_dirty());
     CHECK(link.last().bytes.find("\"ack\":true") != std::string::npos);
 }
@@ -81,10 +81,10 @@ TEST_CASE("comms: set is REFUSED in flight (fail closed), no staging") {
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Airborne);
-    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":1}"));
+    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":4}"));
     CHECK(cs.pending() == Pending::None);
     CHECK(link.last().bytes.find("in_flight") != std::string::npos);
-    CHECK(int(s.aircraft_type) == 4);
+    CHECK(int(s.aircraft_type) == 1);
 }
 
 TEST_CASE("comms: unknown flight-state refuses, and airborne latches") {
@@ -110,10 +110,10 @@ TEST_CASE("comms: confirm re-checks the gate, becoming airborne cancels apply") 
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
-    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":1}"));
+    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":4}"));
     cs.set_flight_state(FlightState::Airborne);  // took off before confirming
     cs.confirm();
-    CHECK(int(s.aircraft_type) == 4);  // NOT applied
+    CHECK(int(s.aircraft_type) == 1);  // NOT applied
     CHECK(link.last().bytes.find("in_flight") != std::string::npos);
 }
 
@@ -565,13 +565,13 @@ TEST_CASE("comms: a set is refused below the low-battery warning, with the reaso
     cs.set_battery_state(low, power::PowerLevel::Low);
     CHECK_FALSE(cs.settings_writable());
 
-    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":1}"));
+    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":4}"));
     // Refused at the door: no prompt to walk over and confirm for a write that
     // was never going to happen.
     CHECK(cs.pending() == Pending::None);
     CHECK(link.last().bytes.find("low_power") != std::string::npos);
     CHECK(link.last().bytes.find("\"ack\":false") != std::string::npos);
-    CHECK(int(s.aircraft_type) == 4);
+    CHECK(int(s.aircraft_type) == 1);
     CHECK_FALSE(cs.settings_dirty());
 
     // A charger on the cable holds the terminal above the cell, so core/power
@@ -583,10 +583,10 @@ TEST_CASE("comms: a set is refused below the low-battery warning, with the reaso
     charging.charging = true;
     cs.set_battery_state(charging, power::PowerLevel::Normal);
     CHECK(cs.settings_writable());
-    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":1}"));
+    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":4}"));
     REQUIRE(cs.pending() == Pending::Set);
     cs.confirm();
-    CHECK(int(s.aircraft_type) == 1);
+    CHECK(int(s.aircraft_type) == 4);
 }
 
 // The confirmation window is 30 s wide and a cell can cross the warning inside
@@ -596,7 +596,7 @@ TEST_CASE("comms: a cell that falls while the prompt stands cancels the change")
     settings::Settings s = settings::defaults(1);
     ConfigService cs(link, s);
     cs.set_flight_state(FlightState::Ground);
-    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":1}"));
+    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":4}"));
     REQUIRE(cs.pending() == Pending::Set);
 
     power::BatteryState low{};
@@ -605,7 +605,7 @@ TEST_CASE("comms: a cell that falls while the prompt stands cancels the change")
     cs.set_battery_state(low, power::PowerLevel::Cutoff);
     cs.confirm();
     CHECK(cs.pending() == Pending::None);
-    CHECK(int(s.aircraft_type) == 4);
+    CHECK(int(s.aircraft_type) == 1);
     CHECK_FALSE(cs.settings_dirty());
     CHECK(link.last().bytes.find("low_power") != std::string::npos);
 }
@@ -626,7 +626,7 @@ TEST_CASE("comms: a fired power-failure comparator closes the door on its own") 
 
     cs.set_supply_warned(true);
     CHECK_FALSE(cs.settings_writable());
-    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":1}"));
+    cs.on_rx(frame("{\"cmd\":\"set\",\"aircraft_type\":4}"));
     CHECK(cs.pending() == Pending::None);
     CHECK(link.last().bytes.find("low_power") != std::string::npos);
 }

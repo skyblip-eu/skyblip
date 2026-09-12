@@ -23,7 +23,7 @@ TEST_CASE("settings: defaults are valid") {
     Settings s = defaults(0x123456);
     CHECK(validate(s) == Status::Ok);
     CHECK(s.device_addr == 0x123456u);
-    CHECK(int(s.aircraft_type) == 4);
+    CHECK(int(s.aircraft_type) == kAircraftTypeLight);
 }
 
 TEST_CASE("settings: blob round-trips through version+crc framing") {
@@ -68,12 +68,12 @@ TEST_CASE("settings: to_json/apply_json round-trip of a patch") {
     json::Reader r(buf, n);
     long v;
     CHECK(r.get_int("aircraft_type", v));
-    CHECK(v == 4);
+    CHECK(v == kAircraftTypeLight);
 
     // apply a patch: change type + alarm volume + stealth
-    const char* patch = "{\"aircraft_type\":1,\"alarm_volume\":5,\"stealth\":true}";
+    const char* patch = "{\"aircraft_type\":4,\"alarm_volume\":5,\"stealth\":true}";
     CHECK(apply_json(s, patch, static_cast<int>(strlen(patch))) == Status::Ok);
-    CHECK(int(s.aircraft_type) == 1);
+    CHECK(int(s.aircraft_type) == 4);
     CHECK(int(s.alarm_volume) == 5);
     CHECK(s.stealth);
 }

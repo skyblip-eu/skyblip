@@ -36,6 +36,9 @@ constexpr size_t kCallsignCap = 10;
 // the PLL word is computed.
 constexpr int16_t kFreqTrimLimitTenthsPpm = 100;
 
+// INFO: fc 12sep26 ADS-L G.1.4's light aircraft, what a device says until a pilot says otherwise
+constexpr uint8_t kAircraftTypeLight = 1;
+
 struct Settings {
     uint8_t version{kCurrentVersion};
     uint32_t device_addr{0};
@@ -66,7 +69,7 @@ struct Settings {
     // to know the number in the first place.
     int16_t freq_trim_e1_ppm{0};
     uint8_t addr_table{0};
-    uint8_t aircraft_type{4};
+    uint8_t aircraft_type{kAircraftTypeLight};
     bool alarm_enabled{true};
     uint8_t alarm_volume{3};
     bool stealth{false};

@@ -50,10 +50,8 @@ constexpr uint8_t kPageMaskAll = 0x1F;
 constexpr uint8_t kPageMaskTrafficStatus = 0x05;
 constexpr uint8_t kPageMaskTrafficOnly = 0x01;
 
-// The categories of ADS-L 4 SRD-860 issue 2 G.1.4 that name an aircraft. The
-// codes above this are reserved or a second UAV encoding, so the page does not
-// offer them; a code the companion app stored is still shown, as a number.
-constexpr uint8_t kNamedAircraftTypes = 12;
+// INFO: fc 12sep26 ADS-L G.1.4 codes 11 up are UAV and reserved, nothing a pilot sits in
+constexpr uint8_t kNamedAircraftTypes = 11;
 
 enum class SettingsAction : uint8_t { None, Moved, Changed, Leave };
 

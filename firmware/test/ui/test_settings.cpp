@@ -145,6 +145,14 @@ TEST_CASE("settings page: a category the phone stored but the page does not name
     CHECK(next_aircraft_type(13) == 0);
 }
 
+TEST_CASE("settings page: the UAV categories are not a choice a pilot can make on the panel") {
+    SettingsValues values = fresh();
+    values.settings.aircraft_type = 11;
+    const Framebuffer fb = page(values, SettingsRow::Identity);
+    CHECK(row_value_reads(fb, SettingsRow::AircraftType, "TYPE 11", false));
+    CHECK(next_aircraft_type(11) == 0);
+}
+
 TEST_CASE("settings editor: the pad moves down a row, the button changes the row it is on") {
     Bench bench;
     CHECK(bench.editor.focus() == SettingsRow::Identity);
@@ -219,14 +227,14 @@ TEST_CASE("settings editor: moving the focus over a row is not editing it") {
 TEST_CASE("settings editor: aircraft type walks the categories that name an aircraft") {
     Bench bench;
     bench.focus_on(SettingsRow::AircraftType);
-    REQUIRE(bench.values.settings.aircraft_type == 4);
+    REQUIRE(bench.values.settings.aircraft_type == settings::kAircraftTypeLight);
 
     CHECK(bench.change() == SettingsAction::Changed);
-    CHECK(bench.values.settings.aircraft_type == 5);
+    CHECK(bench.values.settings.aircraft_type == 2);
 
     // Pressing on keeps stepping the same row rather than walking away from it.
     CHECK(bench.change() == SettingsAction::Changed);
-    CHECK(bench.values.settings.aircraft_type == 6);
+    CHECK(bench.values.settings.aircraft_type == 3);
     CHECK(bench.editor.focus() == SettingsRow::AircraftType);
 
     // Every step is a code the page can name, and the list closes.
@@ -236,7 +244,7 @@ TEST_CASE("settings editor: aircraft type walks the categories that name an airc
         CHECK(settings::validate(bench.values.settings) == Status::Ok);
         bench.change();
     }
-    CHECK(bench.values.settings.aircraft_type == 6);
+    CHECK(bench.values.settings.aircraft_type == 3);
 }
 
 TEST_CASE("settings editor: the volume a pilot can hear, and it stays inside what is valid") {

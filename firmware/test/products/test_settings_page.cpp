@@ -242,25 +242,25 @@ TEST_CASE("product: the aircraft type set on the panel is the one that goes on t
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     uint32_t t = 100;
-    REQUIRE(rig.state().settings.aircraft_type == 4);
+    REQUIRE(rig.state().settings.aircraft_type == settings::kAircraftTypeLight);
 
     open_settings(rig, t);
     focus_on(rig, t, ui::SettingsRow::AircraftType);
     change(rig, t);
     change(rig, t);
     run_past_the_write_settle(rig, t);
-    CHECK(rig.state().settings.aircraft_type == 6);
+    CHECK(rig.state().settings.aircraft_type == 3);
 
     settings::Settings stored{};
     REQUIRE(stored_settings(rig, stored));
-    CHECK(stored.aircraft_type == 6);
+    CHECK(stored.aircraft_type == 3);
 
     // The category the transmitter puts in the frame is own.aircraft_cat, and
     // the own-ship service copies it off the settings on the next fix: the page
     // does not need a second wire, and it must not grow one.
     push_fix(rig, 100, 500);
     rig.run(t, t + 1000);
-    CHECK(rig.state().own.aircraft_cat == 6);
+    CHECK(rig.state().own.aircraft_cat == 3);
 }
 
 TEST_CASE("product: walking the rows without changing one writes nothing at all") {

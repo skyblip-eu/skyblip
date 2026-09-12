@@ -15,13 +15,10 @@ int length(const char* s) {
     return n;
 }
 
-// INFO: cf 02aug26 ADS-L 4 SRD-860 issue 2 G.1.4, the wire values, so nothing
-// has to map: the code stored is the code transmitted. 12 to 17 are a second
-// UAV encoding and reserved, and a page that offers "reserved" as a choice is a
-// page that invites a pilot to say nothing about themselves.
+// INFO: cf 02aug26 ADS-L 4 SRD-860 issue 2 G.1.4 wire values: the code stored is transmitted
 const char* const kAircraftNames[kNamedAircraftTypes] = {
-    "UNKNOWN",    "LIGHT",      "HEAVY",    "HELICOPTER", "GLIDER",     "BALLOON",
-    "MICROLIGHT", "PARAGLIDER", "SKYDIVER", "VTOL",       "GYROCOPTER", "UAV"};
+    "UNKNOWN",    "LIGHT",      "HEAVY",    "HELICOPTER", "GLIDER",    "BALLOON",
+    "MICROLIGHT", "PARAGLIDER", "SKYDIVER", "VTOL",       "GYROCOPTER"};
 
 void row_text(Framebuffer& fb, SettingsRow row, const char* label, const char* value,
               bool focused) {
