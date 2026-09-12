@@ -17,7 +17,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
     int dc{0}, rst{1}, busy{2}, backlight_pin{3};
 
     // INFO: fc 13sep26 GxEPD2_154_D67.h: partial_refresh_time 500, full_refresh_time 2600
-    static constexpr uint32_t kFastBusyMs = 500;
+    static constexpr uint32_t kPartialBusyMs = 500;
     static constexpr uint32_t kFullBusyMs = 2600;
 
     void attach_clock(const hal::Clock& clock) { clock_ = &clock; }
@@ -71,7 +71,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
                         present_count++;
                         if (clock_ != nullptr) {
                             refresh_since_ms_ = clock_->millis();
-                            refresh_span_ms_ = last_full ? kFullBusyMs : kFastBusyMs;
+                            refresh_span_ms_ = last_full ? kFullBusyMs : kPartialBusyMs;
                         }
                         // In deep sleep the panel's charge pump is off: it latches
                         // nothing, and keeps the last image it did latch.

@@ -42,11 +42,11 @@ class Ssd1681 : public hal::Display {
 
     bool refreshing() const { return refreshing_; }
     hal::Refresh refresh_mode() const {
-        return fast_refresh_ ? hal::Refresh::Fast : hal::Refresh::Full;
+        return partial_refresh_ ? hal::Refresh::Partial : hal::Refresh::Full;
     }
 
-    // INFO: fc 01aug25 D67 settles ~460 ms fast / ~2.5 s full (GxEPD2) | 12sep26 +140 ms power-down
-    static constexpr uint32_t kReadyAfterFastMs = 300;
+    // INFO: fc 01aug25 D67 settles 460 ms partial / 2.5 s full, GxEPD2 | 12sep26 +140 ms power-down
+    static constexpr uint32_t kReadyAfterPartialMs = 300;
     static constexpr uint32_t kReadyAfterFullMs = 1500;
     // INFO: fc 13sep26 GxEPD2 gives the D67 10 s: the cold waveform is slow, and this bounds a hang
     static constexpr uint32_t kBusyTimeoutMs = 10000;
@@ -70,13 +70,12 @@ class Ssd1681 : public hal::Display {
     io::Gpio& gpio_;
     int dc_, rst_, busy_, backlight_;
     GlassRotation rotation_;
-    // INFO: fc 01aug25 the glass image, rewritten into bank 0x26 each present so
-    // fast refreshes diff against the truth across deep sleep and panel lots
+    // INFO: fc 01aug25 the glass image, into bank 0x26 each present, so a partial diffs on truth
     uint8_t shadow_[ui::Framebuffer::kBytes]{};
     bool glass_known_{false};
     bool asleep_{false};
     bool refreshing_{false};
-    bool fast_refresh_{false};
+    bool partial_refresh_{false};
     Panel panel_{Panel::Unknown};
     uint32_t ready_at_ms_{0};
     uint32_t timeout_at_ms_{0};

@@ -3,7 +3,7 @@ import createModule from './skyblip_simulator.js';
 export const PAGES = ['radar', '6-pack', 'status', 'signal', 'radio log', 'settings'];
 export const ALARM = ['none', 'info', 'important', 'urgent'];
 export const SHUTDOWN = ['running', 'parking', 'await release', 'off'];
-export const REFRESH = ['idle', 'partial refresh', 'full wash'];
+export const REFRESH = ['idle', 'partial refresh', 'full refresh'];
 export const DWELL = ['uplink RX · 869.525', 'retune O->M', 'slot 0 · 868.200',
                       'hop', 'slot 1 · 868.400', 'retune M->O'];
 
@@ -55,7 +55,6 @@ export async function load() {
     refreshing: call('simulator_panel_refreshing', 'number', n),
     refreshIsFull: call('simulator_panel_refresh_is_full', 'number', n),
     presents: call('simulator_present_count', 'number', n),
-    partialsSinceWash: call('simulator_partials_since_wash', 'number', n),
     blOn: call('simulator_backlight_on', 'number', n),
     powered: call('simulator_powered', 'number', n),
     page: call('simulator_page', 'number', n),

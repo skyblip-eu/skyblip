@@ -24,7 +24,7 @@ constexpr uint8_t kDeepSleepRetainRam = 0x01;
 
 constexpr uint8_t kSequenceFull = 0xF7;
 // INFO: fc 12sep26 0xFF ends a partial with the rails down, as Waveshare's own 0xCF does
-constexpr uint8_t kSequenceFast = 0xFF;
+constexpr uint8_t kSequencePartial = 0xFF;
 
 // INFO: fc 09mar26 VBD follows LUT1 at 0x05 and greys over a run of partials; 0x80 holds it at VCOM
 constexpr uint8_t kBorderFollowLut1 = 0x05;
@@ -66,13 +66,13 @@ void Ssd1681::present(const ui::Framebuffer& fb, hal::Refresh mode, uint32_t now
     std::memcpy(shadow_, fb.data(), ui::Framebuffer::kBytes);
 
     cmd(kDisplayUpdateCtrl2);
-    data(full ? kSequenceFull : kSequenceFast);
+    data(full ? kSequenceFull : kSequencePartial);
     cmd(kMasterActivation);
 
     glass_known_ = true;
     refreshing_ = true;
-    fast_refresh_ = !full;
-    ready_at_ms_ = now_ms + (full ? kReadyAfterFullMs : kReadyAfterFastMs);
+    partial_refresh_ = !full;
+    ready_at_ms_ = now_ms + (full ? kReadyAfterFullMs : kReadyAfterPartialMs);
     timeout_at_ms_ = now_ms + kBusyTimeoutMs;
 }
 

@@ -1,4 +1,4 @@
-// The refresh policy over the real SSD1681 driver: partials, a wash an hour, swaps through black.
+// The refresh policy over the real SSD1681 driver: partials only, and swaps through black.
 #include "test/support/screen_rig.h"
 
 TEST_CASE("screen policy: a static frame is never re-presented") {
@@ -12,7 +12,7 @@ TEST_CASE("screen policy: a static frame is never re-presented") {
     CHECK(rig.chip.present_count == 1);
 }
 
-TEST_CASE("screen policy: a minute of changing frames costs partials and no wash") {
+TEST_CASE("screen policy: a minute of changing frames costs partials and no full") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);  // boot full
@@ -20,36 +20,18 @@ TEST_CASE("screen policy: a minute of changing frames costs partials and no wash
     rig.churn(t, 60);
     CHECK(rig.chip.present_count > 1);
     CHECK_FALSE(rig.chip.last_full);
-    CHECK(rig.screen.fasts_since_full() >= 60);
 }
 
-// SoftRF runs this glass on partials alone: the hourly wash is a vendor rule, not ghosting we saw.
-TEST_CASE("screen policy: an hour of partials is settled by one wash") {
-    Rig rig;
-    uint32_t t = 0;
-    rig.run_seconds(t, 3);
-
-    rig.churn_at(t, 60000, go::ScreenService::kFullEveryMs / 60000 - 1);
-    CHECK_FALSE(rig.chip.last_full);
-    CHECK(rig.screen.fasts_since_full() > 0);
-
-    rig.churn_at(t, 60000, 1);
-    CHECK(rig.chip.last_full);
-    CHECK(rig.screen.fasts_since_full() == 0);
-}
-
-TEST_CASE("screen policy: the wash waits out an alarm however long it stands") {
+// SoftRF runs this glass on partials alone: the full waveform is power on and power off, no more.
+TEST_CASE("screen policy: hours of changing frames never cost a full refresh") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);  // boot full
+    const int boot = rig.chip.present_count;
 
-    rig.alarm(2);
-    rig.churn_at(t, 60000, go::ScreenService::kFullEveryMs / 60000 + 10);
+    rig.churn_at(t, 60000, 180);
+    CHECK(rig.chip.present_count > boot);
     CHECK_FALSE(rig.chip.last_full);
-
-    rig.alarm(0);
-    rig.churn(t, 1);
-    CHECK(rig.chip.last_full);
 }
 
 TEST_CASE("screen policy: a page change goes through black, not through the full waveform") {
@@ -108,7 +90,7 @@ TEST_CASE("screen policy: converging traffic takes the settings mode back off th
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
-    rig.bus.input.push(messages::ButtonEvent{messages::kPadHeld});
+    rig.bus.input.push(messages::ButtonEvent{messages::kButtonPressed});
     rig.run_seconds(t, 2);
     REQUIRE(rig.screen.mode() == go::Mode::Settings);
     REQUIRE(rig.screen.editor().active());
@@ -134,7 +116,7 @@ TEST_CASE("screen policy: presents wait for the panel, none is issued mid-refres
     rig.tick(t += 1000);  // boot full: the glass is busy 2.5 s
     const int count = rig.chip.present_count;
 
-    rig.state.clock.utc_valid = true;  // a visible change, right away
+    rig.state.own.sats = 8;  // a visible change, right away
     rig.screen.mark_dirty();
     rig.tick(t += 100);  // 1.1 s: full not settled yet
     CHECK(rig.chip.present_count == count);

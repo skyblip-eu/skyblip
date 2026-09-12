@@ -17,10 +17,7 @@ bool settled_for_a_double_press(uint32_t now_ms, uint32_t since_ms) {
 }
 }  // namespace
 
-// INFO: cf 02aug26 One press means one thing at a time. While a prompt stands
-// there is no page cycling at all, so the press a pilot makes to change pages
-// cannot be spent on an authorisation - and a lone press at a prompt refuses it
-// rather than doing nothing, which is the same press failing closed.
+// INFO: cf 02aug26 a standing prompt takes the pad and the button both, so nothing pages or opens
 void ScreenService::handle_input(uint32_t now_ms) {
     const comms::Pending pending = config_ ? config_->pending() : comms::Pending::None;
     if (pending != prompt_) {
@@ -50,8 +47,12 @@ void ScreenService::handle_input(uint32_t now_ms) {
 
     messages::ButtonEvent event{};
     while (context_.bus.input.pop(event)) {
+        if (event.id == messages::kPadTapped) {
+            if (prompt_ == comms::Pending::None) page_forward(now_ms);
+            continue;
+        }
         if (event.id == messages::kPadHeld) {
-            if (prompt_ == comms::Pending::None && mode_ == Mode::Traffic) enter_settings(now_ms);
+            if (prompt_ == comms::Pending::None) show_radar();
             continue;
         }
         last_press_ms_ = now_ms;
@@ -64,11 +65,10 @@ void ScreenService::handle_input(uint32_t now_ms) {
             if (showing_self_test_)
                 dismiss_self_test(now_ms);
             else
-                editor_.press(now_ms);
+                editor_.change(now_ms);
             continue;
         }
-        next_page();
-        sync_editor(now_ms);
+        enter_settings(now_ms);
     }
 
     if (prompt_ != comms::Pending::None) {
@@ -105,6 +105,23 @@ void ScreenService::dismiss_self_test(uint32_t now_ms) {
 void ScreenService::enter_settings(uint32_t now_ms) {
     mode_ = Mode::Settings;
     sync_editor(now_ms);
+    repaint_through_black();
+}
+
+void ScreenService::page_forward(uint32_t now_ms) {
+    if (mode_ != Mode::Settings) {
+        next_page();
+        return;
+    }
+    if (showing_self_test_)
+        dismiss_self_test(now_ms);
+    else
+        editor_.next_row(now_ms);
+}
+
+void ScreenService::show_radar() {
+    if (mode_ == Mode::Settings) leave_settings();
+    page_ = Page::Radar;
     repaint_through_black();
 }
 
@@ -204,43 +221,31 @@ void ScreenService::tick(uint32_t now_ms) {
 
     const bool changed = !presented_once_ ||
                          std::memcmp(fb_.data(), presented_.data(), ui::Framebuffer::kBytes) != 0;
-    const bool owed_full = decide_full(now_ms);
-    if (!changed && !owed_full) return;
+    if (!changed && !want_full_) return;
 
-    const bool full = owed_full || thermal() == Thermal::FullOnly;
-    context_.roles.display.present(fb_, full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
-    note_presented(full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
+    const hal::Refresh mode = want_full_ ? hal::Refresh::Full : hal::Refresh::Partial;
+    context_.roles.display.present(fb_, mode, now_ms);
+    note_presented(mode, now_ms);
 }
 
-// INFO: fc 06sep26 the OTP waveform is picked by temperature; the partial LUT ghosts cold
+// TODO: fc 12sep26 a cold glass is unmeasured, and no rule that returns is one full a frame (#62)
 ScreenService::Thermal ScreenService::thermal() const {
     if (!context_.state.die_temperature_valid) return Thermal::Refresh;
-    const int16_t decicelsius = context_.state.die_decicelsius;
-    if (decicelsius > kHoldAboveDeciCelsius) return Thermal::Hold;
-    if (decicelsius < kFullOnlyBelowDeciCelsius) return Thermal::FullOnly;
+    if (context_.state.die_decicelsius > kHoldAboveDeciCelsius) return Thermal::Hold;
     return Thermal::Refresh;
 }
 
-// INFO: fc 09mar26 SoftRF runs this glass on partials alone: the wash is a vendor rule, not ours
-bool ScreenService::decide_full(uint32_t now_ms) const {
-    if (!presented_once_) return true;
-    if (want_full_) return true;
-    if (now_ms - last_full_ms_ < kFullEveryMs) return false;
-    return context_.state.alarm_level == 0;
-}
-
+// INFO: fc 09mar26 SoftRF runs this glass on partials alone, power-on to power-off
 bool ScreenService::transitions_through_black() const {
-    if (!presented_once_ || want_full_) return false;
+    if (want_full_) return false;
     return context_.state.alarm_level == 0;
 }
 
 // INFO: fc 09mar26 SoftRF's page transition: all black through the partial waveform, then the page
 void ScreenService::present_black_flash(uint32_t now_ms) {
     fb_.clear(/*white=*/false);
-    const hal::Refresh mode =
-        thermal() == Thermal::FullOnly ? hal::Refresh::Full : hal::Refresh::Fast;
-    context_.roles.display.present(fb_, mode, now_ms);
-    note_presented(mode, now_ms);
+    context_.roles.display.present(fb_, hal::Refresh::Partial, now_ms);
+    note_presented(hal::Refresh::Partial, now_ms);
     prompt_on_glass_ = false;
     last_render_ms_ = now_ms;
     dirty_ = true;
@@ -254,13 +259,7 @@ void ScreenService::note_presented(hal::Refresh mode, uint32_t now_ms) {
     context_.state.panel_presented = true;
     prompt_on_glass_ = prompt_ != comms::Pending::None;
     last_present_ms_ = now_ms;
-    if (mode == hal::Refresh::Full) {
-        fasts_since_full_ = 0;
-        want_full_ = false;
-        last_full_ms_ = now_ms;
-    } else {
-        fasts_since_full_++;
-    }
+    if (mode == hal::Refresh::Full) want_full_ = false;
 }
 
 void ScreenService::next_page() {
@@ -378,11 +377,10 @@ void ScreenService::render() {
         case Page::Radar: {
             ui::RadarSnapshot snap;
             snap.have_fix = own.fix_valid;
-            snap.range_m = range_m_;
+            snap.range_nm = range_nm_;
             snap.track_deg = to_degrees(Cordic9(own.track_c9)).v;
             snap.sats = own.sats;
             snap.max_alarm = context_.state.alarm_level;
-            snap.coverage = context_.state.clock.utc_valid;
             int n = 0;
             if (own.fix_valid) {
                 for (int i = 0; i < traffic::TrafficTable::kCapacity && n < kMaxRadarTargets; i++) {

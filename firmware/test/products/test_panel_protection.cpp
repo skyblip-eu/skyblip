@@ -1,4 +1,4 @@
-// What the panel's limits do to the refresh policy: held hot, washed cold, stopped, parked.
+// What the panel's limits do to the refresh policy: held hot, stopped on a dying rail, parked.
 #include "test/support/screen_rig.h"
 
 // Glass rated 0..50 C; the Go's soak case is 72.4 C, project/research/enclosure-and-mount-go.md.
@@ -43,7 +43,7 @@ TEST_CASE("screen policy: a screen changing every second still rests between ref
     CHECK(rig.chip.deep_sleeps == 0);
 }
 
-TEST_CASE("screen policy: a held panel is not washed either, so nothing refreshes it hot") {
+TEST_CASE("screen policy: nothing refreshes a panel held hot, partial or full") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
@@ -57,7 +57,7 @@ TEST_CASE("screen policy: a held panel is not washed either, so nothing refreshe
     CHECK_FALSE(rig.chip.rails_on);
 }
 
-TEST_CASE("screen policy: a supply warning is not washed, no refresh starts on a dying rail") {
+TEST_CASE("screen policy: no refresh starts on a dying rail, partial or full") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
@@ -72,7 +72,6 @@ TEST_CASE("screen policy: a supply warning is not washed, no refresh starts on a
 
 TEST_CASE("screen policy: the hold threshold is the rated limit, not a margin somebody chose") {
     CHECK(go::ScreenService::kHoldAboveDeciCelsius == 500);
-    CHECK(go::ScreenService::kFullOnlyBelowDeciCelsius == 0);
 }
 
 // The rated limit is a temperature the panel works at, not the first one it refuses.
@@ -90,21 +89,6 @@ TEST_CASE("screen policy: the panel still refreshes at exactly its rated limit")
     const int held = rig.chip.present_count;
     rig.churn(t, 3);
     CHECK(rig.chip.present_count == held);
-}
-
-TEST_CASE("screen policy: freezing point itself is warm enough for the fast waveform") {
-    Rig rig;
-    uint32_t t = 0;
-    rig.run_seconds(t, 3);
-
-    rig.die_temperature(go::ScreenService::kFullOnlyBelowDeciCelsius);
-    rig.churn(t, 2);
-    CHECK_FALSE(rig.chip.last_full);
-
-    rig.die_temperature(go::ScreenService::kFullOnlyBelowDeciCelsius - 1);
-    rig.churn(t, 1);
-    rig.run_seconds(t, 2);
-    CHECK(rig.chip.last_full);
 }
 
 // A refresh already in flight when the panel goes out of range is left to finish.
@@ -134,8 +118,8 @@ TEST_CASE("screen policy: the traffic picture comes back once the panel has cool
     CHECK(rig.chip.present_count > held);
 }
 
-// The partial LUT is the one that ghosts cold, and a blank traffic display is its own failure.
-TEST_CASE("screen policy: below freezing every refresh is the compensated full one") {
+// The partial LUT may well ghost cold, but a full refresh a frame wears the glass out first (#62).
+TEST_CASE("screen policy: below freezing every refresh is still a partial one") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
@@ -144,12 +128,10 @@ TEST_CASE("screen policy: below freezing every refresh is the compensated full o
     for (int i = 0; i < 6; i++) {
         rig.churn(t, 1);
         rig.run_seconds(t, 2);
-        CHECK(rig.chip.last_full);
+        CHECK_FALSE(rig.chip.last_full);
     }
-    CHECK(rig.screen.fasts_since_full() == 0);
 }
 
-// Forcing the full waveform must not also make cold a reason to refresh at all.
 TEST_CASE("screen policy: a cold panel with a static frame is still never re-presented") {
     Rig rig;
     uint32_t t = 0;
@@ -159,21 +141,6 @@ TEST_CASE("screen policy: a cold panel with a static frame is still never re-pre
     rig.die_temperature(-100);
     rig.run_seconds(t, 60);
     CHECK(rig.chip.present_count == before);
-}
-
-TEST_CASE("screen policy: a cold panel is washed even mid-alarm, where a warm one is not") {
-    Rig rig;
-    uint32_t t = 0;
-    rig.run_seconds(t, 3);
-    rig.alarm(3);
-
-    rig.churn(t, 2);
-    REQUIRE_FALSE(rig.chip.last_full);
-
-    rig.die_temperature(-1);
-    rig.churn(t, 1);
-    rig.run_seconds(t, 2);
-    CHECK(rig.chip.last_full);
 }
 
 TEST_CASE("screen policy: a board whose die sensor never read refreshes as it always did") {
@@ -248,7 +215,7 @@ TEST_CASE("screen policy: a park mid-refresh waits for the glass, it does not ta
     Rig rig;
     uint32_t t = 0;
     rig.churn(t, 5);
-    rig.state.clock.utc_valid = !rig.state.clock.utc_valid;
+    rig.state.own.sats = 7;
     rig.tick(t += 1000);
     const int before = rig.chip.present_count;
     REQUIRE(rig.epd.refreshing());

@@ -9,7 +9,8 @@ class Framebuffer;
 
 namespace skyblip::hal {
 
-enum class Refresh : uint8_t { Full, Fast };
+// INFO: fc 12sep26 the two the controller has: SSD1681 display mode 1 and mode 2 (0x22 bit 3)
+enum class Refresh : uint8_t { Full, Partial };
 
 class Display {
    public:

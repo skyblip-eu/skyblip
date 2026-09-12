@@ -25,12 +25,8 @@ class ScreenService : public runtime::Service {
     static constexpr int kMaxRadarTargets = 12;
     static constexpr uint32_t kRenderPeriodMs = 1000;
     static constexpr uint32_t kPresentFloorMs = 1000;
-    // INFO: fc 09mar26 Good Display asks for one refresh a day, SoftRF ships none at all
-    static constexpr uint32_t kFullEveryMs = 3600000;
 
-    // INFO: fc 06sep26 Good Display rates the glass 0..50 C operating, -20..70 C storage
-    static constexpr int16_t kFullOnlyBelowDeciCelsius = 0;
-    // INFO: fc 06sep26 the rated limit read on a die above ambient, so it holds early
+    // INFO: fc 06sep26 Good Display rates the glass 0..50 C, read on a die above ambient
     static constexpr int16_t kHoldAboveDeciCelsius = 500;
 
     // INFO: cf 02aug26 The level at which the radar carries a bearing worth
@@ -56,12 +52,12 @@ class ScreenService : public runtime::Service {
     void settle_park(uint32_t now_ms);
     void park_for_install();
     void park_for_stow();
-    void set_range_m(int32_t m) {
-        range_m_ = m;
+    void set_range_nm(int32_t nm) {
+        range_nm_ = nm;
         dirty_ = true;
     }
 
-    enum class Thermal : uint8_t { Refresh, FullOnly, Hold };
+    enum class Thermal : uint8_t { Refresh, Hold };
     Thermal thermal() const;
 
     Page page() const { return page_; }
@@ -69,13 +65,12 @@ class ScreenService : public runtime::Service {
     comms::Pending prompt() const { return prompt_; }
     const ui::SettingsEditor& editor() const { return editor_; }
     bool showing_self_test() const { return showing_self_test_; }
-    int32_t range_m() const { return range_m_; }
+    int32_t range_nm() const { return range_nm_; }
     bool backlight() const { return backlight_; }
     bool powered() const { return powered_; }
     bool parking() const { return park_ != ParkStep::None; }
     const ui::Framebuffer& framebuffer() const { return fb_; }
     void mark_dirty() { dirty_ = true; }
-    int fasts_since_full() const { return fasts_since_full_; }
 
    private:
     void render();
@@ -85,6 +80,8 @@ class ScreenService : public runtime::Service {
     void dismiss_self_test(uint32_t now_ms);
     void enter_settings(uint32_t now_ms);
     void leave_settings();
+    void page_forward(uint32_t now_ms);
+    void show_radar();
     void handle_input(uint32_t now_ms);
     void sync_editor(uint32_t now_ms);
     void step_editor(uint32_t now_ms);
@@ -92,7 +89,6 @@ class ScreenService : public runtime::Service {
     Page traffic_page() const;
     bool transitions_through_black() const;
     void present_black_flash(uint32_t now_ms);
-    bool decide_full(uint32_t now_ms) const;
     bool may_present_park_frame() const;
     enum class ParkFrame : uint8_t { Wordmark, Installing, Blank };
     enum class ParkStep : uint8_t { None, Frame, Sleep };
@@ -127,12 +123,10 @@ class ScreenService : public runtime::Service {
     traffic::LinkRow signal_rows_[ui::kSignalRows]{};
     Page page_{Page::Radar};
     Mode mode_{Mode::Traffic};
-    int32_t range_m_{10000};
+    int32_t range_nm_{ui::kDefaultRangeNm};
     uint32_t last_tick_ms_{0};
     uint32_t last_render_ms_{0};
     uint32_t last_present_ms_{0};
-    uint32_t last_full_ms_{0};
-    int fasts_since_full_{0};
     uint8_t last_alarm_{0};
     bool dirty_{true};
     bool want_full_{true};
