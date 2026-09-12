@@ -23,7 +23,13 @@ constexpr uint8_t kDeepSleep = 0x10;
 constexpr uint8_t kDeepSleepRetainRam = 0x01;
 
 constexpr uint8_t kSequenceFull = 0xF7;
-constexpr uint8_t kSequenceFast = 0xFF;
+// INFO: fc 09mar26 0xFC leaves the rails up; dropping them after a partial breaks D67 lots
+constexpr uint8_t kSequenceFast = 0xFC;
+constexpr uint8_t kSequencePowerOff = 0x83;
+
+// INFO: fc 09mar26 VBD follows LUT1 at 0x05 and greys over a run of partials; 0x80 holds it at VCOM
+constexpr uint8_t kBorderFollowLut1 = 0x05;
+constexpr uint8_t kBorderVcom = 0x80;
 
 constexpr int kW = ui::Framebuffer::kW;
 constexpr int kH = ui::Framebuffer::kH;
@@ -39,6 +45,11 @@ void Ssd1681::begin() {
     asleep_ = false;
 }
 
+// INFO: fc 09mar26 GxEPD2 writes the new frame into both banks before a full refresh
+const uint8_t* Ssd1681::previous_bank(const ui::Framebuffer& fb, bool full) const {
+    return full ? fb.data() : shadow_;
+}
+
 void Ssd1681::present(const ui::Framebuffer& fb, hal::Refresh mode, uint32_t now_ms) {
     if (refreshing_) {  // only the shutdown path presents into a running refresh
         wait_busy();
@@ -52,7 +63,9 @@ void Ssd1681::present(const ui::Framebuffer& fb, hal::Refresh mode, uint32_t now
     const bool full = mode == hal::Refresh::Full || !glass_known_;
 
     set_window(0, 0, kW - 1, kH - 1);
-    write_bank(kWriteRamPrevious, shadow_);
+    cmd(kBorderWaveform);
+    data(full ? kBorderFollowLut1 : kBorderVcom);
+    write_bank(kWriteRamPrevious, previous_bank(fb, full));
     write_bank(kWriteRam, fb.data());
     std::memcpy(shadow_, fb.data(), ui::Framebuffer::kBytes);
 
@@ -125,7 +138,7 @@ void Ssd1681::init_panel() {
     set_window(0, 0, kW - 1, kH - 1);
 
     cmd(kBorderWaveform);
-    data(0x05);
+    data(kBorderFollowLut1);
 
     // INFO: fc 01aug25 internal sensor selects the temperature-compensated OTP LUT
     cmd(kTempSensorCtrl);
@@ -133,16 +146,27 @@ void Ssd1681::init_panel() {
 
     set_cursor(0, 0);
     wait_busy();
+    rails_on_ = false;
 }
 
 void Ssd1681::finish_refresh() {
     refreshing_ = false;
+    rails_on_ = fast_refresh_;
     // INFO: fc 01aug25 vendor rule: a panel left powered between refreshes degrades
     if (fast_refresh_ && !panel_may_sleep_after_fast_refresh(panel_)) return;
     enter_sleep();
 }
 
+void Ssd1681::power_down_rails() {
+    cmd(kDisplayUpdateCtrl2);
+    data(kSequencePowerOff);
+    cmd(kMasterActivation);
+    wait_busy();
+    rails_on_ = false;
+}
+
 void Ssd1681::enter_sleep() {
+    if (rails_on_) power_down_rails();
     cmd(kDeepSleep);
     data(kDeepSleepRetainRam);
     asleep_ = true;
@@ -166,11 +190,15 @@ void Ssd1681::write_bank(uint8_t command, const uint8_t* fb_bytes) {
     set_cursor(0, 0);
     cmd(command);
     // INFO: fc 01aug25 panel RAM is 1=white, the framebuffer 1=black
+    uint8_t gate_line[ui::Framebuffer::kStride];
+    gpio_.set(dc_, true);
+    spi_.select(true);
     for (int gate = 0; gate < kH; gate++) {
-        for (int column = 0; column < ui::Framebuffer::kStride; column++) {
-            data(static_cast<uint8_t>(~ram_byte(fb_bytes, gate, column)));
-        }
+        for (int column = 0; column < ui::Framebuffer::kStride; column++)
+            gate_line[column] = static_cast<uint8_t>(~ram_byte(fb_bytes, gate, column));
+        spi_.transfer(gate_line, nullptr, sizeof(gate_line));
     }
+    spi_.select(false);
 }
 
 uint8_t Ssd1681::ram_byte(const uint8_t* fb_bytes, int gate, int column) const {

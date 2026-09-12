@@ -200,6 +200,88 @@ TEST_CASE("epd: present() rewrites the previous-image bank so the panel diffs th
     CHECK_FALSE(glass.get_pixel(20, 20));
 }
 
+// GxEPD2 writeImageForFullRefresh: the wash reads both banks, and old against new adds inversions.
+TEST_CASE("epd: a full refresh puts the new frame in both banks, not the old one in 0x26") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+
+    ui::Framebuffer first;
+    first.clear(true);
+    first.set_pixel(10, 10, true);
+    d.present(first, hal::Refresh::Full, 0);
+    settle(d, 0);
+
+    ui::Framebuffer second;
+    second.clear(true);
+    second.set_pixel(20, 20, true);
+    d.present(second, hal::Refresh::Full, 5000);
+    REQUIRE(f.ram.size() == ui::Framebuffer::kBytes);
+    CHECK(f.ram_previous == f.ram);
+}
+
+// Waveshare and ESPHome both move VBD off the transition LUT for partials; at 0x05 the border greys.
+TEST_CASE("epd: the border follows the waveform on a wash and is held at VCOM on a partial") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    CHECK(f.border == 0x05);
+    settle(d, 0);
+
+    fb.set_pixel(5, 5, true);
+    d.present(fb, hal::Refresh::Fast, 5000);
+    CHECK(f.border == 0x80);
+}
+
+// SoftRF disables powerOff after a partial on this glass; our partial must not drop the rails either.
+TEST_CASE("epd: a partial leaves the rails up, and the sleep path drops them before deep sleep") {
+    models::Ssd1681 f;
+    parts::Ssd1681 d = make(f);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    settle(d, 0);
+    CHECK_FALSE(f.rails_on);  // the full waveform drops them itself
+    CHECK(f.power_offs == 0);
+
+    fb.set_pixel(5, 5, true);
+    d.present(fb, hal::Refresh::Fast, 5000);
+    CHECK(d.ready(5000 + parts::Ssd1681::kReadyAfterFastMs));
+    CHECK(f.rails_on);
+    CHECK(f.powered);
+
+    fb.clear(true);
+    d.present(fb, hal::Refresh::Full, 10000);
+    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFullMs));
+    CHECK_FALSE(f.rails_on);
+    CHECK(f.power_offs == 0);
+}
+
+TEST_CASE("epd: the lot that may sleep on a partial is powered down before it does") {
+    models::Ssd1681 f;
+    f.signature = parts::panels::kGdeh0154D67Syx1942;
+    parts::Ssd1681 d = make(f);
+    d.adopt(f.signature);
+    d.begin();
+    ui::Framebuffer fb;
+    fb.clear(true);
+
+    d.present(fb, hal::Refresh::Full, 0);
+    settle(d, 0);
+    fb.set_pixel(7, 7, true);
+    d.present(fb, hal::Refresh::Fast, 10000);
+    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFastMs));
+    CHECK(f.power_offs == 1);
+    CHECK_FALSE(f.rails_on);
+    CHECK_FALSE(f.powered);
+}
+
 TEST_CASE("epd: present() is non-blocking and ready() settles the panel into deep sleep") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);
