@@ -36,6 +36,9 @@ struct Buzzer {
     uint32_t last_gap_ms{0};
     uint32_t off_since_ms{0};
     int beeps{0};
+    static constexpr int kRecorded = 16;
+    uint8_t pitch_of[kRecorded]{};
+    uint32_t gap_before[kRecorded]{};
 
     void apply(const Command& command, uint32_t now_ms) {
         if (on) on_ms += kStepMs;
@@ -46,6 +49,10 @@ struct Buzzer {
                 beeps++;
                 beep_started_ms = now_ms;
                 last_gap_ms = now_ms - off_since_ms;
+                if (beeps <= kRecorded) {
+                    pitch_of[beeps - 1] = command.tone_level;
+                    gap_before[beeps - 1] = last_gap_ms;
+                }
             }
             on = true;
             level = command.tone_level;
@@ -231,7 +238,7 @@ TEST_CASE("annunciation: the buzzer is released the moment its reason goes") {
         CHECK(buzzer.tone_commands == commands);
     }
 
-    SUBCASE("the fix chirp ends on its own clock, with nothing to release it") {
+    SUBCASE("the fix tune ends on its own clock, with nothing to release it") {
         Buzzer buzzer;
         uint32_t t = 1000;
         Situation fix{};
@@ -239,13 +246,40 @@ TEST_CASE("annunciation: the buzzer is released the moment its reason goes") {
         buzzer.apply(buzzer.policy.update(fix, t), t);
         t += kStepMs;
         buzzer.run(standing(0), t, 5000);
-        CHECK(buzzer.beeps == 1);
-        CHECK(buzzer.last_beep_ms == kFirstFixChirpMs);
+        CHECK(buzzer.beeps == kFirstFixNoteCount);
+        CHECK(buzzer.last_beep_ms == kFirstFixHeldNoteMs);
         CHECK_FALSE(buzzer.on);
+        CHECK(buzzer.policy.voice() == Voice::None);
     }
 }
 
-TEST_CASE("annunciation: traffic owns the buzzer, the fix chirp only borrows it") {
+TEST_CASE("annunciation: the first fix is six notes, three pitches, and an uneven rhythm") {
+    Buzzer buzzer;
+    uint32_t t = 1000;
+    Situation fix{};
+    fix.first_fix = true;
+    buzzer.apply(buzzer.policy.update(fix, t), t);
+    t += kStepMs;
+    buzzer.run(Situation{}, t, 5000);
+
+    REQUIRE(buzzer.beeps == kFirstFixNoteCount);
+    uint32_t tone_ms = 0;
+    for (uint8_t i = 0; i < kFirstFixNoteCount; i++) {
+        CHECK(int(buzzer.pitch_of[i]) == int(kFirstFixJingle[i].pitch));
+        if (i > 0) CHECK(buzzer.gap_before[i] == kFirstFixJingle[i - 1].gap_ms);
+        tone_ms += kFirstFixJingle[i].tone_ms;
+    }
+    CHECK(buzzer.on_ms == tone_ms);
+
+    // mid mid . mid . low mid . high: the two silent beats are the tune.
+    CHECK(buzzer.gap_before[1] == kFirstFixNextBeatMs);
+    CHECK(buzzer.gap_before[2] == kFirstFixSkipBeatMs);
+    CHECK(int(buzzer.pitch_of[3]) == kPitchLow);
+    CHECK(int(buzzer.pitch_of[5]) == kPitchHigh);
+    CHECK(first_fix_jingle_ms() < 2000);
+}
+
+TEST_CASE("annunciation: traffic owns the buzzer, the fix tune only borrows it") {
     // A chirp while traffic stands is refused: one owner at a time, and the
     // pilot's answer to "where is the traffic" is not a chirp.
     Buzzer standing_traffic;
@@ -267,7 +301,7 @@ TEST_CASE("annunciation: traffic owns the buzzer, the fix chirp only borrows it"
     fix.first_fix = true;
     chirping.apply(chirping.policy.update(fix, u), u);
     u += kStepMs;
-    chirping.run(Situation{}, u, 100);
+    chirping.run(Situation{}, u, kFirstFixNoteMs - 2 * kStepMs);
     REQUIRE(chirping.on);
     REQUIRE(chirping.policy.voice() == Voice::FirstFix);
 

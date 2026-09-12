@@ -200,39 +200,39 @@ TEST_CASE("product: a standing urgent buzzes the motor once, not on every re-ann
     CHECK(sky.tone_commands() > 3 * annunciation::kUrgentTrainPulseCount);
 }
 
-TEST_CASE("product: the first fix chirps, and traffic takes the buzzer off it") {
+TEST_CASE("product: the first fix plays its tune, and traffic takes the buzzer off it") {
     Sky sky;
     REQUIRE(sky.simulator.setup() == Status::Ok);
 
-    // The chirp is one tone that ends on its own clock: nothing has to remember
-    // to silence it, and it is the alarm service - the one owner of the
-    // annunciator - that plays it.
-    uint32_t chirping = 0;
-    uint8_t chirp_level = 0;
-    uint32_t chirp_ms = 0;
-    for (uint32_t t = 0; t <= 3000; t += kStepMs) {
+    uint32_t started = 0;
+    uint8_t first_pitch = 0;
+    uint32_t sounding_ms = 0;
+    for (uint32_t t = 0; t <= 5000; t += kStepMs) {
         sky.simulator.step(t);
         if (sky.sounding_level() == 0) continue;
-        if (chirping == 0) {
-            chirping = t;
-            chirp_level = sky.sounding_level();
+        if (started == 0) {
+            started = t;
+            first_pitch = sky.sounding_level();
         }
-        chirp_ms += kStepMs;
+        sounding_ms += kStepMs;
     }
-    CHECK(sky.tone_commands() == 1);
-    CHECK(chirping > 0);
-    CHECK(int(chirp_level) == annunciation::kFirstFixChirpLevel);
-    CHECK(chirp_ms >= annunciation::kFirstFixChirpMs - kStepMs);
-    CHECK(chirp_ms <= annunciation::kFirstFixChirpMs);
+    uint32_t tone_ms = 0;
+    for (const annunciation::Note& note : annunciation::kFirstFixJingle) tone_ms += note.tone_ms;
+
+    CHECK(sky.tone_commands() == annunciation::kFirstFixNoteCount);
+    CHECK(started > 0);
+    CHECK(int(first_pitch) == int(annunciation::kFirstFixJingle[0].pitch));
+    CHECK(sounding_ms >= tone_ms - annunciation::kFirstFixNoteCount * kStepMs);
+    CHECK(sounding_ms <= tone_ms);
     // No haptics: the motor is reserved for traffic that got worse, so a pilot
     // who feels it knows what it means without looking.
     CHECK(sky.buzzer().vibro_pulses() == 0);
     CHECK(int(sky.sounding_level()) == 0);
-    CHECK(sky.buzzer().silences() == 1);
+    CHECK(sky.buzzer().silences() == annunciation::kFirstFixNoteCount);
 
     // Traffic then owns it, and the fix is not chirped a second time.
     sky.simulator.world().add_threat();
-    sky.run(3000, 7000);
+    sky.run(5000, 9000);
     CHECK(int(sky.announcing_level()) == 3);
 }
 

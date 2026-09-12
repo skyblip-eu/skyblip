@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "core/annunciation/pattern.h"
 #include "doctest/doctest.h"
 #include "test/support/product_rig.h"
 
@@ -288,20 +289,25 @@ TEST_CASE("product: the first fix is announced once, then own-ship settles befor
     CHECK(int(rig.platform.annunciator().level()) == 0);
 
     rig.push_fix(1000, 1);
-    rig.run(550, 700);
+    uint8_t first_note = 0;
+    for (uint32_t t = 550; t <= 700; t += 10) {
+        rig.platform.clock().set_millis(t);
+        rig.product.step(t);
+        if (first_note == 0) first_note = rig.platform.annunciator().level();
+    }
     CHECK(rig.product.ownship().first_fix().ever_fixed());
-    CHECK(int(rig.platform.annunciator().level()) == 1);  // the chirp, at the lowest step
+    CHECK(int(first_note) == int(annunciation::kFirstFixJingle[0].pitch));
     // The motor stays out of it: haptics mean traffic that escalated.
     CHECK(rig.platform.annunciator().vibro_ms() == 0);
 
     // It is short and it stops by itself, so nothing has to remember to silence
     // it before the first traffic contact arrives.
-    rig.run(750, 2000);
+    rig.run(750, 3000);
     CHECK(int(rig.platform.annunciator().level()) == 0);
 
     // Nothing is worth transmitting yet, and 20 s later it is.
     const gnss::FirstFix& fix = rig.product.ownship().first_fix();
-    CHECK_FALSE(fix.settled(2000));
+    CHECK_FALSE(fix.settled(3000));
     CHECK_FALSE(fix.settled(fix.fix_since_ms() + gnss::kFirstFixSettleMs - 1));
     CHECK(fix.settled(fix.fix_since_ms() + gnss::kFirstFixSettleMs));
 
@@ -310,10 +316,10 @@ TEST_CASE("product: the first fix is announced once, then own-ship settles befor
     gnss::GnssFix lost{};
     lost.valid = false;
     rig.product.bus().gnss.push(lost);
-    rig.run(2050, 2200);
-    CHECK_FALSE(fix.settled(2200));
+    rig.run(3050, 3200);
+    CHECK_FALSE(fix.settled(3200));
     rig.push_fix(1000, 2);
-    rig.run(2250, 2400);
+    rig.run(3250, 3400);
     CHECK(int(rig.platform.annunciator().level()) == 0);
     CHECK(fix.settled(fix.fix_since_ms() + gnss::kRefixSettleMs));
 }

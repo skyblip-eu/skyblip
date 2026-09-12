@@ -13,7 +13,6 @@
 //   level 1 info       one short blip, then nothing until it changes
 //   level 2 important  two beeps, beep-length gap: a deliberate "look"
 //   level 3 urgent     six fast pulses, re-announced while it stands
-//   first fix          one long chirp, and it loses the buzzer to any traffic
 //
 // INFO: al 02aug26 the shape is FLARM's, by way of SoftRF's fork: one long beep
 // at low, a short pair at important, a fast train at urgent
@@ -57,14 +56,39 @@ constexpr uint8_t kUrgentTrainPulseCount = 6;
 // about a second of quiet a call or a vario can be heard in.
 constexpr uint16_t kUrgentStandingReannounceMs = 2000;
 
-// A fix is worth a chirp, not an alarm: one tone, longer than any traffic beep
-// so it cannot be mistaken for one, at the lowest step, and no haptics at all.
-// INFO: al 02aug26 SoftRF plays a six-note jingle on the very first fix
-// (oss/SoftRF-lyusupov .../src/platform/nRF52.cpp:2767-2787); the moshe-braner
-// fork adds a two-tone confirmation before it will transmit. This is the
-// confirmation half, and it is the one voice traffic is allowed to interrupt.
-constexpr uint16_t kFirstFixChirpMs = 400;
-constexpr uint8_t kFirstFixChirpLevel = 1;
+// INFO: fc 12sep26 the piezo is loud only near 4 kHz, so the riff rides the three alarm steps
+constexpr uint8_t kPitchLow = 1;
+constexpr uint8_t kPitchMid = 2;
+constexpr uint8_t kPitchHigh = 3;
+
+constexpr uint16_t kFirstFixNoteMs = kShortestBlipEarCanPlaceMs;
+constexpr uint16_t kFirstFixBeatMs = 2 * kFirstFixNoteMs;
+constexpr uint16_t kFirstFixNextBeatMs = kFirstFixBeatMs - kFirstFixNoteMs;
+constexpr uint16_t kFirstFixSkipBeatMs = kFirstFixNextBeatMs + kFirstFixBeatMs;
+constexpr uint16_t kFirstFixHeldNoteMs = kFirstFixBeatMs + kFirstFixNextBeatMs;
+
+struct Note {
+    uint8_t pitch;
+    uint16_t tone_ms;
+    uint16_t gap_ms;
+};
+
+constexpr Note kFirstFixJingle[] = {
+    {kPitchMid, kFirstFixNoteMs, kFirstFixNextBeatMs},
+    {kPitchMid, kFirstFixNoteMs, kFirstFixSkipBeatMs},
+    {kPitchMid, kFirstFixNoteMs, kFirstFixSkipBeatMs},
+    {kPitchLow, kFirstFixNoteMs, kFirstFixNextBeatMs},
+    {kPitchMid, kFirstFixNoteMs, kFirstFixSkipBeatMs},
+    {kPitchHigh, kFirstFixHeldNoteMs, 0},
+};
+constexpr uint8_t kFirstFixNoteCount = sizeof(kFirstFixJingle) / sizeof(kFirstFixJingle[0]);
+
+constexpr uint16_t first_fix_jingle_ms() {
+    uint16_t ms = 0;
+    for (const Note& note : kFirstFixJingle)
+        ms = static_cast<uint16_t>(ms + note.tone_ms + note.gap_ms);
+    return ms;
+}
 
 // The shortest phase any pattern asks the service loop to resolve. The loop
 // cadence has to divide into this several times over or the pattern the ear
@@ -125,6 +149,7 @@ class Policy {
    private:
     void begin(Voice voice, uint8_t level, uint32_t now_ms);
     void advance(uint32_t now_ms);
+    void play_jingle(uint32_t now_ms);
     void release();
     Command emit();
 
@@ -132,6 +157,7 @@ class Policy {
     Voice voice_{Voice::None};
     uint8_t level_{0};
     uint8_t said_{0};
+    uint8_t note_{0};
     uint32_t announced_ms_{0};
     uint32_t phase_ms_{0};
     bool phase_on_{false};
