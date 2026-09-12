@@ -110,10 +110,9 @@ class Product {
         flyable_ = board == Status::Ok &&
                    hal::missing(board_.capabilities(), kRequired) == hal::Capability::None;
 
-        // The panel is painted before anything is allowed to refuse: a device
-        // that names the part that failed is worth more on a first flash than a
-        // device that returns from main and goes dark.
-        show_boot_page();
+        draw_self_test();
+        screen_.attach_self_test(boot_snapshot_);
+        if (!flyable_) roles_.display.present(boot_fb_, hal::Refresh::Full, 0);
 
         if (board != Status::Ok) return board;
         if (!flyable_) return Status::Down;
@@ -240,7 +239,7 @@ class Product {
         if (power_.cutoff()) shutdown_.request(power::ShutdownReason::LowBattery, now_ms);
     }
 
-    void show_boot_page() {
+    void draw_self_test() {
         const hal::Capabilities fitted = board_.capabilities();
         for (int i = 0; i < kBootPartCount; i++) {
             const BootPartSpec& spec = kBootParts[i];
@@ -251,18 +250,16 @@ class Product {
             boot_parts_[i].detail = boot_detail(spec.capability);
         }
 
-        ui::BootSnapshot snapshot;
-        snapshot.device_addr = roles_.device_addr;
-        snapshot.reset_reason = power::to_string(reset_reason_);
-        snapshot.parts = boot_parts_;
-        snapshot.n_parts = kBootPartCount;
-        snapshot.flyable = flyable_;
-        snapshot.battery_valid = boot_cell_.valid;
-        snapshot.battery_mv = boot_cell_.millivolts;
-        snapshot.i2c_addresses = board_.inventory().i2c_addresses;
-        snapshot.n_i2c_addresses = board_.inventory().i2c_count;
-        ui::draw_boot(boot_fb_, snapshot);
-        roles_.display.present(boot_fb_, hal::Refresh::Full, 0);
+        boot_snapshot_.device_addr = roles_.device_addr;
+        boot_snapshot_.reset_reason = power::to_string(reset_reason_);
+        boot_snapshot_.parts = boot_parts_;
+        boot_snapshot_.n_parts = kBootPartCount;
+        boot_snapshot_.flyable = flyable_;
+        boot_snapshot_.battery_valid = boot_cell_.valid;
+        boot_snapshot_.battery_mv = boot_cell_.millivolts;
+        boot_snapshot_.i2c_addresses = board_.inventory().i2c_addresses;
+        boot_snapshot_.n_i2c_addresses = board_.inventory().i2c_count;
+        ui::draw_boot(boot_fb_, boot_snapshot_);
     }
 
     void drive_shutdown(uint32_t now_ms) {
@@ -334,6 +331,7 @@ class Product {
     runtime::Loop loop_{services_, kServiceCount, kServiceNames};
 
     ui::Framebuffer boot_fb_{};
+    ui::BootSnapshot boot_snapshot_{};
     ui::BootPart boot_parts_[kBootPartCount]{};
     // The barometer's address as the page prints it. A member and not a local:
     // ui::BootPart holds a pointer, and the page is drawn after boot_detail()

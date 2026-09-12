@@ -48,8 +48,12 @@ void ScreenService::handle_input(uint32_t now_ms) {
 
     sync_editor(now_ms);
 
-    messages::ButtonEvent press{};
-    while (context_.bus.input.pop(press)) {
+    messages::ButtonEvent event{};
+    while (context_.bus.input.pop(event)) {
+        if (event.id == messages::kPadHeld) {
+            if (prompt_ == comms::Pending::None && mode_ == Mode::Traffic) enter_settings(now_ms);
+            continue;
+        }
         last_press_ms_ = now_ms;
         pressed_once_ = true;
         if (prompt_ != comms::Pending::None) {
@@ -57,7 +61,10 @@ void ScreenService::handle_input(uint32_t now_ms) {
             continue;
         }
         if (editor_.active()) {
-            editor_.press(now_ms);
+            if (showing_self_test_)
+                dismiss_self_test(now_ms);
+            else
+                editor_.press(now_ms);
             continue;
         }
         next_page();
@@ -71,17 +78,40 @@ void ScreenService::handle_input(uint32_t now_ms) {
     step_editor(now_ms);
 }
 
-// INFO: cf 02aug26 The settings page owns the button for as long as it is the
-// page on the glass and nothing is being authorised. A prompt takes it away
-// without asking, which is what makes "a standing prompt wins" true of the
-// button as well as of the ink.
+// INFO: cf 02aug26 the settings mode owns the button until a prompt takes it away unasked
 void ScreenService::sync_editor(uint32_t now_ms) {
-    const bool wanted = page_ == Page::Settings && prompt_ == comms::Pending::None;
+    const bool wanted = mode_ == Mode::Settings && prompt_ == comms::Pending::None;
+    if (!wanted) showing_self_test_ = false;
     if (wanted == editor_.active()) return;
-    if (wanted)
+    if (wanted) {
+        showing_self_test_ = self_test_ != nullptr;
         editor_.enter(now_ms);
-    else
-        editor_.leave();
+        return;
+    }
+    editor_.leave();
+}
+
+void ScreenService::dismiss_self_test(uint32_t now_ms) {
+    showing_self_test_ = false;
+    editor_.enter(now_ms);
+    dirty_ = true;
+    flash_pending_ = true;
+}
+
+void ScreenService::enter_settings(uint32_t now_ms) {
+    mode_ = Mode::Settings;
+    sync_editor(now_ms);
+    dirty_ = true;
+    flash_pending_ = true;
+}
+
+void ScreenService::leave_settings() {
+    mode_ = Mode::Traffic;
+    showing_self_test_ = false;
+    editor_.leave();
+    page_ = traffic_page();
+    dirty_ = true;
+    flash_pending_ = true;
 }
 
 void ScreenService::step_editor(uint32_t now_ms) {
@@ -105,21 +135,16 @@ void ScreenService::step_editor(uint32_t now_ms) {
             dirty_ = true;
             break;
         case ui::SettingsAction::Moved: dirty_ = true; break;
-        case ui::SettingsAction::Leave:
-            page_ = traffic_page();
-            dirty_ = true;
-            flash_pending_ = true;
-            break;
+        case ui::SettingsAction::Leave: leave_settings(); break;
         case ui::SettingsAction::None:
         default: break;
     }
 }
 
-// INFO: cf 02aug26 Where the settings page hands the glass back: the first page
-// the mask leaves standing, which is the traffic picture unless a pilot hid it.
+// INFO: cf 02aug26 where the settings mode hands the glass back: the first page the mask leaves
 Page ScreenService::traffic_page() const {
     const uint8_t mask = context_.state.settings.page_mask;
-    for (int i = 0; i < static_cast<int>(Page::Settings); i++)
+    for (int i = 0; i < static_cast<int>(Page::kCount); i++)
         if (mask & (1u << i)) return static_cast<Page>(i);
     return Page::Radar;
 }
@@ -150,11 +175,7 @@ void ScreenService::tick(uint32_t now_ms) {
         dirty_ = true;
     }
 
-    if (page_ == Page::Settings && context_.state.alarm_level >= kAlarmTakesGlass) {
-        editor_.leave();
-        page_ = traffic_page();
-        dirty_ = true;
-    }
+    if (mode_ == Mode::Settings && context_.state.alarm_level >= kAlarmTakesGlass) leave_settings();
 
     if (!hal::has(context_.roles.capabilities, hal::Capability::Display)) return;
     settle_park(now_ms);
@@ -248,8 +269,7 @@ void ScreenService::next_page() {
     const int n = static_cast<int>(Page::kCount);
     for (int i = 1; i <= n; i++) {
         const int cand = (static_cast<int>(page_) + i) % n;
-        const bool always = cand == static_cast<int>(Page::Settings);
-        if (always || (context_.state.settings.page_mask & (1u << cand))) {
+        if (context_.state.settings.page_mask & (1u << cand)) {
             page_ = static_cast<Page>(cand);
             break;
         }
@@ -342,8 +362,11 @@ void ScreenService::render() {
         draw_prompt();
         return;
     }
-    if (page_ == Page::Settings) {
-        draw_settings_page();
+    if (mode_ == Mode::Settings) {
+        if (showing_self_test_)
+            ui::draw_boot(fb_, *self_test_);
+        else
+            draw_settings_page();
         return;
     }
 

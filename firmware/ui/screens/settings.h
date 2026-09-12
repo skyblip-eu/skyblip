@@ -29,10 +29,7 @@
 
 namespace skyblip::ui {
 
-// The rows, in the order the thumb meets them. Identity is first and cannot be
-// changed, which is what makes the fastest possible pair of presses after
-// landing on the page - the impatient thumb still cycling pages - harmless.
-// Leave is last, so walking the list with single presses always ends outside it.
+// INFO: cf 02aug26 Identity is first and unchangeable, so the first pair of presses is harmless
 enum class SettingsRow : uint8_t {
     Identity,
     AircraftType,

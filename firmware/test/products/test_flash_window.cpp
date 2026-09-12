@@ -131,11 +131,9 @@ TEST_CASE("flash window: a thumb stepping the volume on the panel writes flash o
     uint32_t t = 0;
     stand_on_the_ground(rig, t);
 
-    for (int i = 0; i < static_cast<int>(go::Page::kCount); i++) {
-        if (rig.product.screen().page() == go::Page::Settings) break;
-        rig.press(t);
-    }
-    REQUIRE(rig.product.screen().page() == go::Page::Settings);
+    rig.hold_pad(t);
+    REQUIRE(rig.product.screen().mode() == go::Mode::Settings);
+    rig.press(t);  // off the self test, onto the rows
     rig.run(t, t + ui::ConfirmGesture::kDoublePressMs + 200);
     t += ui::ConfirmGesture::kDoublePressMs + 200;
 

@@ -10,6 +10,7 @@
 #include "core/flight/atmosphere.h"
 #include "hardware/platform/host/platform.h"
 #include "products/skyblip_go/product.h"
+#include "ui/input/pad_hold.h"
 
 namespace skyblip {
 
@@ -133,6 +134,16 @@ struct Rig {
     void double_press(uint32_t& t) {
         press(t);
         press(t);
+    }
+
+    // The way into the settings mode: the pad held on its own, button up.
+    void hold_pad(uint32_t& t) {
+        platform.board_gpio().pad_down = true;
+        run(t, t + ui::PadHold::kHoldMs + 200);
+        t += ui::PadHold::kHoldMs + 200;
+        platform.board_gpio().pad_down = false;
+        run(t, t + 100);
+        t += 100;
     }
 
     bus::State& state() { return product.state(); }

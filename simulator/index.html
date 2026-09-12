@@ -112,12 +112,12 @@
     <div class="device">
       <div class="case">
         <canvas id="epd" width="200" height="200"></canvas>
-        <button class="key touch" title="capacitive pad on the top edge, P0.11: hold it through a 2 s press to switch off with a blank panel"
+        <button class="key touch" title="capacitive pad on the top edge, P0.11: hold it 2 s alone to open the settings, or through a 2 s press to switch off with a blank panel"
                 onpointerdown="SIM.pad(1)" onpointerup="SIM.pad(0)"
                 onpointerleave="SIM.pad(0)"></button>
         <button class="key side reset" title="RESET (button 1), P0.18 = nRESET: reboot"
                 onclick="SIM.reset()"></button>
-        <button class="key side prog" title="button 2, P1.10: a press pages, a hold of 2 s switches off"
+        <button class="key side prog" title="button 2, P1.10: a press pages through the traffic screens, a hold of 2 s switches off"
                 onpointerdown="SIM.hold(1)" onpointerup="SIM.hold(0)"
                 onpointerleave="SIM.hold(0)"></button>
         <div class="leds">

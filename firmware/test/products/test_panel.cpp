@@ -32,10 +32,10 @@ TEST_CASE("product: a button press switches page and the layout swap lands full"
     uint32_t t = 100;
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::SixPack);
-    rig.run(t, t + 4000);  // panel settles, floor passes: the page-change full lands
-    t += 4000;
-    CHECK(rig.platform.chips().epd.last_full);
+    CHECK(rig.platform.chips().epd.last_full);  // the first page on the glass is a full wash
     CHECK(rig.product.screen().fasts_since_full() == 0);
+    rig.run(t, t + 4000);
+    t += 4000;
 
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
@@ -44,12 +44,10 @@ TEST_CASE("product: a button press switches page and the layout swap lands full"
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::RadioLog);
 
-    // Every page is on the rotation by default, and the settings page closes
-    // it. From there the button belongs to the rows rather than to the
-    // rotation, and the way back to the traffic picture is walking them out -
-    // which is test/products/test_settings_page.cpp's business.
+    // The rotation is the traffic pages alone, and it wraps.
     rig.press(t);
-    CHECK(rig.product.screen().page() == go::Page::Settings);
+    CHECK(rig.product.screen().page() == go::Page::Radar);
+    CHECK(rig.product.screen().mode() == go::Mode::Traffic);
 }
 
 TEST_CASE("product: page_mask disables pages so the button skips them") {
@@ -60,11 +58,12 @@ TEST_CASE("product: page_mask disables pages so the button skips them") {
     rig.press(t);
     CHECK(rig.product.screen().page() == go::Page::Status);
 
-    // The mask has no bit for the settings page and never will: it is where the
-    // mask itself is changed, so hiding it would be a decision nothing on the
-    // device could undo.
     rig.press(t);
-    CHECK(rig.product.screen().page() == go::Page::Settings);
+    CHECK(rig.product.screen().page() == go::Page::Radar);
+
+    // The mask cannot hide the settings mode: it is where the mask is changed.
+    rig.hold_pad(t);
+    CHECK(rig.product.screen().mode() == go::Mode::Settings);
 }
 
 TEST_CASE("product: powering the panel down leaves the wordmark on it") {
@@ -133,6 +132,18 @@ TEST_CASE("product: the backlight starts off") {
 // D2: the panel is the self test. A device that returns from main and goes dark
 // tells a pilot on a bench nothing at all; a device holding a page that names
 // the part that did not answer tells them everything.
+
+// A device that can fly spends no full refresh on a page nobody asked for.
+TEST_CASE("product: a device that can fly keeps the self test off the glass at boot") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    CHECK(rig.platform.chips().epd.present_count == 0);
+    CHECK(rig.product.boot_page().count_black() > 200);
+
+    rig.run(0, 2000);
+    CHECK(rig.product.screen().page() == go::Page::Radar);
+    CHECK(rig.platform.chips().epd.present_count == 1);
+}
 
 TEST_CASE("product: the self-test page reaches the panel before anything refuses") {
     constexpr hal::Capabilities kNoGnss = static_cast<hal::Capabilities>(

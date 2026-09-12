@@ -5,6 +5,7 @@
 #include "runtime/service.h"
 #include "ui/framebuffer.h"
 #include "ui/input/gesture.h"
+#include "ui/screens/boot.h"
 #include "ui/screens/confirm.h"
 #include "ui/screens/radar.h"
 #include "ui/screens/radio_log.h"
@@ -15,7 +16,9 @@
 
 namespace skyblip::go {
 
-enum class Page : uint8_t { Radar, SixPack, Status, Signal, RadioLog, Settings, kCount };
+enum class Page : uint8_t { Radar, SixPack, Status, Signal, RadioLog, kCount };
+
+enum class Mode : uint8_t { Traffic, Settings };
 
 class ScreenService : public runtime::Service {
    public:
@@ -45,6 +48,8 @@ class ScreenService : public runtime::Service {
     // pilot can read is on the glass.
     void attach_config(comms::ConfigService& config) { config_ = &config; }
 
+    void attach_self_test(const ui::BootSnapshot& snapshot) { self_test_ = &snapshot; }
+
     void next_page();
     void set_backlight(bool on);
     void set_power(bool on);
@@ -60,8 +65,10 @@ class ScreenService : public runtime::Service {
     Thermal thermal() const;
 
     Page page() const { return page_; }
+    Mode mode() const { return mode_; }
     comms::Pending prompt() const { return prompt_; }
     const ui::SettingsEditor& editor() const { return editor_; }
+    bool showing_self_test() const { return showing_self_test_; }
     int32_t range_m() const { return range_m_; }
     bool backlight() const { return backlight_; }
     bool powered() const { return powered_; }
@@ -74,6 +81,9 @@ class ScreenService : public runtime::Service {
     void render();
     void draw_prompt();
     void draw_settings_page();
+    void dismiss_self_test(uint32_t now_ms);
+    void enter_settings(uint32_t now_ms);
+    void leave_settings();
     void handle_input(uint32_t now_ms);
     void sync_editor(uint32_t now_ms);
     void step_editor(uint32_t now_ms);
@@ -94,6 +104,7 @@ class ScreenService : public runtime::Service {
     }
 
     comms::ConfigService* config_{nullptr};
+    const ui::BootSnapshot* self_test_{nullptr};
     comms::Pending prompt_{comms::Pending::None};
     ui::ConfirmGesture gesture_{};
     ui::SettingsEditor editor_{};
@@ -113,6 +124,7 @@ class ScreenService : public runtime::Service {
     ui::RadarTarget targets_[kMaxRadarTargets]{};
     traffic::LinkRow signal_rows_[ui::kSignalRows]{};
     Page page_{Page::Radar};
+    Mode mode_{Mode::Traffic};
     int32_t range_m_{10000};
     uint32_t last_tick_ms_{0};
     uint32_t last_render_ms_{0};
@@ -125,6 +137,7 @@ class ScreenService : public runtime::Service {
     bool flash_pending_{false};
     bool flashed_{false};
     bool presented_once_{false};
+    bool showing_self_test_{false};
     bool park_pending_{false};
     bool backlight_{false};
     bool powered_{true};

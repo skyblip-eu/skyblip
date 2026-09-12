@@ -83,26 +83,26 @@ TEST_CASE("screen policy: a page change under an alarm goes straight to the pict
     CHECK_FALSE(rig.chip.last_full);
 }
 
-// The settings page is the one page that keeps the button to itself, so it is
-// the one page that has to be able to give it back without being asked.
-TEST_CASE("screen policy: converging traffic takes the settings page back off the glass") {
+// The settings mode keeps the button to itself, so it has to give it back unasked.
+TEST_CASE("screen policy: converging traffic takes the settings mode back off the glass") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
-    for (int i = 0; i < static_cast<int>(go::Page::Settings); i++) rig.screen.next_page();
-    REQUIRE(rig.screen.page() == go::Page::Settings);
+    rig.bus.input.push(messages::ButtonEvent{messages::kPadHeld});
     rig.run_seconds(t, 2);
+    REQUIRE(rig.screen.mode() == go::Mode::Settings);
     REQUIRE(rig.screen.editor().active());
 
     // An advisory is not worth taking a pilot's page away.
     rig.alarm(1);
     rig.run_seconds(t, 2);
-    CHECK(rig.screen.page() == go::Page::Settings);
+    CHECK(rig.screen.mode() == go::Mode::Settings);
 
     // A bearing worth turning the head for is. The menu goes, the traffic
     // picture comes back, and no wash flashes while the alarm stands.
     rig.alarm(go::ScreenService::kAlarmTakesGlass);
     rig.run_seconds(t, 2);
+    CHECK(rig.screen.mode() == go::Mode::Traffic);
     CHECK(rig.screen.page() == go::Page::Radar);
     CHECK_FALSE(rig.screen.editor().active());
     CHECK_FALSE(rig.chip.last_full);

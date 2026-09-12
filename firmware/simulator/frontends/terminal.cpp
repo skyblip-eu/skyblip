@@ -92,7 +92,7 @@ void render(simulator::Simulator& s) {
         air.format(i, line, sizeof(line));
         std::printf("   %s\n", line);
     }
-    std::printf(" device: [p]age [b]acklight [o]n/off   sensors: [f]ix [n]o-pps\n");
+    std::printf(" device: [p]age [t]ouch pad [b]acklight [o]n/off   sensors: [f]ix [n]o-pps\n");
     std::printf(
         " alt a/z  speed s/x  track d/c   traffic: [g]+1 [j]+ALP-TAS [h]threat [k]clear  [q]uit\n");
     std::fflush(stdout);
@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     }
 
     uint32_t last_step_ms = now_ms();
-    bool fix = true, pps = true;
+    bool fix = true, pps = true, pad = false;
     int32_t alt = 1000, spd = 45, trk = 90;
 
     TermRaw raw;
@@ -126,6 +126,10 @@ int main(int argc, char** argv) {
             switch (c) {
                 case 'q': running = false; break;
                 case 'p': s.world().press_button(); break;
+                case 't':
+                    pad = !pad;
+                    s.world().hold_pad(pad);
+                    break;
                 case 'b': s.product().screen().set_backlight(!s.backlight()); break;
                 case 'o': s.product().screen().set_power(!s.panel_powered()); break;
                 case 'f':

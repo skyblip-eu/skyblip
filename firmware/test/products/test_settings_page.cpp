@@ -55,11 +55,11 @@ void airborne(Rig& rig, uint32_t& t) {
 }
 
 void open_settings(Rig& rig, uint32_t& t) {
-    for (int i = 0; i < static_cast<int>(go::Page::kCount); i++) {
-        if (rig.product.screen().page() == go::Page::Settings) break;
-        rig.press(t);
-    }
-    REQUIRE(rig.product.screen().page() == go::Page::Settings);
+    rig.hold_pad(t);
+    REQUIRE(rig.product.screen().mode() == go::Mode::Settings);
+    settle(rig, t);
+    REQUIRE(rig.product.screen().showing_self_test());
+    rig.press(t);
     settle(rig, t);
 }
 
@@ -129,6 +129,75 @@ ui::Framebuffer expected_page(Rig& rig) {
 }
 
 }  // namespace
+
+TEST_CASE("product: the pad held on any traffic page opens the settings mode") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 100;
+    rig.press(t);
+    REQUIRE(rig.product.screen().page() == go::Page::SixPack);
+
+    rig.hold_pad(t);
+    CHECK(rig.product.screen().mode() == go::Mode::Settings);
+    CHECK(rig.product.screen().editor().active());
+
+    // A touch shorter than the hold is not a gesture, so it changes nothing.
+    focus_on(rig, t, ui::SettingsRow::Leave);
+    move(rig, t);
+    REQUIRE(rig.product.screen().mode() == go::Mode::Traffic);
+    rig.platform.board_gpio().pad_down = true;
+    rig.run(t, t + 300);
+    t += 300;
+    rig.platform.board_gpio().pad_down = false;
+    rig.run(t, t + 200);
+    t += 200;
+    CHECK(rig.product.screen().mode() == go::Mode::Traffic);
+}
+
+// The pad's two gestures are one hold apart, and this one takes the device off.
+TEST_CASE("product: a hold the button joins switches the device off, it opens nothing") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 100;
+    rig.run(t, t + 500);
+    t += 500;
+
+    rig.platform.board_gpio().pad_down = true;
+    rig.platform.board_gpio().button_down = true;
+    rig.run(t, t + power::kLongPressMs + 400);
+    t += power::kLongPressMs + 400;
+
+    CHECK(rig.product.shutdown().reason() == power::ShutdownReason::Stow);
+    CHECK(rig.product.screen().mode() == go::Mode::Traffic);
+}
+
+// Boot no longer flashes the self test, so the settings mode is the only way to it.
+TEST_CASE("product: the settings mode opens on the self test and a press walks into the rows") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    uint32_t t = 100;
+    rig.hold_pad(t);
+    REQUIRE(rig.product.screen().mode() == go::Mode::Settings);
+    settle(rig, t);
+    rig.run(t, t + 4000);
+    t += 4000;
+
+    CHECK(rig.product.screen().showing_self_test());
+    CHECK(std::memcmp(rig.product.screen().framebuffer().data(), rig.product.boot_page().data(),
+                      ui::Framebuffer::kBytes) == 0);
+    CHECK(rig.platform.chips().epd.framebuffer().count_black() ==
+          rig.product.boot_page().count_black());
+
+    rig.press(t);
+    settle(rig, t);
+    rig.run(t, t + 4000);
+    t += 4000;
+    CHECK_FALSE(rig.product.screen().showing_self_test());
+    CHECK(rig.product.screen().editor().focus() == ui::SettingsRow::Identity);
+    const ui::Framebuffer rows = expected_page(rig);
+    CHECK(std::memcmp(rig.product.screen().framebuffer().data(), rows.data(),
+                      ui::Framebuffer::kBytes) == 0);
+}
 
 TEST_CASE("product: the settings page reaches the glass, drawn from what the device is running") {
     Rig rig;
@@ -242,17 +311,13 @@ TEST_CASE("product: a page nobody presses gives the traffic picture back on its 
     CHECK_FALSE(rig.product.screen().editor().active());
 }
 
-TEST_CASE("product: the settings page is reachable whatever the page mask says") {
+TEST_CASE("product: the settings mode is reachable whatever the page mask says") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     uint32_t t = 100;
-    // A mask with no bits set at all: every other page is hidden. The page that
-    // can undo that must still be one press away, or the device would need a
-    // phone to be usable again.
+    // Every traffic page hidden, and the mode that undoes it still one gesture away.
     rig.state().settings.page_mask = 0;
-    rig.press(t);
-    CHECK(rig.product.screen().page() == go::Page::Settings);
-    settle(rig, t);
+    open_settings(rig, t);
 
     focus_on(rig, t, ui::SettingsRow::Pages);
     change(rig, t);
@@ -337,9 +402,8 @@ TEST_CASE("product: a prompt takes the page, and the taps already in flight cann
     t += 200;
     CHECK(rig.product.config().config().upload_allowed());
 
-    // Back on the settings page, at the top of it: whatever row the pilot was
-    // on, they were reading something else in between.
-    CHECK(rig.product.screen().page() == go::Page::Settings);
+    // Back on the rows, at the top: the pilot was reading something else in between.
+    CHECK(rig.product.screen().mode() == go::Mode::Settings);
     CHECK(rig.product.screen().editor().focus() == ui::SettingsRow::Identity);
 }
 
