@@ -232,7 +232,9 @@
 			label = "radio-dio1";
 		};
 
-		/* P1.11 is the e-paper's backlight AND the panel's enable. */
+		/* P1.11 is the e-paper's front light (SoftRF iomap/LilyGO_TEcho.h:78
+		 * SOC_GPIO_PIN_EPD_BLGT), not a panel enable: nothing raises it at boot and
+		 * the glass refreshes all the same. */
 		epd_backlight_gpio: epd_backlight {
 			gpios = <&gpio1 11 GPIO_ACTIVE_HIGH>;
 			label = "epd-backlight";

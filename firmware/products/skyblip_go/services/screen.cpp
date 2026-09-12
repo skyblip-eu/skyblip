@@ -293,9 +293,6 @@ void ScreenService::set_power(bool on) {
 // INFO: fc 01aug25 pushed before power-off: the glass wears it while off
 void ScreenService::park(ParkFrame frame) {
     powered_ = false;
-    // A lit backlight is a rail nobody switched off: the panel sleeps, the LED
-    // would not have.
-    set_backlight(false);
     park_frame_ = frame;
     park_ = may_present_park_frame() ? ParkStep::Frame : ParkStep::Sleep;
 }
@@ -312,6 +309,7 @@ void ScreenService::settle_park(uint32_t now_ms) {
     }
     park_ = ParkStep::None;
     context_.roles.display.power_off();
+    set_backlight(false);
 }
 
 void ScreenService::draw_park_frame(ParkFrame frame) {

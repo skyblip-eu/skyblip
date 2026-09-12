@@ -138,6 +138,23 @@ TEST_CASE("product: the pad held through the press leaves the glass blank") {
     CHECK(rig.platform.chips().epd.framebuffer().count_black() == 0);
 }
 
+// P1.11 is read as the panel's enable as often as its front light, so it goes out last.
+TEST_CASE("product: the front light goes out after the park frame, not before it") {
+    Rig rig;
+    REQUIRE(rig.setup() == Status::Ok);
+    rig.run(0, 1000);
+    rig.product.screen().set_backlight(true);
+
+    rig.product.screen().set_power(false);
+    rig.run(1000, 2000);
+    CHECK(rig.platform.chips().epd.backlight);
+    CHECK(rig.platform.chips().epd.powered);
+
+    rig.run(2000, 8000);
+    CHECK_FALSE(rig.platform.chips().epd.powered);
+    CHECK_FALSE(rig.platform.chips().epd.backlight);
+}
+
 TEST_CASE("product: the backlight starts off") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
