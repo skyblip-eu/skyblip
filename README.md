@@ -17,6 +17,19 @@ Open-source electronic conspicuity for general aviation: [ADS-L 4 SRD-860](https
 
 The firmware and the site share a tree so that a change in behavior and the page documenting it can land in one commit. They do not share a build: each has its own workflow, gated on the paths it owns.
 
+## Building
+
+The host test suite and the simulator need nothing but a C++ compiler: `make -C firmware test`, `make -C firmware simulator`.
+
+The device image is built locally for now, off the committed tip of `main`, into `builds/`:
+
+```
+scripts/build_local.sh              # skyblip_go, the only product today
+SKYBLIP_REF=HEAD scripts/build_local.sh
+```
+
+The first run needs `cmake ninja dtc gperf`, then bootstraps a Zephyr workspace under `~/.cache/skyblip/west` and installs the SDK. CI runs the tests and the linter but no longer builds the image: the `product-image` job in [`ci.yml`](.github/workflows/ci.yml) is commented out until it comes back.
+
 ## Acknowledgements
 
 skyBlip stands on a decade of open work by the free-flight community. Thanks to the authors of the projects we learned from while building it:
