@@ -2,7 +2,7 @@
 #include "test/support/screen_rig.h"
 
 // Glass rated 0..50 C; the Go's soak case is 72.4 C, project/research/enclosure-and-mount-go.md.
-TEST_CASE("screen policy: a panel too hot to drive is parked instead of refreshed") {
+TEST_CASE("screen policy: a panel too hot to drive is left unrefreshed, with its rails down") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
@@ -11,65 +11,36 @@ TEST_CASE("screen policy: a panel too hot to drive is parked instead of refreshe
     rig.die_temperature(go::ScreenService::kHoldAboveDeciCelsius + 1);
     rig.churn(t, 20);
     CHECK(rig.chip.present_count == before);
-    CHECK_FALSE(rig.chip.powered);
+    CHECK_FALSE(rig.chip.rails_on);
 }
 
-// Good Display: long-term non-refresh without deep sleep or power off damages the IC.
-TEST_CASE("screen policy: a panel left awake by a fast refresh is washed and slept once idle") {
+// skyBlip stays on for the whole flight, so nothing but the pilot's switch may sleep the panel.
+TEST_CASE("screen policy: a screen nobody changes is left awake, unrefreshed, rails down") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
-
-    // A busy sky holds off every wash above the park, then the page goes static.
-    rig.alarm(2);
-    rig.churn(t, 2);
-    rig.run_seconds(t, 1);
-    REQUIRE(rig.epd.requires_idle_park());
     const int before = rig.chip.present_count;
+    const int sleeps = rig.chip.deep_sleeps;
 
-    rig.run_seconds(t, go::ScreenService::kParkAfterIdleMs / 1000 - 2);
+    rig.run_seconds(t, 600);
     CHECK(rig.chip.present_count == before);
-    CHECK(rig.epd.requires_idle_park());
-
-    rig.run_seconds(t, 3);
-    CHECK(rig.chip.present_count == before + 1);
-    CHECK(rig.chip.last_full);
-    CHECK_FALSE(rig.chip.powered);
-    CHECK_FALSE(rig.epd.requires_idle_park());
+    CHECK(rig.chip.deep_sleeps == sleeps);
+    CHECK(rig.chip.powered);
+    CHECK_FALSE(rig.chip.rails_on);
 }
 
-TEST_CASE("screen policy: the wash that parks the panel pays the ghost debt, not adds to it") {
+// The ink migrates under bias, so a busy sky must not hold the rails up for a whole flight.
+TEST_CASE("screen policy: a screen changing every second still rests between refreshes") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
     rig.alarm(2);
-    rig.churn(t, 4);
-    REQUIRE(rig.screen.fasts_since_full() == 4);
+    rig.churn(t, 120);
+    rig.run_seconds(t, 2);
 
-    rig.run_seconds(t, go::ScreenService::kParkAfterIdleMs / 1000 + 3);
-    CHECK(rig.screen.fasts_since_full() == 0);
-
-    // And once parked it stays parked: a sleeping panel is owed nothing.
-    const int parked = rig.chip.present_count;
-    rig.run_seconds(t, go::ScreenService::kParkAfterIdleMs / 1000 * 3);
-    CHECK(rig.chip.present_count == parked);
-}
-
-TEST_CASE("screen policy: a panel that slept itself is never woken to be parked") {
-    Rig rig;
-    uint32_t t = 0;
-    rig.run_seconds(t, 3);  // boot full: the panel sleeps itself
-    REQUIRE_FALSE(rig.epd.requires_idle_park());
-    const int before = rig.chip.present_count;
-
-    rig.run_seconds(t, go::ScreenService::kParkAfterIdleMs / 1000 * 2);
-    CHECK(rig.chip.present_count == before);
-}
-
-// A screen nobody has changed for two minutes is parked long before the hourly wash is due.
-TEST_CASE("screen policy: the idle park outlasts the update cadence and precedes the wash") {
-    CHECK(go::ScreenService::kParkAfterIdleMs > go::ScreenService::kPresentFloorMs * 10);
-    CHECK(go::ScreenService::kParkAfterIdleMs < go::ScreenService::kFullEveryMs);
+    CHECK(rig.chip.present_count > 100);
+    CHECK_FALSE(rig.chip.rails_on);
+    CHECK(rig.chip.deep_sleeps == 0);
 }
 
 TEST_CASE("screen policy: a held panel is not washed either, so nothing refreshes it hot") {
@@ -78,15 +49,12 @@ TEST_CASE("screen policy: a held panel is not washed either, so nothing refreshe
     rig.run_seconds(t, 3);
     rig.churn(t, 2);
     rig.run_seconds(t, 1);
-    REQUIRE(rig.epd.requires_idle_park());
     const int before = rig.chip.present_count;
 
     rig.die_temperature(go::ScreenService::kHoldAboveDeciCelsius + 1);
-    rig.run_seconds(t, go::ScreenService::kParkAfterIdleMs / 1000 * 2);
+    rig.run_seconds(t, 600);
     CHECK(rig.chip.present_count == before);
-    // No command is both "do not refresh hot" and "do not sleep on a partial".
-    CHECK(rig.chip.powered);
-    CHECK(rig.epd.requires_idle_park());
+    CHECK_FALSE(rig.chip.rails_on);
 }
 
 TEST_CASE("screen policy: a supply warning is not washed, no refresh starts on a dying rail") {
@@ -97,35 +65,14 @@ TEST_CASE("screen policy: a supply warning is not washed, no refresh starts on a
     const int before = rig.chip.present_count;
 
     rig.state.supply_warned = true;
-    rig.run_seconds(t, go::ScreenService::kParkAfterIdleMs / 1000 * 2);
+    rig.run_seconds(t, 600);
     CHECK(rig.chip.present_count == before);
-    CHECK(rig.chip.powered);
-}
-
-// The millisecond counter wraps every 49.7 days and the park deadline straddles it.
-TEST_CASE("screen policy: an idle panel is parked across the wrap of the counter") {
-    Rig rig;
-    uint32_t t = 0xFFFFFFFFu - 60000;
-    rig.run_seconds(t, 3);
-    rig.alarm(2);
-    rig.churn(t, 2);
-    rig.run_seconds(t, 1);
-    REQUIRE(rig.epd.requires_idle_park());
-    const int before = rig.chip.present_count;
-
-    rig.run_seconds(t, go::ScreenService::kParkAfterIdleMs / 1000 - 2);
-    CHECK(rig.chip.present_count == before);
-
-    rig.run_seconds(t, 3);
-    CHECK(rig.chip.present_count == before + 1);
-    CHECK(rig.chip.last_full);
-    CHECK_FALSE(rig.chip.powered);
+    CHECK_FALSE(rig.chip.rails_on);
 }
 
 TEST_CASE("screen policy: the hold threshold is the rated limit, not a margin somebody chose") {
     CHECK(go::ScreenService::kHoldAboveDeciCelsius == 500);
     CHECK(go::ScreenService::kFullOnlyBelowDeciCelsius == 0);
-    CHECK(go::ScreenService::kParkAfterIdleMs == 120000);
 }
 
 // The rated limit is a temperature the panel works at, not the first one it refuses.
@@ -171,7 +118,7 @@ TEST_CASE("screen policy: going hot mid-refresh does not abandon the frame on th
     rig.screen.tick(t += 100);
     rig.screen.tick(t += 2000);
     CHECK(rig.chip.present_count == 1);
-    CHECK_FALSE(rig.chip.powered);  // the full refresh it was running slept it
+    CHECK_FALSE(rig.chip.rails_on);
 }
 
 TEST_CASE("screen policy: the traffic picture comes back once the panel has cooled") {
@@ -249,7 +196,7 @@ TEST_CASE("screen policy: nothing routine is refreshed once the cell is at its c
     rig.state.power_level = power::PowerLevel::Cutoff;
     rig.churn(t, 10);
     CHECK(rig.chip.present_count == before);
-    CHECK_FALSE(rig.chip.powered);
+    CHECK_FALSE(rig.chip.rails_on);
 }
 
 TEST_CASE("screen policy: a low cell still gets its traffic picture") {
@@ -298,7 +245,7 @@ TEST_CASE("screen policy: a supply warning stops the routine refreshes too") {
     rig.state.supply_warned = true;
     rig.churn(t, 10);
     CHECK(rig.chip.present_count == before);
-    CHECK_FALSE(rig.chip.powered);
+    CHECK_FALSE(rig.chip.rails_on);
 }
 
 // A held panel presents nothing, so nothing a pilot has not read reaches the glass.

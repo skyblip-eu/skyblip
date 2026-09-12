@@ -38,7 +38,6 @@ class Ssd1681 : public hal::Display {
     bool ready(uint32_t now_ms) override;
     void power_off() override;
     void power_on() override { begin(); }
-    bool requires_idle_park() const override { return rails_on_ && !refreshing_; }
     void set_backlight(bool on) override;
 
     bool refreshing() const { return refreshing_; }
@@ -46,7 +45,7 @@ class Ssd1681 : public hal::Display {
         return fast_refresh_ ? hal::Refresh::Fast : hal::Refresh::Full;
     }
 
-    // INFO: fc 01aug25 GDEH0154D67 settles in ~460 ms fast / ~2.5 s full (GxEPD2-measured)
+    // INFO: fc 01aug25 D67 settles ~460 ms fast / ~2.5 s full (GxEPD2) | 12sep26 +140 ms power-down
     static constexpr uint32_t kReadyAfterFastMs = 300;
     static constexpr uint32_t kReadyAfterFullMs = 1500;
     static constexpr uint32_t kBusyTimeoutMs = 5000;
@@ -55,7 +54,6 @@ class Ssd1681 : public hal::Display {
     void init_panel();
     void hold_reset();
     void finish_refresh();
-    void power_down_rails();
     void enter_sleep();
     const uint8_t* previous_bank(const ui::Framebuffer& fb, bool full) const;
     void cmd(uint8_t c);
@@ -76,9 +74,6 @@ class Ssd1681 : public hal::Display {
     bool glass_known_{false};
     bool asleep_{false};
     bool refreshing_{false};
-    bool rails_on_{false};
-    // Which kind of refresh is in flight, because the panel lot decides whether
-    // it may be followed by deep sleep.
     bool fast_refresh_{false};
     Panel panel_{Panel::Unknown};
     uint32_t ready_at_ms_{0};

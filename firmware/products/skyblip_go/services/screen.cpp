@@ -184,22 +184,11 @@ void ScreenService::tick(uint32_t now_ms) {
     const bool changed = !presented_once_ ||
                          std::memcmp(fb_.data(), presented_.data(), ui::Framebuffer::kBytes) != 0;
     const bool owed_full = decide_full(now_ms);
-    if (!changed && !owed_full) {
-        park_idle_panel(now_ms);
-        return;
-    }
+    if (!changed && !owed_full) return;
 
     const bool full = owed_full || thermal() == Thermal::FullOnly;
     context_.roles.display.present(fb_, full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
     note_presented(full ? hal::Refresh::Full : hal::Refresh::Fast, now_ms);
-}
-
-// INFO: fc 06sep26 the panel sleeps itself after a full refresh, never after a partial
-void ScreenService::park_idle_panel(uint32_t now_ms) {
-    if (!context_.roles.display.requires_idle_park()) return;
-    if (now_ms - last_present_ms_ < kParkAfterIdleMs) return;
-    context_.roles.display.present(fb_, hal::Refresh::Full, now_ms);
-    note_presented(hal::Refresh::Full, now_ms);
 }
 
 // INFO: fc 06sep26 the OTP waveform is picked by temperature; the partial LUT ghosts cold

@@ -26,8 +26,6 @@ class ScreenService : public runtime::Service {
     static constexpr uint32_t kPresentFloorMs = 1000;
     // INFO: fc 09mar26 Good Display asks for one refresh a day, SoftRF ships none at all
     static constexpr uint32_t kFullEveryMs = 3600000;
-    // INFO: fc 06sep26 the rails come down on a screen nothing has changed for two minutes
-    static constexpr uint32_t kParkAfterIdleMs = 120000;
 
     // INFO: fc 06sep26 Good Display rates the glass 0..50 C operating, -20..70 C storage
     static constexpr int16_t kFullOnlyBelowDeciCelsius = 0;
@@ -84,7 +82,6 @@ class ScreenService : public runtime::Service {
     bool transitions_through_black() const;
     void present_black_flash(uint32_t now_ms);
     bool decide_full(uint32_t now_ms) const;
-    void park_idle_panel(uint32_t now_ms);
     bool may_present_park_frame() const;
     enum class ParkFrame : uint8_t { Wordmark, Installing, Blank };
     void park(ParkFrame frame);

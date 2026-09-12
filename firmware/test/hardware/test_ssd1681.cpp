@@ -1,7 +1,7 @@
 // SSD1681 e-paper driver tests against models/ssd1681.h. Verifies the init
 // sequence, the framebuffer to RAM polarity (fb 1=black becomes panel 0=black), the
 // two-bank differential contract (previous image in 0x26, new in 0x24), the
-// non-blocking present/ready cycle, deep sleep between refreshes and the
+// non-blocking present/ready cycle, the rails down after every refresh and the
 // hung-BUSY recovery, all on the host, no panel required.
 #include <string>
 
@@ -58,6 +58,7 @@ TEST_CASE("epd: the reset pulse is held low, not glitched") {
     fb.clear(true);
     d.present(fb, hal::Refresh::Full, 0);
     settle(d, 0);
+    d.power_off();
     CHECK_FALSE(f.powered);
 
     const uint32_t before = f.reads_while_in_reset;
@@ -261,8 +262,8 @@ TEST_CASE("epd: the border follows the waveform on a wash and is held at VCOM on
     CHECK(f.border == 0x80);
 }
 
-// SoftRF disables powerOff after a partial on this glass, so our partial may not drop the rails.
-TEST_CASE("epd: a partial leaves the rails up, and the sleep path drops them before deep sleep") {
+// Ink migrates under the bias a powered panel holds, and in the sun it migrates fast.
+TEST_CASE("epd: every refresh ends with the rails down, the partial as well as the wash") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);
     d.begin();
@@ -271,42 +272,43 @@ TEST_CASE("epd: a partial leaves the rails up, and the sleep path drops them bef
 
     d.present(fb, hal::Refresh::Full, 0);
     settle(d, 0);
-    CHECK_FALSE(f.rails_on);  // the full waveform drops them itself
-    CHECK(f.power_offs == 0);
+    CHECK_FALSE(f.rails_on);
 
     fb.set_pixel(5, 5, true);
     d.present(fb, hal::Refresh::Fast, 5000);
     CHECK(d.ready(5000 + parts::Ssd1681::kReadyAfterFastMs));
-    CHECK(f.rails_on);
-    CHECK(f.powered);
-
-    fb.clear(true);
-    d.present(fb, hal::Refresh::Full, 10000);
-    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFullMs));
     CHECK_FALSE(f.rails_on);
-    CHECK(f.power_offs == 0);
+
+    fb.set_pixel(6, 6, true);
+    d.present(fb, hal::Refresh::Fast, 10000);
+    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFastMs));
+    CHECK_FALSE(f.rails_on);
 }
 
-TEST_CASE("epd: the lot that may sleep on a partial is powered down before it does") {
+// Rails down is not deep sleep: the panel keeps its registers, so the next partial needs no reset.
+TEST_CASE("epd: a run of partials costs one reset, not one per refresh") {
     models::Ssd1681 f;
-    f.signature = parts::panels::kGdeh0154D67Syx1942;
     parts::Ssd1681 d = make(f);
-    d.adopt(f.signature);
     d.begin();
     ui::Framebuffer fb;
     fb.clear(true);
 
     d.present(fb, hal::Refresh::Full, 0);
     settle(d, 0);
-    fb.set_pixel(7, 7, true);
-    d.present(fb, hal::Refresh::Fast, 10000);
-    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFastMs));
-    CHECK(f.power_offs == 1);
-    CHECK_FALSE(f.rails_on);
-    CHECK_FALSE(f.powered);
+    const int resets_before = f.reset_pulses;
+
+    for (int i = 0; i < 5; i++) {
+        fb.set_pixel(10 + i, 10, true);
+        const uint32_t t = 5000 + uint32_t(i) * 1000;
+        d.present(fb, hal::Refresh::Fast, t);
+        CHECK(d.ready(t + parts::Ssd1681::kReadyAfterFastMs));
+    }
+    CHECK(f.reset_pulses == resets_before);
+    CHECK(f.powered);
+    CHECK(f.present_count == 6);
 }
 
-TEST_CASE("epd: present() is non-blocking and ready() settles the panel into deep sleep") {
+TEST_CASE("epd: present() is non-blocking and ready() settles the panel without sleeping it") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);
     d.begin();
@@ -323,9 +325,8 @@ TEST_CASE("epd: present() is non-blocking and ready() settles the panel into dee
 
     const int sleeps_before = f.deep_sleeps;
     CHECK(d.ready(1000 + parts::Ssd1681::kReadyAfterFullMs));
-    // Vendor rule: never leave the panel powered between refreshes.
-    CHECK(f.deep_sleeps == sleeps_before + 1);
-    CHECK_FALSE(f.powered);
+    CHECK(f.deep_sleeps == sleeps_before);
+    CHECK_FALSE(f.rails_on);
 }
 
 TEST_CASE("epd: a present after deep sleep wakes the panel with a reset pulse") {
@@ -337,6 +338,7 @@ TEST_CASE("epd: a present after deep sleep wakes the panel with a reset pulse") 
 
     d.present(fb, hal::Refresh::Full, 0);
     settle(d, 0);
+    d.power_off();
     CHECK_FALSE(f.powered);
 
     const int resets_before = f.reset_pulses;
@@ -372,62 +374,21 @@ TEST_CASE("epd: a hung BUSY line times out, re-initialises, and forces the next 
     CHECK(f.last_full);
 }
 
-// A re-initialised panel has no partial update to protect, so the vendor sleep rule applies.
-TEST_CASE("epd: the panel a hung BUSY left awake is slept, not left on the rails") {
+// The rails are the thing to get down on a panel that wedged mid-refresh, and RES# does it.
+TEST_CASE("epd: the panel a hung BUSY left mid-refresh is re-initialised with its rails down") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);
     d.begin();
     ui::Framebuffer fb;
     fb.clear(true);
 
-    d.present(fb, hal::Refresh::Full, 0);
+    d.present(fb, hal::Refresh::Fast, 0);
     f.busy_stuck = true;
     const int sleeps_before = f.deep_sleeps;
     REQUIRE(d.ready(parts::Ssd1681::kBusyTimeoutMs));
-    CHECK(f.deep_sleeps == sleeps_before + 1);
-    CHECK_FALSE(f.powered);
-    CHECK_FALSE(d.requires_idle_park());
-}
-
-// The one thing the screen service cannot work out for itself: which lot is fitted.
-TEST_CASE("epd: the panel says when it is awake between refreshes and when it is not") {
-    models::Ssd1681 f;
-    parts::Ssd1681 d = make(f);
-    d.begin();
-    ui::Framebuffer fb;
-    fb.clear(true);
-
-    d.present(fb, hal::Refresh::Full, 0);
-    CHECK_FALSE(d.requires_idle_park());  // a refresh is in flight, not idle rails
-    settle(d, 0);
-    CHECK_FALSE(d.requires_idle_park());  // the full refresh slept it
-
-    fb.set_pixel(3, 3, true);
-    d.present(fb, hal::Refresh::Fast, 10000);
-    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFastMs));
-    CHECK(d.requires_idle_park());
-
-    fb.clear(true);
-    d.present(fb, hal::Refresh::Full, 20000);
-    CHECK(d.ready(20000 + parts::Ssd1681::kReadyAfterFullMs));
-    CHECK_FALSE(d.requires_idle_park());
-}
-
-TEST_CASE("epd: the lot that tolerates it sleeps itself, and says its rails are down") {
-    models::Ssd1681 f;
-    f.signature = parts::panels::kGdeh0154D67Syx1942;
-    parts::Ssd1681 d = make(f);
-    d.adopt(f.signature);
-    d.begin();
-    ui::Framebuffer fb;
-    fb.clear(true);
-
-    d.present(fb, hal::Refresh::Full, 0);
-    settle(d, 0);
-    fb.set_pixel(7, 7, true);
-    d.present(fb, hal::Refresh::Fast, 10000);
-    CHECK(d.ready(10000 + parts::Ssd1681::kReadyAfterFastMs));
-    CHECK_FALSE(d.requires_idle_park());
+    CHECK_FALSE(f.rails_on);
+    CHECK(f.deep_sleeps == sleeps_before);
+    CHECK(f.powered);
 }
 
 TEST_CASE("epd: a panel that never released BUSY loses its shadow, so the next refresh is full") {
@@ -448,8 +409,8 @@ TEST_CASE("epd: a panel that never released BUSY loses its shadow, so the next r
     CHECK(f.last_full);
 }
 
-// The forbidden transition stays forbidden at shutdown: the rail cut is the fallback.
-TEST_CASE("epd: power_off() applies the lot's own sleep rule, it does not override it") {
+// Deep sleep is the switched-off state now, so nothing about the last waveform may refuse it.
+TEST_CASE("epd: power_off() sleeps the panel whatever waveform ran last") {
     models::Ssd1681 f;
     parts::Ssd1681 d = make(f);
     d.begin();
@@ -461,8 +422,8 @@ TEST_CASE("epd: power_off() applies the lot's own sleep rule, it does not overri
     fb.set_pixel(9, 9, true);
     d.present(fb, hal::Refresh::Fast, 1000);
     d.power_off();
-    CHECK(f.powered);
-    CHECK(d.requires_idle_park());
+    CHECK_FALSE(f.powered);
+    CHECK_FALSE(f.rails_on);
 }
 
 // The path the shutdown actually takes: a full park frame, and then it may sleep.
@@ -479,7 +440,7 @@ TEST_CASE("epd: power_off() after the full park frame leaves nothing powered") {
     d.present(fb, hal::Refresh::Full, 1000);
     d.power_off();
     CHECK_FALSE(f.powered);
-    CHECK_FALSE(d.requires_idle_park());
+    CHECK_FALSE(f.rails_on);
 }
 
 TEST_CASE("epd: power_off() parks a sleeping panel without touching it twice") {
@@ -491,22 +452,12 @@ TEST_CASE("epd: power_off() parks a sleeping panel without touching it twice") {
 
     d.present(fb, hal::Refresh::Full, 0);
     settle(d, 0);
+    d.power_off();
     const int sleeps_before = f.deep_sleeps;
     d.power_off();
-    CHECK(f.deep_sleeps == sleeps_before);  // already asleep: nothing to do
+    CHECK(f.deep_sleeps == sleeps_before);
     CHECK_FALSE(f.powered);
 }
-
-// ---------------------------------------------------------------------------
-// Which panel is glued on, and what follows from it.
-//
-// SoftRF fingerprints the panel over a bit-banged half-duplex SPI and keeps the
-// signatures it has seen on real T-Echos in a comment block
-// (platform/nRF52.cpp:3855-3878). The reason it bothers is one line in its
-// driver: "SYX 1942 revision of D67 display can use power_off() after partial
-// update, SYX 1948 revision - can not" (src/driver/EPD.cpp:861-865). We drove one
-// refresh policy for every panel, which is a coin flip on a shipped board.
-// ---------------------------------------------------------------------------
 
 TEST_CASE("epd: the five signatures shipped in T-Echos are told apart") {
     CHECK(parts::identify_panel(parts::panels::kGdeh0154D67Syx1942) ==
@@ -551,55 +502,6 @@ TEST_CASE("epd: a signature nobody has recorded is unknown, not a guess") {
     parts::PanelSignature zeroes = parts::panels::kDepg0150Bn;
     zeroes.read = false;
     CHECK(parts::identify_panel(zeroes) == parts::Panel::Unknown);
-}
-
-TEST_CASE("epd: only the panel that tolerates it sleeps after a partial update") {
-    CHECK(parts::panel_may_sleep_after_fast_refresh(parts::Panel::Gdeh0154D67Syx1942));
-    // Everything else takes the reference's live answer: SYX 1948 cannot survive
-    // it and has no signature to be recognised by, so no other panel gets to try.
-    CHECK_FALSE(parts::panel_may_sleep_after_fast_refresh(parts::Panel::Unknown));
-    CHECK_FALSE(parts::panel_may_sleep_after_fast_refresh(parts::Panel::Gdeh0154D67Syx2118));
-    CHECK_FALSE(parts::panel_may_sleep_after_fast_refresh(parts::Panel::Gdeh0154D67Syx2129));
-    CHECK_FALSE(parts::panel_may_sleep_after_fast_refresh(parts::Panel::Depg0150Bn));
-}
-
-TEST_CASE("epd: an unidentified panel keeps its rails up after a fast refresh") {
-    models::Ssd1681 f;
-    parts::Ssd1681 d = make(f);
-    d.begin();
-    CHECK(d.panel() == parts::Panel::Unknown);
-
-    ui::Framebuffer fb;
-    fb.clear(true);
-    d.present(fb, hal::Refresh::Full, 0);
-    settle(d, 0);
-    REQUIRE_FALSE(f.powered);  // a full refresh always parks the panel
-
-    const int sleeps_before = f.deep_sleeps;
-    d.present(fb, hal::Refresh::Fast, 5000);
-    CHECK(d.ready(5000 + parts::Ssd1681::kReadyAfterFastMs));
-    CHECK(f.deep_sleeps == sleeps_before);
-    CHECK(f.powered);
-}
-
-TEST_CASE("epd: the one panel lot that may be powered off after a partial is") {
-    models::Ssd1681 f;
-    f.signature = parts::panels::kGdeh0154D67Syx1942;
-    parts::Ssd1681 d = make(f);
-    d.adopt(f.signature);
-    d.begin();
-    REQUIRE(d.panel() == parts::Panel::Gdeh0154D67Syx1942);
-
-    ui::Framebuffer fb;
-    fb.clear(true);
-    d.present(fb, hal::Refresh::Full, 0);
-    settle(d, 0);
-
-    const int sleeps_before = f.deep_sleeps;
-    d.present(fb, hal::Refresh::Fast, 5000);
-    CHECK(d.ready(5000 + parts::Ssd1681::kReadyAfterFastMs));
-    CHECK(f.deep_sleeps == sleeps_before + 1);
-    CHECK_FALSE(f.powered);
 }
 
 TEST_CASE("epd: the identity is a name the self-test page can print") {

@@ -22,6 +22,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
             if (level && !rst_level_) {
                 reset_pulses++;
                 powered = true;
+                rails_on = false;
             }
             rst_level_ = level;
         }
@@ -49,12 +50,10 @@ class Ssd1681 : public io::Spi, public io::Gpio {
                     deep_sleeps++;
                 }
                 if (b == kMasterActivation) {
-                    if (sequence_ == kSequencePowerOff) {
-                        rails_on = false;
-                        power_offs++;
-                    } else {
+                    rails_on =
+                        powered && (sequence_ & kEnableAnalog) && !(sequence_ & kDisableAnalog);
+                    if (sequence_ & kDisplay) {
                         present_count++;
-                        rails_on = powered && sequence_ == kSequenceFast;
                         // In deep sleep the panel's charge pump is off: it latches
                         // nothing, and keeps the last image it did latch.
                         if (powered) rasterise();
@@ -66,7 +65,7 @@ class Ssd1681 : public io::Spi, public io::Gpio {
                 if (pending_ == kWriteRamPrevious) ram_previous.push_back(b);
                 if (pending_ == kUpdateCtrl2) {
                     sequence_ = b;
-                    if (b != kSequencePowerOff) last_full = b == kSequenceFull;
+                    if (b & kDisplay) last_full = !(b & kLoadLutMode2);
                 }
                 if (pending_ == kBorderWaveform) border = b;
             }
@@ -112,7 +111,6 @@ class Ssd1681 : public io::Spi, public io::Gpio {
     uint32_t reads_while_in_reset{0};
     int present_count{0};
     int deep_sleeps{0};
-    int power_offs{0};
     bool busy_stuck{false};
     bool powered{true};
     bool rails_on{false};
@@ -127,9 +125,10 @@ class Ssd1681 : public io::Spi, public io::Gpio {
     static constexpr uint8_t kUpdateCtrl2 = 0x22;
     static constexpr uint8_t kBorderWaveform = 0x3C;
     static constexpr uint8_t kDeepSleep = 0x10;
-    static constexpr uint8_t kSequenceFull = 0xF7;
-    static constexpr uint8_t kSequenceFast = 0xFC;
-    static constexpr uint8_t kSequencePowerOff = 0x83;
+    static constexpr uint8_t kEnableAnalog = 0x40;
+    static constexpr uint8_t kLoadLutMode2 = 0x08;
+    static constexpr uint8_t kDisplay = 0x04;
+    static constexpr uint8_t kDisableAnalog = 0x02;
 
     void rasterise() {
         if (ram.size() < ui::Framebuffer::kBytes) return;

@@ -8,14 +8,6 @@
 // (platform/nRF52.cpp:3775-3900, table at 3855-3878). That table is transcribed
 // below, byte for byte, including the two entries whose meaning it does not
 // establish.
-//
-// The quirk that makes this worth doing at all is in the driver, not the ident:
-// "SYX 1942 revision of D67 display can use power_off() after partial update,
-// SYX 1948 revision - can not" (src/driver/EPD.cpp:861-865). SoftRF resolved it
-// by never powering off after a partial update on any panel, because it cannot
-// tell 1948 apart - there is no signature for 1948 in the table. So: an
-// identified 1942 may sleep after a fast refresh, and everything else, unknown
-// included, may not.
 #ifndef SKYBLIP_HARDWARE_PARTS_SSD1681_PANEL_H
 #define SKYBLIP_HARDWARE_PARTS_SSD1681_PANEL_H
 
@@ -66,8 +58,6 @@ constexpr PanelSignature kGdep015Oc1{
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     true};
 
-// The revision the power-off-after-partial quirk was discovered on, and the one
-// revision that tolerates it.
 constexpr PanelSignature kGdeh0154D67Syx1942{
     {0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x40, 0x00, 0x00, 0x00, 0x01},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -100,20 +90,6 @@ constexpr PanelSignature kElecrowM1{
     true};
 
 }  // namespace panels
-
-// The Plus is the seventh row of SoftRF's table, and it has no bytes: both
-// registers are annotated only with the string "20.05.21", a date, which is not
-// a signature. So the panel on OUR board is expected to be Unknown until
-// somebody reads it on a bench, and Unknown is why the safe policy exists rather
-// than being a theoretical branch.
-constexpr const char* kPanelPlusUnrecorded = "20.05.21";
-
-// Why a bad read is safe rather than merely detectable: the only identity that
-// changes what the driver does is SYX 1942, and reaching it takes an exact match
-// on all 21 bytes. A floating data line reads all-0x00 or all-0xFF, both of which
-// land on panels that take the conservative branch, and noise lands on Unknown,
-// which takes it too. There is no reading of an unwired pin that produces the
-// permissive answer.
 
 inline bool panel_signature_equal(const PanelSignature& x, const PanelSignature& y) {
     for (int i = 0; i < kPanelIdBytesA; i++)
@@ -150,12 +126,6 @@ constexpr const char* panel_name(Panel panel) {
         case Panel::Unknown: break;
     }
     return "UNKNOWN";
-}
-
-// The refresh policy that follows from the identification. One rule, and the
-// unknown panel takes the same branch as the revision that cannot survive it.
-constexpr bool panel_may_sleep_after_fast_refresh(Panel panel) {
-    return panel == Panel::Gdeh0154D67Syx1942;
 }
 
 // Deliberately absent: anything that would let an identification REFUSE to

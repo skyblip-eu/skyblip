@@ -23,9 +23,8 @@ constexpr uint8_t kDeepSleep = 0x10;
 constexpr uint8_t kDeepSleepRetainRam = 0x01;
 
 constexpr uint8_t kSequenceFull = 0xF7;
-// INFO: fc 09mar26 0xFC leaves the rails up; dropping them after a partial breaks D67 lots
-constexpr uint8_t kSequenceFast = 0xFC;
-constexpr uint8_t kSequencePowerOff = 0x83;
+// INFO: fc 12sep26 0xFF ends a partial with the rails down, as Waveshare's own 0xCF does
+constexpr uint8_t kSequenceFast = 0xFF;
 
 // INFO: fc 09mar26 VBD follows LUT1 at 0x05 and greys over a run of partials; 0x80 holds it at VCOM
 constexpr uint8_t kBorderFollowLut1 = 0x05;
@@ -89,8 +88,6 @@ bool Ssd1681::ready(uint32_t now_ms) {
         glass_known_ = false;
         refreshing_ = false;
         asleep_ = false;
-        // INFO: fc 06sep26 a re-initialised panel has no partial update to protect
-        enter_sleep();
         return true;
     }
     finish_refresh();
@@ -99,11 +96,8 @@ bool Ssd1681::ready(uint32_t now_ms) {
 
 void Ssd1681::power_off() {
     if (!wait_busy()) glass_known_ = false;
-    if (refreshing_) {
-        finish_refresh();
-        return;
-    }
-    if (!asleep_ && !fast_refresh_) enter_sleep();
+    if (refreshing_) finish_refresh();
+    if (!asleep_) enter_sleep();
 }
 
 void Ssd1681::set_backlight(bool on) {
@@ -146,27 +140,11 @@ void Ssd1681::init_panel() {
 
     set_cursor(0, 0);
     wait_busy();
-    rails_on_ = false;
 }
 
-void Ssd1681::finish_refresh() {
-    refreshing_ = false;
-    rails_on_ = fast_refresh_;
-    // INFO: fc 01aug25 vendor rule: a panel left powered between refreshes degrades
-    if (fast_refresh_ && !panel_may_sleep_after_fast_refresh(panel_)) return;
-    enter_sleep();
-}
-
-void Ssd1681::power_down_rails() {
-    cmd(kDisplayUpdateCtrl2);
-    data(kSequencePowerOff);
-    cmd(kMasterActivation);
-    wait_busy();
-    rails_on_ = false;
-}
+void Ssd1681::finish_refresh() { refreshing_ = false; }
 
 void Ssd1681::enter_sleep() {
-    if (rails_on_) power_down_rails();
     cmd(kDeepSleep);
     data(kDeepSleepRetainRam);
     asleep_ = true;
