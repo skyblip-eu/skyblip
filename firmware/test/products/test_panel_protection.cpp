@@ -66,11 +66,10 @@ TEST_CASE("screen policy: a panel that slept itself is never woken to be parked"
     CHECK(rig.chip.present_count == before);
 }
 
-// The park is the floor under the rules above it, so they get first refusal.
-TEST_CASE("screen policy: the idle park outlasts every wash the rules above it pay") {
-    CHECK(go::ScreenService::kParkAfterIdleMs > go::ScreenService::kSkyEmptyBeforeFullMs);
-    CHECK(go::ScreenService::kParkAfterIdleMs >
-          go::ScreenService::kFastHardCeiling * go::ScreenService::kPresentFloorMs);
+// A screen nobody has changed for two minutes is parked long before the hourly wash is due.
+TEST_CASE("screen policy: the idle park outlasts the update cadence and precedes the wash") {
+    CHECK(go::ScreenService::kParkAfterIdleMs > go::ScreenService::kPresentFloorMs * 10);
+    CHECK(go::ScreenService::kParkAfterIdleMs < go::ScreenService::kFullEveryMs);
 }
 
 TEST_CASE("screen policy: a held panel is not washed either, so nothing refreshes it hot") {

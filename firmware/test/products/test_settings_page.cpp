@@ -395,19 +395,21 @@ TEST_CASE("product: the volume can be turned up in the air, where a phone is ref
     CHECK(stored.alarm_volume == 5);
 }
 
-TEST_CASE("product: the page costs one wash going in and one coming out, and none between") {
-    // A full refresh flashes the panel for about 2.5 s. A menu that paid one
-    // per keypress would be unusable, so only the layout swaps do: stepping a
-    // value is a differential update, and the ghost debt is settled later by
-    // the policy that already owns that decision.
+// A full refresh flashes the panel for about 2.5 s, so a menu swap goes through black instead.
+TEST_CASE("product: the page transitions through black, and no keypress washes the glass") {
     Rig rig;
     REQUIRE(rig.setup() == Status::Ok);
     uint32_t t = 100;
+    rig.run(t, t + 3000);  // the boot frame is the wash, and it is the last one
+    t += 3000;
+    REQUIRE(rig.platform.chips().epd.last_full);
+
     open_settings(rig, t);
     rig.run(t, t + 4000);
     t += 4000;
-    CHECK(rig.platform.chips().epd.last_full);
-    CHECK(rig.product.screen().fasts_since_full() == 0);
+    CHECK_FALSE(rig.platform.chips().epd.last_full);
+    const int after_entry = rig.product.screen().fasts_since_full();
+    CHECK(after_entry >= 2);  // the black frame, then the page
 
     focus_on(rig, t, ui::SettingsRow::Volume);
     change(rig, t);
@@ -415,13 +417,10 @@ TEST_CASE("product: the page costs one wash going in and one coming out, and non
     rig.run(t, t + 2000);
     t += 2000;
     CHECK_FALSE(rig.platform.chips().epd.last_full);
-    CHECK(rig.product.screen().fasts_since_full() > 0);
-    CHECK(rig.product.screen().fasts_since_full() < go::ScreenService::kFastPerFull);
 
     focus_on(rig, t, ui::SettingsRow::Leave);
     move(rig, t);
     REQUIRE(rig.product.screen().page() == go::Page::Radar);
     rig.run(t, t + 4000);
-    CHECK(rig.platform.chips().epd.last_full);
-    CHECK(rig.product.screen().fasts_since_full() == 0);
+    CHECK_FALSE(rig.platform.chips().epd.last_full);
 }

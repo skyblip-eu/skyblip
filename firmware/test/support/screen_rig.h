@@ -47,11 +47,19 @@ struct Rig {
     // Forces a visible change every second: the coverage indicator character
     // on the radar page flips. Orthogonal to alarm level and traffic count, so
     // the quiet-sky logic stays in the case's hands.
-    void churn(uint32_t& t, int seconds) {
-        for (int i = 0; i < seconds; i++) {
+    void churn(uint32_t& t, int seconds) { churn_at(t, 1000, seconds); }
+
+    // The same flip at the caller's cadence, for the policies measured in minutes.
+    void churn_at(uint32_t& t, uint32_t step_ms, int times) {
+        for (int i = 0; i < times; i++) {
             state.clock.utc_valid = !state.clock.utc_valid;
-            run_seconds(t, 1);
+            t += step_ms;
+            screen.tick(t);
         }
+    }
+
+    bool glass_all_black() const {
+        return chip.framebuffer().count_black() == ui::Framebuffer::kW * ui::Framebuffer::kH;
     }
 
     void alarm(uint8_t level) { state.alarm_level = level; }

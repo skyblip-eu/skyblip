@@ -11,6 +11,12 @@
 
 namespace skyblip::go {
 
+namespace {
+bool settled_for_a_double_press(uint32_t now_ms, uint32_t since_ms) {
+    return now_ms - since_ms >= ui::ConfirmGesture::kDoublePressMs;
+}
+}  // namespace
+
 // INFO: cf 02aug26 One press means one thing at a time. While a prompt stands
 // there is no page cycling at all, so the press a pilot makes to change pages
 // cannot be spent on an authorisation - and a lone press at a prompt refuses it
@@ -19,8 +25,9 @@ void ScreenService::handle_input(uint32_t now_ms) {
     const comms::Pending pending = config_ ? config_->pending() : comms::Pending::None;
     if (pending != prompt_) {
         prompt_ = pending;
+        prompt_since_ms_ = now_ms;
         dirty_ = true;
-        want_full_ = true;
+        flash_pending_ = true;
         gesture_.disarm();
         prompt_on_glass_ = false;
     }
@@ -35,7 +42,8 @@ void ScreenService::handle_input(uint32_t now_ms) {
         const bool readable =
             prompt_on_glass_ || !hal::has(context_.roles.capabilities, hal::Capability::Display);
         const bool quiet =
-            !pressed_once_ || now_ms - last_press_ms_ >= ui::ConfirmGesture::kDoublePressMs;
+            settled_for_a_double_press(now_ms, prompt_since_ms_) &&
+            (!pressed_once_ || settled_for_a_double_press(now_ms, last_press_ms_));
         if (readable && quiet) gesture_.arm(now_ms);
     }
 
@@ -101,7 +109,7 @@ void ScreenService::step_editor(uint32_t now_ms) {
         case ui::SettingsAction::Leave:
             page_ = traffic_page();
             dirty_ = true;
-            want_full_ = true;
+            flash_pending_ = true;
             break;
         case ui::SettingsAction::None:
         default: break;
@@ -127,7 +135,7 @@ void ScreenService::resolve(ui::Gesture gesture) {
     gesture_.disarm();
     prompt_on_glass_ = false;
     dirty_ = true;
-    want_full_ = true;
+    flash_pending_ = true;
 }
 
 void ScreenService::tick(uint32_t now_ms) {
@@ -151,9 +159,6 @@ void ScreenService::tick(uint32_t now_ms) {
     if (!hal::has(context_.roles.capabilities, hal::Capability::Display)) return;
     if (!powered_) return;
 
-    const bool quiet = context_.state.alarm_level == 0 && context_.state.traffic.count() == 0;
-    if (!quiet) quiet_since_ms_ = now_ms;
-
     if (thermal() == Thermal::Hold ||
         !power::may_refresh(context_.state.power_level, context_.state.supply_warned,
                             power::PanelRefresh::Routine)) {
@@ -163,7 +168,15 @@ void ScreenService::tick(uint32_t now_ms) {
 
     if (!dirty_ && now_ms - last_render_ms_ < kRenderPeriodMs) return;
     if (!context_.roles.display.ready(now_ms)) return;
-    if (presented_once_ && now_ms - last_present_ms_ < kPresentFloorMs) return;
+
+    if (flash_pending_) {
+        flash_pending_ = false;
+        if (transitions_through_black()) {
+            present_black_flash(now_ms);
+            return;
+        }
+    }
+    if (presented_once_ && !flashed_ && now_ms - last_present_ms_ < kPresentFloorMs) return;
 
     last_render_ms_ = now_ms;
     dirty_ = false;
@@ -171,7 +184,7 @@ void ScreenService::tick(uint32_t now_ms) {
 
     const bool changed = !presented_once_ ||
                          std::memcmp(fb_.data(), presented_.data(), ui::Framebuffer::kBytes) != 0;
-    const bool owed_full = decide_full(now_ms, quiet);
+    const bool owed_full = decide_full(now_ms);
     if (!changed && !owed_full) {
         park_idle_panel(now_ms);
         return;
@@ -199,18 +212,34 @@ ScreenService::Thermal ScreenService::thermal() const {
     return Thermal::Refresh;
 }
 
-// INFO: fc 01aug25 a full refresh flashes ~2.5 s: pay ghost debt around the
-// traffic picture, never in a pilot's face
-bool ScreenService::decide_full(uint32_t now_ms, bool quiet) const {
+// INFO: fc 09mar26 SoftRF runs the same glass on partials alone, so the wash is a vendor rule, not ours
+bool ScreenService::decide_full(uint32_t now_ms) const {
     if (!presented_once_) return true;
-    if (fasts_since_full_ >= kFastHardCeiling) return true;
-    if (context_.state.alarm_level > 0) return false;
-    if (want_full_ || fasts_since_full_ >= kFastPerFull) return true;
-    if (kFullEveryMs != 0 && now_ms - last_full_ms_ >= kFullEveryMs) return true;
-    return fasts_since_full_ > 0 && quiet && now_ms - quiet_since_ms_ >= kSkyEmptyBeforeFullMs;
+    if (want_full_) return true;
+    if (now_ms - last_full_ms_ < kFullEveryMs) return false;
+    return context_.state.alarm_level == 0;
+}
+
+bool ScreenService::transitions_through_black() const {
+    if (!presented_once_ || want_full_) return false;
+    return context_.state.alarm_level == 0;
+}
+
+// INFO: fc 09mar26 SoftRF's page transition: all black through the partial waveform, then the page
+void ScreenService::present_black_flash(uint32_t now_ms) {
+    fb_.clear(/*white=*/false);
+    const hal::Refresh mode =
+        thermal() == Thermal::FullOnly ? hal::Refresh::Full : hal::Refresh::Fast;
+    context_.roles.display.present(fb_, mode, now_ms);
+    note_presented(mode, now_ms);
+    prompt_on_glass_ = false;
+    last_render_ms_ = now_ms;
+    dirty_ = true;
+    flashed_ = true;
 }
 
 void ScreenService::note_presented(hal::Refresh mode, uint32_t now_ms) {
+    flashed_ = false;
     std::memcpy(presented_.data(), fb_.data(), ui::Framebuffer::kBytes);
     presented_once_ = true;
     context_.state.panel_presented = true;
@@ -236,7 +265,7 @@ void ScreenService::next_page() {
         }
     }
     dirty_ = true;
-    want_full_ = true;
+    flash_pending_ = true;
 }
 
 void ScreenService::set_backlight(bool on) {

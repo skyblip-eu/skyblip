@@ -1,8 +1,4 @@
-// The e-paper refresh policy, tested through the screen service against the
-// real SSD1681 driver and its model. The policy under test: refresh only when
-// the pixels changed, fast (flicker-free) by default, and schedule the flashing
-// full refresh around the traffic picture: never during an alarm, opportunistically
-// once the sky has been quiet, forced only at the hard ceiling.
+// The refresh policy over the real SSD1681 driver: present on change alone, partials by default, one wash an hour, page swaps through black.
 #include "test/support/screen_rig.h"
 
 TEST_CASE("screen policy: a static frame is never re-presented") {
@@ -16,85 +12,75 @@ TEST_CASE("screen policy: a static frame is never re-presented") {
     CHECK(rig.chip.present_count == 1);
 }
 
-TEST_CASE("screen policy: changing frames refresh fast until the full is owed") {
+TEST_CASE("screen policy: a minute of changing frames costs partials and no wash") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);  // boot full
 
-    rig.churn(t, go::ScreenService::kFastPerFull);
+    rig.churn(t, 60);
     CHECK(rig.chip.present_count > 1);
     CHECK_FALSE(rig.chip.last_full);
-
-    // Debt reached kFastPerFull and the sky is empty: the next change pays it.
-    rig.churn(t, 1);
-    CHECK(rig.chip.last_full);
-    rig.churn(t, 1);
-    rig.run_seconds(t, 1);            // the full is still settling when the change arrives
-    CHECK_FALSE(rig.chip.last_full);  // and the counter restarted
-    CHECK(rig.screen.fasts_since_full() == 1);
+    CHECK(rig.screen.fasts_since_full() >= 60);
 }
 
-TEST_CASE("screen policy: no full refresh lands while an alarm is active") {
-    Rig rig;
-    uint32_t t = 0;
-    rig.run_seconds(t, 3);  // boot full
-
-    rig.alarm(2);
-    int fulls = 0;
-    for (int i = 0; i < go::ScreenService::kFastHardCeiling - 1; i++) {
-        rig.churn(t, 1);
-        if (rig.chip.last_full) fulls++;
-    }
-    // Far past kFastPerFull, still not one flash in the pilot's face.
-    CHECK(rig.screen.fasts_since_full() > go::ScreenService::kFastPerFull);
-    CHECK(fulls == 0);
-}
-
-TEST_CASE("screen policy: the hard ceiling forces the full even mid-alarm") {
+// SoftRF runs this glass on partials alone: the hourly wash is the vendor's rule, not ghosting we saw.
+TEST_CASE("screen policy: an hour of partials is settled by one wash") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
 
-    rig.alarm(3);
-    rig.churn(t, go::ScreenService::kFastHardCeiling + 3);
-    CHECK(rig.screen.fasts_since_full() < go::ScreenService::kFastHardCeiling);
-}
+    rig.churn_at(t, 60000, go::ScreenService::kFullEveryMs / 60000 - 1);
+    CHECK_FALSE(rig.chip.last_full);
+    CHECK(rig.screen.fasts_since_full() > 0);
 
-TEST_CASE("screen policy: an owed full is paid unprovoked once the sky stays empty") {
-    Rig rig;
-    uint32_t t = 0;
-    rig.run_seconds(t, 3);
-
-    // A short alarm leaves ghost debt behind.
-    rig.alarm(2);
-    rig.churn(t, 5);
-    CHECK(rig.screen.fasts_since_full() >= 5);
-    rig.alarm(0);
-
-    // The screen goes static, so nothing would present on its own. After
-    // kSkyEmptyBeforeFullMs of quiet the wash lands anyway.
-    const int before = rig.chip.present_count;
-    rig.run_seconds(t, go::ScreenService::kSkyEmptyBeforeFullMs / 1000 + 2);
-    CHECK(rig.chip.present_count == before + 1);
+    rig.churn_at(t, 60000, 1);
     CHECK(rig.chip.last_full);
     CHECK(rig.screen.fasts_since_full() == 0);
 }
 
-TEST_CASE("screen policy: a page change prefers a full refresh, but not during an alarm") {
+TEST_CASE("screen policy: the wash waits out an alarm however long it stands") {
+    Rig rig;
+    uint32_t t = 0;
+    rig.run_seconds(t, 3);  // boot full
+
+    rig.alarm(2);
+    rig.churn_at(t, 60000, go::ScreenService::kFullEveryMs / 60000 + 10);
+    CHECK_FALSE(rig.chip.last_full);
+
+    rig.alarm(0);
+    rig.churn(t, 1);
+    CHECK(rig.chip.last_full);
+}
+
+TEST_CASE("screen policy: a page change goes through black, not through the full waveform") {
     Rig rig;
     uint32_t t = 0;
     rig.run_seconds(t, 3);
-    rig.churn(t, 2);  // some fasts on the counter
-    CHECK_FALSE(rig.chip.last_full);
+    const int before = rig.chip.present_count;
 
     rig.screen.next_page();
-    rig.run_seconds(t, 2);
-    CHECK(rig.chip.last_full);  // layout swap: worst ghosting case, washed
+    rig.screen.tick(t += 1000);
+    CHECK(rig.chip.present_count == before + 1);
+    CHECK_FALSE(rig.chip.last_full);
+    CHECK(rig.glass_all_black());
+
+    // The page behind it does not wait out the one-a-second floor.
+    rig.screen.tick(t += 400);
+    CHECK(rig.chip.present_count == before + 2);
+    CHECK_FALSE(rig.glass_all_black());
+    CHECK_FALSE(rig.chip.last_full);
+}
+
+TEST_CASE("screen policy: a page change under an alarm goes straight to the picture") {
+    Rig rig;
+    uint32_t t = 0;
+    rig.run_seconds(t, 3);
 
     rig.alarm(2);
     rig.screen.next_page();
-    rig.run_seconds(t, 2);
-    CHECK_FALSE(rig.chip.last_full);  // same swap under alarm: stays fast
+    rig.screen.tick(t += 1000);
+    CHECK_FALSE(rig.glass_all_black());
+    CHECK_FALSE(rig.chip.last_full);
 }
 
 // The settings page is the one page that keeps the button to itself, so it is

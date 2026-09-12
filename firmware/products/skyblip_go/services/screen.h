@@ -24,11 +24,9 @@ class ScreenService : public runtime::Service {
     static constexpr int kMaxRadarTargets = 12;
     static constexpr uint32_t kRenderPeriodMs = 1000;
     static constexpr uint32_t kPresentFloorMs = 1000;
-    static constexpr int kFastPerFull = 12;
-    static constexpr int kFastHardCeiling = 24;
-    static constexpr uint32_t kSkyEmptyBeforeFullMs = 60000;
-    static constexpr uint32_t kFullEveryMs = 0;  // 0 disables
-    // INFO: fc 06sep26 the floor under the rules above it: it fires only where they never do
+    // INFO: fc 09mar26 Good Display asks for one refresh a day, SoftRF ships none at all
+    static constexpr uint32_t kFullEveryMs = 3600000;
+    // INFO: fc 06sep26 the rails come down on a screen nothing has changed for two minutes
     static constexpr uint32_t kParkAfterIdleMs = 120000;
 
     // INFO: fc 06sep26 Good Display rates the glass 0..50 C operating, -20..70 C storage
@@ -83,7 +81,9 @@ class ScreenService : public runtime::Service {
     void step_editor(uint32_t now_ms);
     void resolve(ui::Gesture gesture);
     Page traffic_page() const;
-    bool decide_full(uint32_t now_ms, bool quiet) const;
+    bool transitions_through_black() const;
+    void present_black_flash(uint32_t now_ms);
+    bool decide_full(uint32_t now_ms) const;
     void park_idle_panel(uint32_t now_ms);
     bool may_present_park_frame() const;
     enum class ParkFrame : uint8_t { Wordmark, Installing, Blank };
@@ -107,6 +107,7 @@ class ScreenService : public runtime::Service {
     // that, so a prompt landing mid-stream cannot be answered by the presses
     // already on their way - it has to be read first, and then answered.
     uint32_t last_press_ms_{0};
+    uint32_t prompt_since_ms_{0};
     bool pressed_once_{false};
     bool prompt_on_glass_{false};
 
@@ -119,11 +120,12 @@ class ScreenService : public runtime::Service {
     uint32_t last_render_ms_{0};
     uint32_t last_present_ms_{0};
     uint32_t last_full_ms_{0};
-    uint32_t quiet_since_ms_{0};
     int fasts_since_full_{0};
     uint8_t last_alarm_{0};
     bool dirty_{true};
     bool want_full_{true};
+    bool flash_pending_{false};
+    bool flashed_{false};
     bool presented_once_{false};
     bool backlight_{false};
     bool powered_{true};
